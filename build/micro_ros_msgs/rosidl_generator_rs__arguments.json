@@ -1,0 +1,36 @@
+{
+  "package_name": "micro_ros_msgs",
+  "output_dir": "/home/ws/build/micro_ros_msgs/rosidl_generator_rs/micro_ros_msgs",
+  "template_dir": "/opt/ros/jazzy/share/rosidl_generator_rs/cmake/../resource",
+  "idl_tuples": [
+    "/home/ws/build/micro_ros_msgs/rosidl_adapter/micro_ros_msgs:msg/Graph.idl",
+    "/home/ws/build/micro_ros_msgs/rosidl_adapter/micro_ros_msgs:msg/Node.idl",
+    "/home/ws/build/micro_ros_msgs/rosidl_adapter/micro_ros_msgs:msg/Entity.idl"
+  ],
+  "ros_interface_files": [
+    "/home/ws/build/micro_ros_msgs/rosidl_adapter/micro_ros_msgs/msg/Graph.idl",
+    "/home/ws/build/micro_ros_msgs/rosidl_adapter/micro_ros_msgs/msg/Node.idl",
+    "/home/ws/build/micro_ros_msgs/rosidl_adapter/micro_ros_msgs/msg/Entity.idl"
+  ],
+  "target_dependencies": [
+    "/opt/ros/jazzy/share/rosidl_generator_rs/cmake/../../../lib/rosidl_generator_rs/rosidl_generator_rs",
+    "/opt/ros/jazzy/share/rosidl_generator_rs/cmake/../../../lib/python3.12/site-packages/rosidl_generator_rs/__init__.py",
+    "/opt/ros/jazzy/share/rosidl_generator_rs/cmake/../resource/action.rs.em",
+    "/opt/ros/jazzy/share/rosidl_generator_rs/cmake/../resource/action/rmw.rs.em",
+    "/opt/ros/jazzy/share/rosidl_generator_rs/cmake/../resource/build.rs.em",
+    "/opt/ros/jazzy/share/rosidl_generator_rs/cmake/../resource/Cargo.toml.em",
+    "/opt/ros/jazzy/share/rosidl_generator_rs/cmake/../resource/lib.rs.em",
+    "/opt/ros/jazzy/share/rosidl_generator_rs/cmake/../resource/msg.rs.em",
+    "/opt/ros/jazzy/share/rosidl_generator_rs/cmake/../resource/msg/rmw.rs.em",
+    "/opt/ros/jazzy/share/rosidl_generator_rs/cmake/../resource/srv.rs.em",
+    "/opt/ros/jazzy/share/rosidl_generator_rs/cmake/../resource/srv/rmw.rs.em",
+    "/opt/ros/jazzy/share/rosidl_generator_rs/cmake/../resource/templates/msg_idiomatic.rs.em",
+    "/opt/ros/jazzy/share/rosidl_generator_rs/cmake/../resource/templates/msg_rmw.rs.em",
+    "/opt/ros/jazzy/share/rosidl_generator_rs/cmake/../resource/templates/srv_idiomatic.rs.em",
+    "/opt/ros/jazzy/share/rosidl_generator_rs/cmake/../resource/templates/srv_rmw.rs.em",
+    "/home/ws/build/micro_ros_msgs/rosidl_adapter/micro_ros_msgs/msg/Graph.idl",
+    "/home/ws/build/micro_ros_msgs/rosidl_adapter/micro_ros_msgs/msg/Node.idl",
+    "/home/ws/build/micro_ros_msgs/rosidl_adapter/micro_ros_msgs/msg/Entity.idl"
+  ],
+  "package_version": "5.0.2"
+}

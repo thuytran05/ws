@@ -1,0 +1,10 @@
+source;share/linorobot2_gazebo/hook/cmake_prefix_path.ps1
+source;share/linorobot2_gazebo/hook/cmake_prefix_path.dsv
+source;share/linorobot2_gazebo/hook/cmake_prefix_path.sh
+source;share/linorobot2_gazebo/hook/pythonpath.ps1
+source;share/linorobot2_gazebo/hook/pythonpath.dsv
+source;share/linorobot2_gazebo/hook/pythonpath.sh
+source;share/linorobot2_gazebo/hook/ament_prefix_path.ps1
+source;share/linorobot2_gazebo/hook/ament_prefix_path.dsv
+source;share/linorobot2_gazebo/hook/ament_prefix_path.sh
+source;share/linorobot2_gazebo/hook/linorobot2_gazebo.sh

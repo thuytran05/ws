@@ -1,0 +1,6 @@
+Invoking command in '/home/ws/build/linorobot2': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake /home/ws/src/linorobot2/linorobot2 -DCMAKE_INSTALL_PREFIX=/home/ws/install/linorobot2
+Invoked command in '/home/ws/build/linorobot2' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake /home/ws/src/linorobot2/linorobot2 -DCMAKE_INSTALL_PREFIX=/home/ws/install/linorobot2
+Invoking command in '/home/ws/build/linorobot2': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --build /home/ws/build/linorobot2 -- -j16 -l16
+Invoked command in '/home/ws/build/linorobot2' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --build /home/ws/build/linorobot2 -- -j16 -l16
+Invoking command in '/home/ws/build/linorobot2': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --install /home/ws/build/linorobot2
+Invoked command in '/home/ws/build/linorobot2' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --install /home/ws/build/linorobot2

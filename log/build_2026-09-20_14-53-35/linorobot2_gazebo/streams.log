@@ -1,0 +1,61 @@
+[0.012s] Invoking command in '/home/ws/build/linorobot2_gazebo': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake /home/ws/src/linorobot2/linorobot2_gazebo -DCMAKE_INSTALL_PREFIX=/home/ws/install/linorobot2_gazebo
+[0.051s] -- The C compiler identification is GNU 13.3.0
+[0.108s] -- The CXX compiler identification is GNU 13.3.0
+[0.122s] -- Detecting C compiler ABI info
+[0.197s] -- Detecting C compiler ABI info - done
+[0.206s] -- Check for working C compiler: /usr/bin/cc - skipped
+[0.206s] -- Detecting C compile features
+[0.206s] -- Detecting C compile features - done
+[0.214s] -- Detecting CXX compiler ABI info
+[0.291s] -- Detecting CXX compiler ABI info - done
+[0.306s] -- Check for working CXX compiler: /usr/bin/c++ - skipped
+[0.306s] -- Detecting CXX compile features
+[0.307s] -- Detecting CXX compile features - done
+[0.310s] -- Found ament_cmake: 2.5.6 (/opt/ros/jazzy/share/ament_cmake/cmake)
+[0.445s] -- Found Python3: /usr/bin/python3 (found version "3.12.3") found components: Interpreter 
+[0.551s] -- Found rclpy: 7.1.12 (/opt/ros/jazzy/share/rclpy/cmake)
+[0.563s] Traceback (most recent call last):
+[0.563s]   File "/home/ws/src/linorobot2/linorobot2_gazebo/scripts/map2gazebo.py", line 1, in <module>
+[0.563s]     import cv2
+[0.563s] ModuleNotFoundError: No module named 'cv2'
+[0.565s] [33mCMake Warning at CMakeLists.txt:18 (message):
+[0.565s]   Python script execution failed with error code: 1
+[0.565s] 
+[0.565s] [0m
+[0.565s] [33mCMake Warning at CMakeLists.txt:19 (message):
+[0.565s]   Script output:
+[0.565s] 
+[0.565s] [0m
+[0.647s] -- Configuring done (0.6s)
+[0.649s] -- Generating done (0.0s)
+[0.650s] -- Build files have been written to: /home/ws/build/linorobot2_gazebo
+[0.654s] Invoked command in '/home/ws/build/linorobot2_gazebo' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake /home/ws/src/linorobot2/linorobot2_gazebo -DCMAKE_INSTALL_PREFIX=/home/ws/install/linorobot2_gazebo
+[0.654s] Invoking command in '/home/ws/build/linorobot2_gazebo': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --build /home/ws/build/linorobot2_gazebo -- -j16 -l16
+[0.680s] Invoked command in '/home/ws/build/linorobot2_gazebo' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --build /home/ws/build/linorobot2_gazebo -- -j16 -l16
+[0.681s] Invoking command in '/home/ws/build/linorobot2_gazebo': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --install /home/ws/build/linorobot2_gazebo
+[0.687s] -- Install configuration: ""
+[0.687s] -- Installing: /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/launch
+[0.687s] -- Installing: /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/launch/gazebo.launch.py
+[0.687s] -- Installing: /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/rviz
+[0.687s] -- Installing: /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/rviz/view_urdf.rviz
+[0.687s] -- Installing: /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/worlds
+[0.687s] -- Installing: /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/worlds/gas_station.world
+[0.687s] -- Installing: /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/worlds/playground.world
+[0.687s] -- Installing: /home/ws/install/linorobot2_gazebo/lib/linorobot2_gazebo/command_timeout.py
+[0.688s] -- Installing: /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/environment/linorobot2_gazebo.sh
+[0.688s] -- Installing: /home/ws/install/linorobot2_gazebo/share/ament_index/resource_index/package_run_dependencies/linorobot2_gazebo
+[0.688s] -- Installing: /home/ws/install/linorobot2_gazebo/share/ament_index/resource_index/parent_prefix_path/linorobot2_gazebo
+[0.688s] -- Installing: /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/environment/ament_prefix_path.sh
+[0.688s] -- Installing: /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/environment/ament_prefix_path.dsv
+[0.688s] -- Installing: /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/environment/path.sh
+[0.688s] -- Installing: /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/environment/path.dsv
+[0.688s] -- Installing: /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/local_setup.bash
+[0.688s] -- Installing: /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/local_setup.sh
+[0.689s] -- Installing: /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/local_setup.zsh
+[0.689s] -- Installing: /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/local_setup.dsv
+[0.689s] -- Installing: /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/package.dsv
+[0.689s] -- Installing: /home/ws/install/linorobot2_gazebo/share/ament_index/resource_index/packages/linorobot2_gazebo
+[0.689s] -- Installing: /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/cmake/linorobot2_gazeboConfig.cmake
+[0.689s] -- Installing: /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/cmake/linorobot2_gazeboConfig-version.cmake
+[0.689s] -- Installing: /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/package.xml
+[0.695s] Invoked command in '/home/ws/build/linorobot2_gazebo' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --install /home/ws/build/linorobot2_gazebo

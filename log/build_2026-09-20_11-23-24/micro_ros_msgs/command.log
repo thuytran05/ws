@@ -1,0 +1,6 @@
+Invoking command in '/home/ws/build/micro_ros_msgs': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake /home/ws/src/micro_ros_msgs -DCMAKE_INSTALL_PREFIX=/home/ws/install/micro_ros_msgs
+Invoked command in '/home/ws/build/micro_ros_msgs' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake /home/ws/src/micro_ros_msgs -DCMAKE_INSTALL_PREFIX=/home/ws/install/micro_ros_msgs
+Invoking command in '/home/ws/build/micro_ros_msgs': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --build /home/ws/build/micro_ros_msgs -- -j16 -l16
+Invoked command in '/home/ws/build/micro_ros_msgs' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --build /home/ws/build/micro_ros_msgs -- -j16 -l16
+Invoking command in '/home/ws/build/micro_ros_msgs': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --install /home/ws/build/micro_ros_msgs
+Invoked command in '/home/ws/build/micro_ros_msgs' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --install /home/ws/build/micro_ros_msgs

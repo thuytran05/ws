@@ -1,0 +1,51 @@
+running egg_info
+creating ../../../build/linorobot2_gazebo/linorobot2_gazebo.egg-info
+writing ../../../build/linorobot2_gazebo/linorobot2_gazebo.egg-info/PKG-INFO
+writing dependency_links to ../../../build/linorobot2_gazebo/linorobot2_gazebo.egg-info/dependency_links.txt
+writing entry points to ../../../build/linorobot2_gazebo/linorobot2_gazebo.egg-info/entry_points.txt
+writing top-level names to ../../../build/linorobot2_gazebo/linorobot2_gazebo.egg-info/top_level.txt
+writing manifest file '../../../build/linorobot2_gazebo/linorobot2_gazebo.egg-info/SOURCES.txt'
+reading manifest file '../../../build/linorobot2_gazebo/linorobot2_gazebo.egg-info/SOURCES.txt'
+writing manifest file '../../../build/linorobot2_gazebo/linorobot2_gazebo.egg-info/SOURCES.txt'
+running build
+running build_py
+creating /home/ws/build/linorobot2_gazebo/build
+creating /home/ws/build/linorobot2_gazebo/build/lib
+creating /home/ws/build/linorobot2_gazebo/build/lib/linorobot2_gazebo
+copying linorobot2_gazebo/__init__.py -> /home/ws/build/linorobot2_gazebo/build/lib/linorobot2_gazebo
+copying linorobot2_gazebo/world_creator.py -> /home/ws/build/linorobot2_gazebo/build/lib/linorobot2_gazebo
+copying linorobot2_gazebo/map_to_gazebo.py -> /home/ws/build/linorobot2_gazebo/build/lib/linorobot2_gazebo
+copying linorobot2_gazebo/command_timeout.py -> /home/ws/build/linorobot2_gazebo/build/lib/linorobot2_gazebo
+running install
+running install_lib
+creating /home/ws/install/linorobot2_gazebo/lib/python3.12/site-packages/linorobot2_gazebo
+copying /home/ws/build/linorobot2_gazebo/build/lib/linorobot2_gazebo/__init__.py -> /home/ws/install/linorobot2_gazebo/lib/python3.12/site-packages/linorobot2_gazebo
+copying /home/ws/build/linorobot2_gazebo/build/lib/linorobot2_gazebo/world_creator.py -> /home/ws/install/linorobot2_gazebo/lib/python3.12/site-packages/linorobot2_gazebo
+copying /home/ws/build/linorobot2_gazebo/build/lib/linorobot2_gazebo/map_to_gazebo.py -> /home/ws/install/linorobot2_gazebo/lib/python3.12/site-packages/linorobot2_gazebo
+copying /home/ws/build/linorobot2_gazebo/build/lib/linorobot2_gazebo/command_timeout.py -> /home/ws/install/linorobot2_gazebo/lib/python3.12/site-packages/linorobot2_gazebo
+byte-compiling /home/ws/install/linorobot2_gazebo/lib/python3.12/site-packages/linorobot2_gazebo/__init__.py to __init__.cpython-312.pyc
+byte-compiling /home/ws/install/linorobot2_gazebo/lib/python3.12/site-packages/linorobot2_gazebo/world_creator.py to world_creator.cpython-312.pyc
+byte-compiling /home/ws/install/linorobot2_gazebo/lib/python3.12/site-packages/linorobot2_gazebo/map_to_gazebo.py to map_to_gazebo.cpython-312.pyc
+byte-compiling /home/ws/install/linorobot2_gazebo/lib/python3.12/site-packages/linorobot2_gazebo/command_timeout.py to command_timeout.cpython-312.pyc
+running install_data
+copying resource/linorobot2_gazebo -> /home/ws/install/linorobot2_gazebo/share/ament_index/resource_index/packages
+copying package.xml -> /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo
+copying launch/gazebo.launch.py -> /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/launch
+copying worlds/playground.sdf -> /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/worlds
+copying worlds/turtlebot3_world.sdf -> /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/worlds
+copying rviz/view_urdf.rviz -> /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/rviz
+copying hook/linorobot2_gazebo.sh -> /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/hook
+creating /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/models
+creating /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/models/turtlebot3_world
+copying models/turtlebot3_world/model.config -> /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/models/turtlebot3_world
+copying models/turtlebot3_world/model-1_4.sdf -> /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/models/turtlebot3_world
+copying models/turtlebot3_world/model.sdf -> /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/models/turtlebot3_world
+creating /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/models/turtlebot3_world/meshes
+copying models/turtlebot3_world/meshes/hexagon.dae -> /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/models/turtlebot3_world/meshes
+copying models/turtlebot3_world/meshes/wall.dae -> /home/ws/install/linorobot2_gazebo/share/linorobot2_gazebo/models/turtlebot3_world/meshes
+running install_egg_info
+Copying ../../../build/linorobot2_gazebo/linorobot2_gazebo.egg-info to /home/ws/install/linorobot2_gazebo/lib/python3.12/site-packages/linorobot2_gazebo-0.0.0-py3.12.egg-info
+running install_scripts
+Installing command_timeout script to /home/ws/install/linorobot2_gazebo/lib/linorobot2_gazebo
+Installing world_creator script to /home/ws/install/linorobot2_gazebo/lib/linorobot2_gazebo
+writing list of installed files to '/home/ws/build/linorobot2_gazebo/install.log'

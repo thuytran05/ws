@@ -1,0 +1,55 @@
+[0.013s] Invoking command in '/home/ws/build/linorobot2_navigation': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake /home/ws/src/linorobot2/linorobot2_navigation -DCMAKE_INSTALL_PREFIX=/home/ws/install/linorobot2_navigation
+[0.057s] -- The C compiler identification is GNU 13.3.0
+[0.108s] -- The CXX compiler identification is GNU 13.3.0
+[0.120s] -- Detecting C compiler ABI info
+[0.194s] -- Detecting C compiler ABI info - done
+[0.206s] -- Check for working C compiler: /usr/bin/cc - skipped
+[0.206s] -- Detecting C compile features
+[0.207s] -- Detecting C compile features - done
+[0.215s] -- Detecting CXX compiler ABI info
+[0.309s] -- Detecting CXX compiler ABI info - done
+[0.317s] -- Check for working CXX compiler: /usr/bin/c++ - skipped
+[0.318s] -- Detecting CXX compile features
+[0.318s] -- Detecting CXX compile features - done
+[0.321s] -- Found ament_cmake: 2.5.6 (/opt/ros/jazzy/share/ament_cmake/cmake)
+[0.450s] -- Found Python3: /usr/bin/python3 (found version "3.12.3") found components: Interpreter 
+[0.642s] -- Configuring done (0.6s)
+[0.644s] -- Generating done (0.0s)
+[0.646s] -- Build files have been written to: /home/ws/build/linorobot2_navigation
+[0.651s] Invoked command in '/home/ws/build/linorobot2_navigation' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake /home/ws/src/linorobot2/linorobot2_navigation -DCMAKE_INSTALL_PREFIX=/home/ws/install/linorobot2_navigation
+[0.651s] Invoking command in '/home/ws/build/linorobot2_navigation': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --build /home/ws/build/linorobot2_navigation -- -j16 -l16
+[0.680s] Invoked command in '/home/ws/build/linorobot2_navigation' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --build /home/ws/build/linorobot2_navigation -- -j16 -l16
+[0.681s] Invoking command in '/home/ws/build/linorobot2_navigation': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --install /home/ws/build/linorobot2_navigation
+[0.687s] -- Install configuration: ""
+[0.687s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/launch
+[0.687s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/launch/navigation.launch.py
+[0.687s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/launch/slam.launch.py
+[0.687s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/rviz
+[0.687s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/rviz/linorobot2_navigation_minimal.rviz
+[0.687s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/rviz/linorobot2_navigation.rviz
+[0.688s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/rviz/linorobot2_slam.rviz
+[0.688s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/config
+[0.688s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/config/navigation_sim.yaml
+[0.688s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/config/slam.yaml
+[0.688s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/config/navigation.yaml
+[0.688s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/maps
+[0.688s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/maps/map.pgm
+[0.692s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/maps/map.yaml
+[0.692s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/maps/playground.pgm
+[0.692s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/maps/playground.yaml
+[0.692s] -- Installing: /home/ws/install/linorobot2_navigation/share/ament_index/resource_index/package_run_dependencies/linorobot2_navigation
+[0.692s] -- Installing: /home/ws/install/linorobot2_navigation/share/ament_index/resource_index/parent_prefix_path/linorobot2_navigation
+[0.693s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/environment/ament_prefix_path.sh
+[0.693s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/environment/ament_prefix_path.dsv
+[0.693s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/environment/path.sh
+[0.693s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/environment/path.dsv
+[0.693s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/local_setup.bash
+[0.693s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/local_setup.sh
+[0.693s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/local_setup.zsh
+[0.694s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/local_setup.dsv
+[0.694s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/package.dsv
+[0.694s] -- Installing: /home/ws/install/linorobot2_navigation/share/ament_index/resource_index/packages/linorobot2_navigation
+[0.694s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/cmake/linorobot2_navigationConfig.cmake
+[0.694s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/cmake/linorobot2_navigationConfig-version.cmake
+[0.694s] -- Installing: /home/ws/install/linorobot2_navigation/share/linorobot2_navigation/package.xml
+[0.723s] Invoked command in '/home/ws/build/linorobot2_navigation' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --install /home/ws/build/linorobot2_navigation

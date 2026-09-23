@@ -1,0 +1,12 @@
+Traceback (most recent call last):
+  File "/home/ws/src/linorobot2/linorobot2_gazebo/scripts/map2gazebo.py", line 1, in <module>
+    import cv2
+ModuleNotFoundError: No module named 'cv2'
+[33mCMake Warning at CMakeLists.txt:18 (message):
+  Python script execution failed with error code: 1
+
+[0m
+[33mCMake Warning at CMakeLists.txt:19 (message):
+  Script output:
+
+[0m

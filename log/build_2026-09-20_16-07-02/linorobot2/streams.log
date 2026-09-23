@@ -1,0 +1,20 @@
+[0.027s] Invoking command in '/home/ws/build/linorobot2': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --build /home/ws/build/linorobot2 -- -j16 -l16
+[0.217s] Invoked command in '/home/ws/build/linorobot2' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --build /home/ws/build/linorobot2 -- -j16 -l16
+[0.224s] Invoking command in '/home/ws/build/linorobot2': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --install /home/ws/build/linorobot2
+[0.232s] -- Install configuration: ""
+[0.233s] -- Up-to-date: /home/ws/install/linorobot2/share/ament_index/resource_index/package_run_dependencies/linorobot2
+[0.233s] -- Up-to-date: /home/ws/install/linorobot2/share/ament_index/resource_index/parent_prefix_path/linorobot2
+[0.233s] -- Up-to-date: /home/ws/install/linorobot2/share/linorobot2/environment/ament_prefix_path.sh
+[0.233s] -- Up-to-date: /home/ws/install/linorobot2/share/linorobot2/environment/ament_prefix_path.dsv
+[0.233s] -- Up-to-date: /home/ws/install/linorobot2/share/linorobot2/environment/path.sh
+[0.233s] -- Up-to-date: /home/ws/install/linorobot2/share/linorobot2/environment/path.dsv
+[0.233s] -- Up-to-date: /home/ws/install/linorobot2/share/linorobot2/local_setup.bash
+[0.233s] -- Up-to-date: /home/ws/install/linorobot2/share/linorobot2/local_setup.sh
+[0.233s] -- Up-to-date: /home/ws/install/linorobot2/share/linorobot2/local_setup.zsh
+[0.233s] -- Up-to-date: /home/ws/install/linorobot2/share/linorobot2/local_setup.dsv
+[0.234s] -- Installing: /home/ws/install/linorobot2/share/linorobot2/package.dsv
+[0.234s] -- Up-to-date: /home/ws/install/linorobot2/share/ament_index/resource_index/packages/linorobot2
+[0.234s] -- Up-to-date: /home/ws/install/linorobot2/share/linorobot2/cmake/linorobot2Config.cmake
+[0.234s] -- Up-to-date: /home/ws/install/linorobot2/share/linorobot2/cmake/linorobot2Config-version.cmake
+[0.234s] -- Up-to-date: /home/ws/install/linorobot2/share/linorobot2/package.xml
+[0.238s] Invoked command in '/home/ws/build/linorobot2' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --install /home/ws/build/linorobot2

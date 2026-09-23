@@ -1,0 +1,3 @@
+[console_scripts]
+command_timeout = linorobot2_gazebo.command_timeout:main
+world_creator = linorobot2_gazebo.world_creator:main

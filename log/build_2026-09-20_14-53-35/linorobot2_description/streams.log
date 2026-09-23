@@ -1,0 +1,70 @@
+[0.013s] Invoking command in '/home/ws/build/linorobot2_description': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake /home/ws/src/linorobot2/linorobot2_description -DCMAKE_INSTALL_PREFIX=/home/ws/install/linorobot2_description
+[0.055s] -- The C compiler identification is GNU 13.3.0
+[0.107s] -- The CXX compiler identification is GNU 13.3.0
+[0.119s] -- Detecting C compiler ABI info
+[0.190s] -- Detecting C compiler ABI info - done
+[0.198s] -- Check for working C compiler: /usr/bin/cc - skipped
+[0.199s] -- Detecting C compile features
+[0.199s] -- Detecting C compile features - done
+[0.207s] -- Detecting CXX compiler ABI info
+[0.287s] -- Detecting CXX compiler ABI info - done
+[0.294s] -- Check for working CXX compiler: /usr/bin/c++ - skipped
+[0.295s] -- Detecting CXX compile features
+[0.295s] -- Detecting CXX compile features - done
+[0.298s] -- Found ament_cmake: 2.5.6 (/opt/ros/jazzy/share/ament_cmake/cmake)
+[0.425s] -- Found Python3: /usr/bin/python3 (found version "3.12.3") found components: Interpreter 
+[0.543s] -- Found urdf: 2.10.1 (/opt/ros/jazzy/share/urdf/cmake)
+[0.570s] -- Found TinyXML2 via Config file: /usr/lib/x86_64-linux-gnu/cmake/tinyxml2
+[0.659s] -- Configuring done (0.6s)
+[0.661s] -- Generating done (0.0s)
+[0.663s] -- Build files have been written to: /home/ws/build/linorobot2_description
+[0.668s] Invoked command in '/home/ws/build/linorobot2_description' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake /home/ws/src/linorobot2/linorobot2_description -DCMAKE_INSTALL_PREFIX=/home/ws/install/linorobot2_description
+[0.668s] Invoking command in '/home/ws/build/linorobot2_description': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --build /home/ws/build/linorobot2_description -- -j16 -l16
+[0.726s] Invoked command in '/home/ws/build/linorobot2_description' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --build /home/ws/build/linorobot2_description -- -j16 -l16
+[0.727s] Invoking command in '/home/ws/build/linorobot2_description': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --install /home/ws/build/linorobot2_description
+[0.738s] -- Install configuration: ""
+[0.738s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/launch
+[0.738s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/launch/description.launch.py
+[0.738s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf
+[0.738s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/sensors
+[0.738s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/sensors/laser.urdf.xacro
+[0.738s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/sensors/camera.urdf.xacro
+[0.738s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/sensors/depth_sensor.urdf.xacro
+[0.738s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/sensors/generic_laser.urdf.xacro
+[0.738s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/sensors/imu.urdf.xacro
+[0.738s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/mecanum_properties.urdf.xacro
+[0.738s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/robots
+[0.738s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/robots/mecanum.urdf.xacro
+[0.738s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/robots/turtlebot.urdf.xacro
+[0.739s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/robots/4wd.urdf.xacro
+[0.739s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/robots/2wd.urdf.xacro
+[0.739s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/robots/vattenkar.urdf.xacro
+[0.739s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/4wd_properties.urdf.xacro
+[0.739s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/mech
+[0.739s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/mech/wheel.urdf.xacro
+[0.739s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/mech/caster_wheel.urdf.xacro
+[0.739s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/mech/mecanum_wheel.urdf.xacro
+[0.739s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/mech/base.urdf.xacro
+[0.739s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/controllers
+[0.739s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/controllers/omni_drive.urdf.xacro
+[0.739s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/controllers/skid_steer.urdf.xacro
+[0.739s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/controllers/diff_drive.urdf.xacro
+[0.739s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/urdf/2wd_properties.urdf.xacro
+[0.740s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/rviz
+[0.740s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/rviz/description.rviz
+[0.740s] -- Installing: /home/ws/install/linorobot2_description/share/ament_index/resource_index/package_run_dependencies/linorobot2_description
+[0.740s] -- Installing: /home/ws/install/linorobot2_description/share/ament_index/resource_index/parent_prefix_path/linorobot2_description
+[0.740s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/environment/ament_prefix_path.sh
+[0.740s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/environment/ament_prefix_path.dsv
+[0.740s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/environment/path.sh
+[0.740s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/environment/path.dsv
+[0.740s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/local_setup.bash
+[0.740s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/local_setup.sh
+[0.740s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/local_setup.zsh
+[0.740s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/local_setup.dsv
+[0.740s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/package.dsv
+[0.741s] -- Installing: /home/ws/install/linorobot2_description/share/ament_index/resource_index/packages/linorobot2_description
+[0.741s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/cmake/linorobot2_descriptionConfig.cmake
+[0.741s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/cmake/linorobot2_descriptionConfig-version.cmake
+[0.741s] -- Installing: /home/ws/install/linorobot2_description/share/linorobot2_description/package.xml
+[0.741s] Invoked command in '/home/ws/build/linorobot2_description' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy /usr/bin/cmake --install /home/ws/build/linorobot2_description

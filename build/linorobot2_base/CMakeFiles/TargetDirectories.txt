@@ -1,0 +1,9 @@
+/home/ws/build/linorobot2_base/CMakeFiles/uninstall.dir
+/home/ws/build/linorobot2_base/CMakeFiles/linorobot2_base_uninstall.dir
+/home/ws/build/linorobot2_base/CMakeFiles/test.dir
+/home/ws/build/linorobot2_base/CMakeFiles/edit_cache.dir
+/home/ws/build/linorobot2_base/CMakeFiles/rebuild_cache.dir
+/home/ws/build/linorobot2_base/CMakeFiles/list_install_components.dir
+/home/ws/build/linorobot2_base/CMakeFiles/install.dir
+/home/ws/build/linorobot2_base/CMakeFiles/install/local.dir
+/home/ws/build/linorobot2_base/CMakeFiles/install/strip.dir

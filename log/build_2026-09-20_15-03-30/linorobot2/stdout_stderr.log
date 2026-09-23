@@ -1,0 +1,20 @@
+-- Found ament_cmake: 2.5.6 (/opt/ros/jazzy/share/ament_cmake/cmake)
+-- Configuring done (0.3s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/ws/build/linorobot2
+-- Install configuration: ""
+-- Up-to-date: /home/ws/install/linorobot2/share/ament_index/resource_index/package_run_dependencies/linorobot2
+-- Up-to-date: /home/ws/install/linorobot2/share/ament_index/resource_index/parent_prefix_path/linorobot2
+-- Up-to-date: /home/ws/install/linorobot2/share/linorobot2/environment/ament_prefix_path.sh
+-- Up-to-date: /home/ws/install/linorobot2/share/linorobot2/environment/ament_prefix_path.dsv
+-- Up-to-date: /home/ws/install/linorobot2/share/linorobot2/environment/path.sh
+-- Up-to-date: /home/ws/install/linorobot2/share/linorobot2/environment/path.dsv
+-- Up-to-date: /home/ws/install/linorobot2/share/linorobot2/local_setup.bash
+-- Up-to-date: /home/ws/install/linorobot2/share/linorobot2/local_setup.sh
+-- Up-to-date: /home/ws/install/linorobot2/share/linorobot2/local_setup.zsh
+-- Up-to-date: /home/ws/install/linorobot2/share/linorobot2/local_setup.dsv
+-- Installing: /home/ws/install/linorobot2/share/linorobot2/package.dsv
+-- Up-to-date: /home/ws/install/linorobot2/share/ament_index/resource_index/packages/linorobot2
+-- Up-to-date: /home/ws/install/linorobot2/share/linorobot2/cmake/linorobot2Config.cmake
+-- Up-to-date: /home/ws/install/linorobot2/share/linorobot2/cmake/linorobot2Config-version.cmake
+-- Installing: /home/ws/install/linorobot2/share/linorobot2/package.xml

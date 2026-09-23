@@ -1,0 +1,4 @@
+source;share/linorobot2_bringup/local_setup.bash
+source;share/linorobot2_bringup/local_setup.dsv
+source;share/linorobot2_bringup/local_setup.sh
+source;share/linorobot2_bringup/local_setup.zsh

@@ -1,0 +1,15 @@
+/home/ws/install/linorobot2/share/ament_index/resource_index/package_run_dependencies/linorobot2
+/home/ws/install/linorobot2/share/ament_index/resource_index/parent_prefix_path/linorobot2
+/home/ws/install/linorobot2/share/linorobot2/environment/ament_prefix_path.sh
+/home/ws/install/linorobot2/share/linorobot2/environment/ament_prefix_path.dsv
+/home/ws/install/linorobot2/share/linorobot2/environment/path.sh
+/home/ws/install/linorobot2/share/linorobot2/environment/path.dsv
+/home/ws/install/linorobot2/share/linorobot2/local_setup.bash
+/home/ws/install/linorobot2/share/linorobot2/local_setup.sh
+/home/ws/install/linorobot2/share/linorobot2/local_setup.zsh
+/home/ws/install/linorobot2/share/linorobot2/local_setup.dsv
+/home/ws/install/linorobot2/share/linorobot2/package.dsv
+/home/ws/install/linorobot2/share/ament_index/resource_index/packages/linorobot2
+/home/ws/install/linorobot2/share/linorobot2/cmake/linorobot2Config.cmake
+/home/ws/install/linorobot2/share/linorobot2/cmake/linorobot2Config-version.cmake
+/home/ws/install/linorobot2/share/linorobot2/package.xml

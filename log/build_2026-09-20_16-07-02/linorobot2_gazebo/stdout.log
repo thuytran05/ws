@@ -1,0 +1,19 @@
+running egg_info
+writing ../../../build/linorobot2_gazebo/linorobot2_gazebo.egg-info/PKG-INFO
+writing dependency_links to ../../../build/linorobot2_gazebo/linorobot2_gazebo.egg-info/dependency_links.txt
+writing entry points to ../../../build/linorobot2_gazebo/linorobot2_gazebo.egg-info/entry_points.txt
+writing top-level names to ../../../build/linorobot2_gazebo/linorobot2_gazebo.egg-info/top_level.txt
+reading manifest file '../../../build/linorobot2_gazebo/linorobot2_gazebo.egg-info/SOURCES.txt'
+writing manifest file '../../../build/linorobot2_gazebo/linorobot2_gazebo.egg-info/SOURCES.txt'
+running build
+running build_py
+running install
+running install_lib
+running install_data
+running install_egg_info
+removing '/home/ws/install/linorobot2_gazebo/lib/python3.12/site-packages/linorobot2_gazebo-0.0.0-py3.12.egg-info' (and everything under it)
+Copying ../../../build/linorobot2_gazebo/linorobot2_gazebo.egg-info to /home/ws/install/linorobot2_gazebo/lib/python3.12/site-packages/linorobot2_gazebo-0.0.0-py3.12.egg-info
+running install_scripts
+Installing command_timeout script to /home/ws/install/linorobot2_gazebo/lib/linorobot2_gazebo
+Installing world_creator script to /home/ws/install/linorobot2_gazebo/lib/linorobot2_gazebo
+writing list of installed files to '/home/ws/build/linorobot2_gazebo/install.log'
