@@ -35,7 +35,8 @@
         "--pid=host",
         "--ipc=host",
         "-e", "DISPLAY=${env:DISPLAY}",
-        "--device=/dev/ttyUSB0"
+        "--privileged",
+        "--device=/dev/ttyUSB0:/dev/ttyUSB0"
     ],
     "mounts": [
        "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind,consistency=cached",
