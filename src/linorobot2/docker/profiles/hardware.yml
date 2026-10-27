@@ -1,0 +1,13 @@
+name: hardware
+root: <%= ENV["TMUXINATOR_CONFIG"] %>
+pre_window:
+  - export DISPLAY=:200
+  - export RVIZ=true
+on_project_stop:
+  - docker compose down
+windows:
+  - main:
+      panes:
+        - docker compose up kasmvnc
+        - docker compose up bringup
+        - docker compose up navigate

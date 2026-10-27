@@ -1,0 +1,32 @@
+name: colcon build
+on:
+  schedule:
+    - cron: '0 0 * * 5'  # Every Friday at midnight UTC
+  push:
+    branches: [ jazzy ]
+  pull_request:
+    branches: [ jazzy ] # Adjust this if your default branch is different
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        base_image: [hardware, gazebo, gazebo-cuda]
+    steps:
+      - uses: actions/checkout@v5
+      
+      - name: Create fake udev directory for hardware builds
+        run: |
+          sudo mkdir -p /etc/udev/rules.d
+          bash install.bash --laser ld19 --udev-only
+          cat /etc/udev/rules.d/ldlidar.rules
+
+      - name: Install and Build ROS2 environment - ${{ matrix.base_image }}
+        run: |
+          export ROS_DISTRO=jazzy
+          export ROBOT_BASE=2wd
+          export LASER_SENSOR=ld19
+          export BASE_IMAGE=${{ matrix.base_image }}
+          cd docker && docker compose build
+        shell: bash

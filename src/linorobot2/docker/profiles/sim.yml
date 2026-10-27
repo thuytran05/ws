@@ -1,0 +1,16 @@
+name: sim
+root: <%= ENV["TMUXINATOR_CONFIG"] %>
+pre_window:
+  - export DISPLAY=:200
+  - export SIM=true
+  - export WORLD=turtlebot3_world
+  - export RVIZ=true
+  - export SPAWN_X=0.5
+on_project_stop:
+  - docker compose down
+windows:
+  - main:
+      panes:
+        - docker compose up kasmvnc
+        - docker compose up gazebo
+        - docker compose up navigate
