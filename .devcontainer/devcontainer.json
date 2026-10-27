@@ -36,11 +36,11 @@
         "--ipc=host",
         "-e", "DISPLAY=${env:DISPLAY}",
         "--privileged",
-        "--device=/dev/ttyUSB0:/dev/ttyUSB0"
+        "--mount=type=bind,source=/dev,target=/dev"
     ],
     "mounts": [
        "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind,consistency=cached",
        "source=/dev/dri,target=/dev/dri,type=bind,consistency=cached"
     ],
-    "postCreateCommand": "sudo rosdep update && sudo rosdep install --from-paths src --ignore-src -y && sudo chown -R $(whoami) /home/ws/"
+   "postCreateCommand": "sudo apt-get update && sudo rosdep update && sudo env PIP_BREAK_SYSTEM_PACKAGES=1 rosdep install --from-paths /home/ws/src --ignore-src --rosdistro jazzy -y && sudo chown -R $(whoami) /home/ws/"
 }

@@ -1,3 +1,16 @@
+# Python virtual environments
+venv/
+.venv/
+venv_yolo/
+.venv_yolo/
+venv*/
+.venv*/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# ROS 2
 build/
 install/
 log/
