@@ -6,13 +6,13 @@ Các engine hỗ trợ:
   - log    : Chế độ chỉ ghi log (log-only), dùng khi test trong Docker không có loa.
   - piper  : Offline chất lượng cao với model ONNX tiếng Việt.
   - espeak : Offline siêu nhẹ với espeak-ng / espeak.
-  - gtts   : Online (cần Internet).
+  - gtts   : Online (dự phòng khi có Internet).
 
 Publish:
   /voice/speaking (std_msgs/Bool)         -> Báo STT tạm ngưng nghe
-  /voice/tts_ack  (std_msgs/String [JSON]) -> Xác nhận đã hoàn tất đọc câu nói
+  /voice/tts_ack  (std_msgs/String [JSON]) -> Xác nhận đã hoàn tất đọc câu nói kèm status chi tiết
 Subscribe:
-  /voice/say      (std_msgs/String)        <- Nhận nội dung cần phát
+  /voice/say      (std_msgs/String)        <- Nhận nội dung cần phát (plain text hoặc JSON)
 """
 
 import json
@@ -55,6 +55,7 @@ class TtsNode(Node):
         self.declare_parameter('player', 'aplay')             # aplay | paplay | ffplay
         self.declare_parameter('speed', 1.0)
         self.declare_parameter('normalize_codes', True)
+        self.declare_parameter('queue_size', 30)
 
         self.engine = self.get_parameter('engine').value
         self.piper_bin = self.get_parameter('piper_bin').value
@@ -62,96 +63,182 @@ class TtsNode(Node):
         self.player = self.get_parameter('player').value
         self.speed = float(self.get_parameter('speed').value)
         self.normalize_codes = bool(self.get_parameter('normalize_codes').value)
+        self.queue_size = int(self.get_parameter('queue_size').value)
 
-        self.q = queue.Queue()
+        self.q = queue.Queue(maxsize=self.queue_size)
+        self._running = True
+
         self.pub_speaking = self.create_publisher(Bool, '/voice/speaking', 10)
         self.pub_tts_ack = self.create_publisher(String, '/voice/tts_ack', 10)
         self.create_subscription(String, '/voice/say', self.on_say, 10)
 
-        threading.Thread(target=self.worker, daemon=True).start()
-        self.get_logger().info(f'TTS sẵn sàng (engine={self.engine}).')
+        self._worker_thread = threading.Thread(target=self.worker, daemon=True)
+        self._worker_thread.start()
+        self.get_logger().info(f'TTS sẵn sàng (engine={self.engine}, queue_size={self.queue_size}).')
+
+    def destroy_node(self):
+        self._running = False
+        super().destroy_node()
 
     def on_say(self, msg: String):
-        text = msg.data.strip()
-        if text:
-            self.q.put(text)
+        data_str = msg.data.strip()
+        if not data_str:
+            return
+
+        speech_id = None
+        mission_id = None
+        request_id = None
+        text = data_str
+
+        # Thử parse JSON nếu đầu vào có cấu trúc
+        if data_str.startswith('{') and data_str.endswith('}'):
+            try:
+                payload = json.loads(data_str)
+                text = payload.get('text', data_str)
+                speech_id = payload.get('speech_id')
+                mission_id = payload.get('mission_id')
+                request_id = payload.get('request_id')
+            except Exception:
+                text = data_str
+
+        if not speech_id:
+            speech_id = f"sp_{int(time.time() * 1000)}"
+
+        try:
+            self.q.put_nowait((text, speech_id, mission_id, request_id))
+        except queue.Full:
+            self.get_logger().error(f'Hàng đợi TTS đầy ({self.queue_size}), từ chối câu nói mới: {text}')
+            ack_payload = {
+                'speech_id': speech_id,
+                'mission_id': mission_id,
+                'request_id': request_id,
+                'text': text,
+                'spoken_text': text,
+                'status': 'DROPPED_QUEUE_FULL',
+                'engine': self.engine,
+                'wav_generated': False,
+                'audio_played': False,
+                'timestamp': time.time()
+            }
+            self.pub_tts_ack.publish(String(data=json.dumps(ack_payload, ensure_ascii=False)))
 
     def worker(self):
-        while rclpy.ok():
-            raw_text = self.q.get()
+        while self._running and rclpy.ok():
+            try:
+                item = self.q.get(timeout=0.2)
+            except queue.Empty:
+                continue
+
+            raw_text, speech_id, mission_id, request_id = item
             spoken_text = normalize_speech_text(raw_text) if self.normalize_codes else raw_text
 
             self.pub_speaking.publish(Bool(data=True))
-            self.get_logger().info(f'NÓI: "{spoken_text}"')
+            self.get_logger().info(f'[{speech_id}] NÓI: "{spoken_text}"')
 
-            status = 'COMPLETED'
+            res_info = {'status': 'COMPLETED', 'wav_generated': False, 'audio_played': False}
             try:
-                self.synthesize(spoken_text)
+                res_info = self.synthesize(spoken_text)
             except Exception as e:
-                self.get_logger().error(f'Lỗi TTS: {e}')
-                status = f'ERROR_{type(e).__name__}'
+                self.get_logger().error(f'Lỗi ngoại lệ TTS: {e}')
+                res_info['status'] = f'ERROR_{type(e).__name__}'
             finally:
                 self.pub_speaking.publish(Bool(data=False))
                 ack_payload = {
+                    'speech_id': speech_id,
+                    'mission_id': mission_id,
+                    'request_id': request_id,
                     'text': raw_text,
                     'spoken_text': spoken_text,
-                    'status': status,
+                    'status': res_info.get('status', 'COMPLETED'),
+                    'engine': self.engine,
+                    'wav_generated': res_info.get('wav_generated', False),
+                    'audio_played': res_info.get('audio_played', False),
                     'timestamp': time.time()
                 }
                 self.pub_tts_ack.publish(String(data=json.dumps(ack_payload, ensure_ascii=False)))
 
-    def synthesize(self, text: str):
+    def synthesize(self, text: str) -> dict:
         if self.engine == 'log':
-            # Chế độ ghi log: mô phỏng thời gian nói ngắn và hoàn tất ngay
+            # Chế độ ghi log: mô phỏng thời gian phát âm ngắn và hoàn tất ngay
             self.get_logger().info(f'[TTS LOG ONLY] "{text}"')
-            time.sleep(0.1)
-            return
+            time.sleep(0.05)
+            return {'status': 'COMPLETED', 'wav_generated': False, 'audio_played': False}
 
         if self.engine == 'espeak':
             bin_name = 'espeak-ng' if shutil.which('espeak-ng') else 'espeak'
             if not shutil.which(bin_name):
-                self.get_logger().warn('Không tìm thấy espeak/espeak-ng. Chuyển sang log-only.')
+                self.get_logger().warn('Không tìm thấy espeak/espeak-ng. Chuyển sang log-only fallback.')
                 self.get_logger().info(f'[TTS LOG ONLY] "{text}"')
-                return
-            subprocess.run([bin_name, '-v', 'vi', '-s', str(int(160 * self.speed)), text],
-                           check=False, timeout=10.0)
-            return
+                return {'status': 'WARNING_ESPEAK_MISSING_FALLBACK_LOG', 'wav_generated': False, 'audio_played': False}
+
+            cmd = [bin_name, '-v', 'vi', '-s', str(int(160 * self.speed)), text]
+            p = subprocess.run(cmd, capture_output=True, timeout=10.0)
+            if p.returncode == 0:
+                return {'status': 'COMPLETED', 'wav_generated': False, 'audio_played': True}
+            else:
+                return {'status': f'ERROR_ESPEAK_EXIT_{p.returncode}', 'wav_generated': False, 'audio_played': False}
 
         if self.engine == 'piper':
-            if not shutil.which(self.piper_bin) or not os.path.exists(self.piper_model):
-                self.get_logger().warn(
-                    f'Không tìm thấy piper binary ({self.piper_bin}) hoặc model ({self.piper_model}). Chuyển sang log-only.')
-                self.get_logger().info(f'[TTS LOG ONLY] "{text}"')
-                return
+            piper_exec = shutil.which(self.piper_bin) or self.piper_bin
+            if not os.path.exists(piper_exec) and not shutil.which(piper_exec):
+                self.get_logger().warn(f'Không tìm thấy piper binary ({piper_exec}). Fallback log-only.')
+                return {'status': 'ERROR_PIPER_BINARY_MISSING', 'wav_generated': False, 'audio_played': False}
+
+            if not os.path.exists(self.piper_model):
+                self.get_logger().warn(f'Không tìm thấy model Piper ({self.piper_model}). Fallback log-only.')
+                return {'status': 'ERROR_PIPER_MODEL_MISSING', 'wav_generated': False, 'audio_played': False}
 
             wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False).name
             try:
-                subprocess.run(
-                    [self.piper_bin, '--model', self.piper_model,
-                     '--length_scale', str(round(1.0 / max(self.speed, 0.1), 2)),
-                     '--output_file', wav],
-                    input=text.encode('utf-8'), check=True, timeout=10.0)
+                cmd = [
+                    piper_exec,
+                    '--model', self.piper_model,
+                    '--length_scale', str(round(1.0 / max(self.speed, 0.1), 2)),
+                    '--output_file', wav
+                ]
+                p = subprocess.run(cmd, input=text.encode('utf-8'), capture_output=True, timeout=10.0)
+                if p.returncode != 0 or not os.path.exists(wav) or os.path.getsize(wav) < 44:
+                    return {'status': f'ERROR_PIPER_SYNTHESIS_{p.returncode}', 'wav_generated': False, 'audio_played': False}
+
+                # Tổng hợp WAV thành công
+                wav_ok = True
+                audio_ok = False
 
                 if shutil.which(self.player):
-                    subprocess.run([self.player, '-q', wav], check=False, timeout=15.0)
+                    play_p = subprocess.run([self.player, '-q', wav], capture_output=True, timeout=15.0)
+                    if play_p.returncode == 0:
+                        audio_ok = True
+                        status_str = 'COMPLETED'
+                    else:
+                        status_str = f'WARNING_PLAYBACK_EXIT_{play_p.returncode}'
                 else:
-                    self.get_logger().info(f'[TTS Playback LOG] Player {self.player} không có sẵn, đã tạo file {wav}')
+                    status_str = 'WARNING_NO_PLAYER'
+
+                return {'status': status_str, 'wav_generated': wav_ok, 'audio_played': audio_ok}
             finally:
                 if os.path.exists(wav):
-                    os.remove(wav)
-            return
+                    try:
+                        os.remove(wav)
+                    except OSError:
+                        pass
 
         if self.engine == 'gtts':
             try:
                 from gtts import gTTS
                 mp3 = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False).name
                 gTTS(text=text, lang='vi').save(mp3)
+                played = False
                 if shutil.which('ffplay'):
-                    subprocess.run(['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet', mp3],
-                                   check=False, timeout=15.0)
-                os.remove(mp3)
+                    p = subprocess.run(['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet', mp3],
+                                       capture_output=True, timeout=15.0)
+                    played = (p.returncode == 0)
+                if os.path.exists(mp3):
+                    os.remove(mp3)
+                return {'status': 'COMPLETED', 'wav_generated': True, 'audio_played': played}
             except Exception as e:
-                self.get_logger().error(f'Lỗi gTTS: {e}')
+                return {'status': f'ERROR_GTTS_{type(e).__name__}', 'wav_generated': False, 'audio_played': False}
+
+        return {'status': f'UNKNOWN_ENGINE_{self.engine}', 'wav_generated': False, 'audio_played': False}
 
 
 def main(args=None):

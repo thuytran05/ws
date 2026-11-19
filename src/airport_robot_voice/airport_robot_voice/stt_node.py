@@ -9,7 +9,7 @@ Hỗ trợ 3 chế độ:
 Publish:
   /voice/text     (std_msgs/String)
 Subscribe:
-  /voice/speaking (std_msgs/Bool) -> Tạm ngưng thu âm khi robot đang nói.
+  /voice/speaking (std_msgs/Bool) -> Tạm ngưng thu âm khi robot đang nói, xả sạch buffer.
 """
 
 import json
@@ -57,6 +57,8 @@ class SttNode(Node):
         self.robot_speaking = False
         self.awake = (self.wake_word == '')
         self._last_wake_time = time.time()
+        self._running = True
+        self._audio_queue = queue.Queue(maxsize=self.audio_queue_size)
 
         # Khởi chạy luồng theo mode
         if self.mode == 'keyboard':
@@ -71,16 +73,27 @@ class SttNode(Node):
         else:
             self.get_logger().error(f'Mode không hợp lệ: {self.mode}. Dùng keyboard, mic hoặc wav.')
 
+    def destroy_node(self):
+        self._running = False
+        super().destroy_node()
+
     def on_speaking(self, msg: Bool):
         self.robot_speaking = msg.data
+        if self.robot_speaking:
+            # Xả hết buffer audio đọng khi robot đang nói để tránh nhận nhầm tiếng robot
+            while not self._audio_queue.empty():
+                try:
+                    self._audio_queue.get_nowait()
+                except queue.Empty:
+                    break
 
     def publish_text(self, text: str):
         text = text.strip()
         if len(text) < self.min_chars:
             return
 
-        # Xử lý wake word
         now = time.time()
+        # Xử lý wake word
         if self.wake_word:
             if not self.awake:
                 if self.wake_word in text.lower():
@@ -94,18 +107,19 @@ class SttNode(Node):
                 else:
                     return
             else:
-                # Kiểm tra timeout của wake word
+                # Kiểm tra timeout
                 if now - self._last_wake_time > self.wake_timeout:
                     self.awake = False
-                    self.get_logger().info('Wake word hết thời gian chờ, trở về trạng thái nghỉ.')
+                    self.get_logger().info('Hết thời gian tương tác (wake timeout), trở về chờ wake word.')
                     return
-                self._last_wake_time = now
+                else:
+                    self._last_wake_time = now
 
         self.get_logger().info(f'NGHE ĐƯỢC: "{text}"')
         self.pub_text.publish(String(data=text))
 
     def keyboard_loop(self):
-        while rclpy.ok():
+        while self._running and rclpy.ok():
             try:
                 line = sys.stdin.readline()
             except Exception:
@@ -120,18 +134,32 @@ class SttNode(Node):
             return
 
         try:
+            wf = wave.open(self.wav_file, 'rb')
+        except Exception as e:
+            self.get_logger().error(f'Lỗi mở file WAV: {e}')
+            return
+
+        if wf.getnchannels() != 1 or wf.getsampwidth() != 2:
+            self.get_logger().error(
+                f'WAV phải là mono 16-bit PCM! (Kênh: {wf.getnchannels()}, Mẫu: {wf.getsampwidth()*8}-bit)')
+            wf.close()
+            return
+
+        wav_rate = wf.getframerate()
+
+        try:
             from vosk import Model, KaldiRecognizer, SetLogLevel
             SetLogLevel(-1)
             model = Model(self.model_path)
-            rec = KaldiRecognizer(model, self.sample_rate)
+            rec = KaldiRecognizer(model, wav_rate)
         except Exception as e:
             self.get_logger().warn(
                 f'Không thể nạp Vosk cho file WAV ({e}). Đang phát văn bản mô phỏng nếu có.')
+            wf.close()
             return
 
         try:
-            wf = wave.open(self.wav_file, 'rb')
-            while rclpy.ok():
+            while self._running and rclpy.ok():
                 data = wf.readframes(4000)
                 if len(data) == 0:
                     break
@@ -144,7 +172,10 @@ class SttNode(Node):
             self.get_logger().info('Đã xử lý xong file WAV.')
         except Exception as e:
             self.get_logger().error(f'Lỗi đọc file WAV: {e}')
-
+            try:
+                wf.close()
+            except Exception:
+                pass
     def mic_loop(self):
         try:
             import sounddevice as sd
@@ -170,13 +201,11 @@ class SttNode(Node):
         rec = KaldiRecognizer(model, self.sample_rate)
         rec.SetWords(False)
 
-        q = queue.Queue(maxsize=self.audio_queue_size)
-
         def audio_callback(indata, frames, time_info, status):
             if status:
                 self.get_logger().warn(str(status))
             try:
-                q.put_nowait(bytes(indata))
+                self._audio_queue.put_nowait(bytes(indata))
             except queue.Full:
                 pass  # Bỏ qua chunk cũ khi hàng đợi đầy để tránh tràn bộ nhớ
 
@@ -187,8 +216,12 @@ class SttNode(Node):
             with sd.RawInputStream(samplerate=self.sample_rate, blocksize=4000,
                                    device=dev, dtype='int16',
                                    channels=1, callback=audio_callback):
-                while rclpy.ok():
-                    data = q.get()
+                while self._running and rclpy.ok():
+                    try:
+                        data = self._audio_queue.get(timeout=0.2)
+                    except queue.Empty:
+                        continue
+
                     if self.robot_speaking:
                         rec.Reset()
                         continue

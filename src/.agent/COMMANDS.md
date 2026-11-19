@@ -76,7 +76,7 @@ pip install --user --break-system-packages \
 Tạo liên kết nhị phân cho `piper` để gọi trực tiếp từ CLI:
 ```bash
 # Tạo symlink cho binary piper vào /usr/local/bin
-sudo ln -sf /home/thuytran/.local/bin/piper /usr/local/bin/piper
+sudo ln -sf ~/.local/bin/piper /usr/local/bin/piper
 ```
 
 ---
@@ -249,7 +249,7 @@ python3 src/airport_robot_voice/scripts/test_nlu.py -i
 ```
 *(Gõ thử: `dẫn tôi đến cổng a3`, `nhà vệ sinh ở đâu`, `đừng dẫn tôi đi đâu`, `hủy chuyến`, nhấn Ctrl+C để thoát).*
 
-#### 3. Chạy toàn bộ 41 kiểm thử pytest trong ROS 2 Jazzy:
+#### 3. Chạy toàn bộ 55 kiểm thử pytest trong ROS 2 Jazzy:
 ```bash
 # Thư mục: /home/ws
 python3 -m pytest src/airport_robot_voice/test/ -v
@@ -389,7 +389,7 @@ Toàn bộ dữ liệu toạ độ và danh mục lưu tại `config/places.json
 | `No module named 'vosk'` | Chưa cài vosk vào user python | `pip install --user --break-system-packages vosk sounddevice` |
 | `Không nạp được model Vosk` | Sai đường dẫn hoặc chưa giải nén | Kiểm tra `ls -la /opt/vosk/vosk-model-small-vn-0.4/model.cc` hoặc truyền `-p model_path:=/path/to/model` |
 | `Hệ thống điều hướng chưa sẵn sàng` | `nav_command_node` hoặc Nav2 chưa chạy | Kiểm tra node: `ros2 node list` xem có `/nav_command_node` chưa |
-| `piper: command not found` | Chưa có symlink trong PATH | Chạy `sudo ln -sf /home/thuytran/.local/bin/piper /usr/local/bin/piper` |
+| `piper: command not found` | Chưa có symlink trong PATH | Chạy `sudo ln -sf ~/.local/bin/piper /usr/local/bin/piper` |
 | `ALSA lib pcm.c: cannot open` | Container thiếu thiết bị hoặc quyền audio | Thêm user vào nhóm audio: `sudo usermod -aG audio $USER` hoặc dùng `tts_engine:=log` |
 
 ### 8.2 Dọn dẹp process khi kết thúc phiên
@@ -408,7 +408,7 @@ sudo apt-get update && sudo apt-get install -y --no-install-recommends \
 
 # 2. Cài đặt thư viện Python
 pip install --user --break-system-packages vosk sounddevice piper-tts
-sudo ln -sf /home/thuytran/.local/bin/piper /usr/local/bin/piper
+sudo ln -sf ~/.local/bin/piper /usr/local/bin/piper
 
 # 3. Tải model Vosk
 sudo mkdir -p /opt/vosk && sudo chown -R $USER:$USER /opt/vosk && cd /opt/vosk
