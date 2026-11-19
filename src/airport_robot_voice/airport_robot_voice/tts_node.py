@@ -67,10 +67,13 @@ class TtsNode(Node):
 
         self.q = queue.Queue(maxsize=self.queue_size)
         self._running = True
+        self._cancelled_speeches = set()
+        self._cancelled_missions = set()
 
         self.pub_speaking = self.create_publisher(Bool, '/voice/speaking', 10)
         self.pub_tts_ack = self.create_publisher(String, '/voice/tts_ack', 10)
         self.create_subscription(String, '/voice/say', self.on_say, 10)
+        self.create_subscription(String, '/voice/tts_cancel', self.on_tts_cancel, 10)
 
         self._worker_thread = threading.Thread(target=self.worker, daemon=True)
         self._worker_thread.start()
@@ -79,6 +82,23 @@ class TtsNode(Node):
     def destroy_node(self):
         self._running = False
         super().destroy_node()
+
+    def on_tts_cancel(self, msg: String):
+        data_str = msg.data.strip()
+        if not data_str:
+            return
+        try:
+            data = json.loads(data_str)
+            sp_id = data.get('speech_id')
+            m_id = data.get('mission_id')
+            if sp_id:
+                self._cancelled_speeches.add(sp_id)
+            if m_id:
+                self._cancelled_missions.add(m_id)
+        except Exception:
+            self._cancelled_speeches.add(data_str)
+            self._cancelled_missions.add(data_str)
+        self.get_logger().info(f"Đã nhận yêu cầu hủy câu nói TTS: {data_str}")
 
     def on_say(self, msg: String):
         data_str = msg.data.strip()
@@ -130,6 +150,23 @@ class TtsNode(Node):
                 continue
 
             raw_text, speech_id, mission_id, request_id = item
+            if speech_id in self._cancelled_speeches or (mission_id and mission_id in self._cancelled_missions):
+                self.get_logger().info(f"Bỏ qua câu nói đã bị hủy trong hàng đợi: [{speech_id}] '{raw_text}'")
+                ack_payload = {
+                    'speech_id': speech_id,
+                    'mission_id': mission_id,
+                    'request_id': request_id,
+                    'text': raw_text,
+                    'spoken_text': raw_text,
+                    'status': 'CANCELLED_BEFORE_PLAYBACK',
+                    'engine': self.engine,
+                    'wav_generated': False,
+                    'audio_played': False,
+                    'timestamp': time.time()
+                }
+                self.pub_tts_ack.publish(String(data=json.dumps(ack_payload, ensure_ascii=False)))
+                continue
+
             spoken_text = normalize_speech_text(raw_text) if self.normalize_codes else raw_text
 
             self.pub_speaking.publish(Bool(data=True))

@@ -93,6 +93,52 @@ class TestTtsEnginesAndWavFormat:
             if os.path.exists(tmp_wav):
                 os.remove(tmp_wav)
 
+    def test_tts_queue_cancellation_before_playback(self, ros_context):
+        """Kiểm tra hủy câu nói trong hàng đợi TTS bằng /voice/tts_cancel."""
+        tts = TtsNode()
+        acks = []
+        tts.pub_tts_ack = type('MockPub', (), {'publish': lambda self, msg: acks.append(json.loads(msg.data))})()
+
+        # 1. Hủy speech_id trước khi worker kịp xử lý
+        tts.on_tts_cancel(String(data=json.dumps({'speech_id': 'sp_test_cancel_99'})))
+
+        # 2. Đưa câu nói vào hàng đợi
+        payload = {'speech_id': 'sp_test_cancel_99', 'text': 'Câu nói này sẽ bị hủy'}
+        tts.on_say(String(data=json.dumps(payload)))
+
+        # Đợi worker xử lý
+        t0 = time.time()
+        while time.time() - t0 < 2.0:
+            if any(a.get('speech_id') == 'sp_test_cancel_99' for a in acks):
+                break
+            time.sleep(0.02)
+
+        matching = [a for a in acks if a.get('speech_id') == 'sp_test_cancel_99']
+        assert len(matching) == 1
+        assert matching[0]['status'] == 'CANCELLED_BEFORE_PLAYBACK'
+        assert matching[0]['audio_played'] is False
+        tts.destroy_node()
+
+    def test_tts_dropped_queue_full(self, ros_context):
+        """Kiểm tra hàng đợi TTS đầy sẽ từ chối và phát ack DROPPED_QUEUE_FULL."""
+        tts = TtsNode()
+        tts.queue_size = 2
+        tts.q = queue.Queue(maxsize=2)
+
+        acks = []
+        tts.pub_tts_ack = type('MockPub', (), {'publish': lambda self, msg: acks.append(json.loads(msg.data))})()
+
+        # Làm đầy hàng đợi (chặn worker bằng cách không chạy worker hoặc nhồi nhanh)
+        tts.q.put(('item 1', 'sp_1', None, None))
+        tts.q.put(('item 2', 'sp_2', None, None))
+
+        # Gửi item 3 khi hàng đợi đã đầy 2/2
+        payload = {'speech_id': 'sp_overflow', 'text': 'Câu nói bị tràn'}
+        tts.on_say(String(data=json.dumps(payload)))
+
+        assert any(a.get('speech_id') == 'sp_overflow' and a.get('status') == 'DROPPED_QUEUE_FULL' for a in acks)
+        tts.destroy_node()
+
 
 class TestSttNodeOfflineProcessing:
     def test_stt_known_speech_wav_and_nlu_intent(self, ros_context):

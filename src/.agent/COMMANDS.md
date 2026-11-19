@@ -249,12 +249,12 @@ python3 src/airport_robot_voice/scripts/test_nlu.py -i
 ```
 *(Gõ thử: `dẫn tôi đến cổng a3`, `nhà vệ sinh ở đâu`, `đừng dẫn tôi đi đâu`, `hủy chuyến`, nhấn Ctrl+C để thoát).*
 
-#### 3. Chạy toàn bộ 55 kiểm thử pytest trong ROS 2 Jazzy:
+#### 3. Chạy toàn bộ 65 kiểm thử pytest trong ROS 2 Jazzy:
 ```bash
 # Thư mục: /home/ws
 python3 -m pytest src/airport_robot_voice/test/ -v
 ```
-*Dấu hiệu thành công*: `41 passed in x.xxs`.
+*Dấu hiệu thành công*: `65 passed in ~41s` (bao gồm 12 tests audio, 24 tests NLU, 7 tests places schema, 8 tests planner resolution, 14 tests action lifecycle).
 
 ---
 
