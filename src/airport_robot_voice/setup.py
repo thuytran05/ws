@@ -16,6 +16,7 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
+    tests_require=['pytest'],
     maintainer='you',
     maintainer_email='you@example.com',
     description='Voice assistant cho mobile robot san bay',

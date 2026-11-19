@@ -1,96 +1,94 @@
 #!/usr/bin/env python3
 """
-nlu.py — Lõi hiểu ngôn ngữ, THUẦN PYTHON, KHÔNG phụ thuộc thư viện ngoài.
-
-Vì sao không dùng rapidfuzz/difflib để so khớp cả câu?
---------------------------------------------------------
-So khớp "cả câu" theo độ giống ký tự/token cho ra điểm số RẤT khác nhau
-tuỳ máy có cài được thư viện đó hay không (đây là nguyên nhân chính khiến
-kết quả test dao động mạnh giữa các máy). Engine này dùng SO KHỚP TỪ KHOÁ
-CÓ TRỌNG SỐ tự viết (kiểu TF-IDF thu nhỏ), không phụ thuộc thư viện ngoài
-nên chạy giống hệt nhau trên mọi máy.
-
-Hai tầng xử lý dấu tiếng Việt
---------------------------------------------------------
-Tiếng Việt có 2 loại dấu khác nhau về bản chất:
-  1. Dấu THANH ĐIỆU (sắc, huyền, hỏi, ngã, nặng) — STT hay nghe sai/rớt.
-  2. Dấu tạo NGUYÊN ÂM GỐC (ô, ơ, ê, ư, ă) — đây là CHỮ CÁI riêng, không
-     phải dấu phụ. Xoá cả loại 2 sẽ gộp nhầm các từ khác nghĩa hoàn toàn,
-     ví dụ "đói" (hungry) và "đổi" (exchange) đều thành "doi", hay
-     "cổng" (gate) và "công" (effort) đều thành "cong".
-
-Vì vậy:
-  - `clean()`  — chỉ xoá dấu thanh điệu, GIỮ ô/ơ/ê/ư/ă. Dùng để CHẤM ĐIỂM
-    Ý ĐỊNH (nơi độ chính xác quan trọng nhất, tránh gộp nhầm từ).
-  - `clean_ascii()` — xoá TOÀN BỘ dấu. Dùng để DÒ SỐ CỔNG / SỐ CHUYẾN BAY /
-    TÊN ĐỊA ĐIỂM (nơi cần dung sai cao, chấp nhận cả input gõ tay không dấu
-    hoặc STT nghe mất dấu hoàn toàn).
+nlu.py — Lõi hiểu ngôn ngữ tiếng Việt offline, thuần Python, không phụ thuộc LLM.
+Xử lý:
+- Tiếng Việt có dấu, không dấu, Unicode tổ hợp (NFC/NFD).
+- Đọc số và mã cổng: 'a ba', 'bê hai', 'cổng số mười lăm', 'a tư'.
+- Ranh giới từ trọn vẹn (word boundary): chống A123 bị cắt thành A12, alias A1 không khớp A10.
+- Kiểm tra tính tồn tại của địa điểm trong danh mục trước khi phát lệnh điều hướng.
+- Nhận diện phủ định: 'đừng dẫn...', 'không dừng lại' (không pause), 'không cần nữa' (cancel).
+- Nhận diện câu đa đích (ambiguous): 'A1 hay A2' -> thông báo yêu cầu chưa rõ.
+- Nhận diện câu thiếu đích: 'Dẫn tôi đến...' -> thông báo ngắn, kết thúc lượt, không pending slot.
+- Phân biệt intent thông tin (wifi, sạc, giờ, chào, cảm ơn, help) và intent dẫn đường.
+- Hỗ trợ chọn nhóm địa điểm (category: 'toilet') theo thuật toán đường đi.
 """
 
 import difflib
 import json
 import math
+import os
 import re
 import time
 import unicodedata
 
-# 5 dấu thanh điệu (huyền, sắc, ngã, hỏi, nặng) trong bảng mã Unicode tổ hợp.
+# Dấu thanh điệu tiếng Việt (huyền, sắc, ngã, hỏi, nặng) trong Unicode tổ hợp (NFD)
 _TONE_MARKS = {0x0300, 0x0301, 0x0303, 0x0309, 0x0323}
 
 
 def strip_tones(text: str) -> str:
-    """Chỉ xoá dấu THANH ĐIỆU, giữ nguyên ô/ơ/ê/ư/ă. VD: 'đổi' -> 'dôi'."""
-    text = text.replace('đ', 'd').replace('Đ', 'D')
+    """Xoá dấu thanh điệu, giữ nguyên âm gốc ô/ơ/ê/ư/ă/đ."""
     nfd = unicodedata.normalize('NFD', text)
     kept = ''.join(c for c in nfd if ord(c) not in _TONE_MARKS)
     return unicodedata.normalize('NFC', kept)
 
 
 def strip_all(text: str) -> str:
-    """Xoá TOÀN BỘ dấu (kể cả ô/ơ/ê/ư/ă). VD: 'đổi' -> 'doi'."""
+    """Xoá toàn bộ dấu tiếng Việt (kể cả ô/ơ/ê/ư/ă, đ->d)."""
     text = text.replace('đ', 'd').replace('Đ', 'D')
     nfd = unicodedata.normalize('NFD', text)
-    return ''.join(c for c in nfd if unicodedata.category(c) != 'Mn')
+    kept = ''.join(c for c in nfd if unicodedata.category(c) != 'Mn')
+    return unicodedata.normalize('NFC', kept)
 
 
 def normalize(text: str) -> str:
-    text = text.lower().strip()
+    """Chuẩn hóa chuỗi cơ bản: NFC, chữ thường, xoá ký tự đặc biệt, chuẩn khoảng trắng."""
+    text = unicodedata.normalize('NFC', text or '').lower().strip()
     text = re.sub(r'[^\w\s]', ' ', text, flags=re.UNICODE)
     return re.sub(r'\s+', ' ', text).strip()
 
 
 def is_accented(text: str) -> bool:
-    """True nếu câu có ít nhất 1 ký tự tiếng Việt có dấu. Dùng để chọn
-    tầng xử lý dấu phù hợp: câu CÓ dấu -> tin tưởng dấu, giữ nguyên âm
-    gốc (chính xác cao); câu KHÔNG dấu (gõ tay/STT mất dấu hoàn toàn)
-    -> chuyển sang so khớp bỏ dấu hoàn toàn."""
+    """Kiểm tra chuỗi có ký tự tiếng Việt có dấu hay không."""
     return any(ord(c) > 127 for c in normalize(text))
 
 
 def clean(text: str) -> str:
-    """Dùng để CHẤM ĐIỂM Ý ĐỊNH — giữ nguyên âm gốc để tránh gộp nhầm từ."""
+    """Dùng cho chấm điểm ý định: giữ nguyên âm gốc, xoá dấu thanh điệu."""
     return strip_tones(normalize(text))
 
 
 def clean_ascii(text: str) -> str:
-    """Dùng để DÒ SLOT / TÊN ĐỊA ĐIỂM — dung sai cao, bỏ dấu hoàn toàn."""
+    """Dùng cho dò slot / tên địa điểm: xoá toàn bộ dấu để có dung sai cao."""
     return strip_all(normalize(text))
 
 
-NUMBER_WORDS = {
-    'khong': '0', 'mot': '1', 'hai': '2', 'ba': '3', 'bon': '4', 'tu': '4',
-    'nam': '5', 'lam': '5', 'sau': '6', 'bay': '7', 'tam': '8', 'chin': '9',
-    'muoi': '10', 'be': 'b', 'xe': 'c', 'de': 'd',
-}
+def expand_spoken_codes(text: str) -> str:
+    """Chuyển các cách đọc mã cổng/số tiếng Việt thành dạng chuẩn hóa.
+    VD: 'a ba' -> 'a3', 'bê hai' -> 'b2', 'mười lăm' -> '15', 'cổng số mười lăm' -> 'cổng 15'.
+    """
+    t = clean_ascii(text)
+    # Ghép từ ngữ phức
+    t = re.sub(r'\bmuoi\s+lam\b', '15', t)
+    t = re.sub(r'\bmuoi\s+nam\b', '15', t)
+    t = re.sub(r'\bmuoi\b', '10', t)
+    t = re.sub(r'\bso\s+(\d+)\b', r'\1', t)
+
+    # Chuyển chữ cái đọc cổng: a, b (be), c (ce/xe), d (de)
+    t = re.sub(r'\bbe\b', 'b', t)
+    t = re.sub(r'\bxe\b', 'c', t)
+    t = re.sub(r'\bde\b', 'd', t)
+
+    # Các từ số đơn lẻ
+    for word, digit in [('khong', '0'), ('mot', '1'), ('hai', '2'), ('ba', '3'),
+                        ('bon', '4'), ('tu', '4'), ('nam', '5'), ('lam', '5'),
+                        ('sau', '6'), ('bay', '7'), ('tam', '8'), ('chin', '9')]:
+        t = re.sub(rf'\b{word}\b', digit, t)
+
+    # Ghép các cặp như 'a 3' -> 'a3', 'b 2' -> 'b2', 'c 1' -> 'c1', 'gate a 1' -> 'gate a1'
+    t = re.sub(r'\b([a-d])\s+(\d{1,2})\b', r'\1\2', t)
+    return t
 
 
-def words_to_digits(text: str) -> str:
-    return ' '.join(NUMBER_WORDS.get(w, w) for w in text.split())
-
-
-# Từ đệm tiếng Việt hay gặp trong câu hỏi — không mang tính phân biệt intent
-# nên bị loại khỏi bước tính điểm từ khoá. (KHÔNG ảnh hưởng boost_keywords,
-# vì boost khớp trên cả câu, không qua bước lọc từ đệm này.)
 _STOPWORDS_RAW = """
 ơi anh chị em à ạ nhé nhỉ ha hả cho hỏi là gì có không được chưa
 bạn tôi mình này đó kia thế nào đâu ở vậy giúp làm ơn xin một chút
@@ -111,41 +109,33 @@ def tokenize_ascii(text: str):
 
 
 def content_words(text: str):
-    """Từ mang nội dung (giữ nguyên âm gốc) — dùng khi input có dấu đầy đủ."""
     return [w for w in tokenize(text) if w not in STOPWORDS]
 
 
 def content_words_ascii(text: str):
-    """Từ mang nội dung (bỏ dấu hoàn toàn) — dùng khi input gõ tay/STT mất
-    dấu hoàn toàn, ví dụ 've' thay vì 'vệ'. Chạy song song với bản giữ
-    nguyên âm gốc, lấy điểm cao hơn, để không mode nào bị thiệt."""
     return [w for w in tokenize_ascii(text) if w not in STOPWORDS_ASCII]
 
 
-# ----------------------------------------------------------------------
 class NluEngine:
-    def __init__(self, intents_file, places_file):
-        with open(intents_file, encoding='utf-8') as f:
+    def __init__(self, intents_file: str, places_file: str):
+        with open(intents_file, 'r', encoding='utf-8') as f:
             self.cfg = json.load(f)
-        with open(places_file, encoding='utf-8') as f:
-            db = json.load(f)
+        with open(places_file, 'r', encoding='utf-8') as f:
+            self.places_data = json.load(f)
 
-        self.places = db.get('places', {})
-        self.flights = db.get('flights', {})
-        self.threshold = float(self.cfg.get('threshold', 40))
-        self.priority_margin = float(self.cfg.get('priority_margin', 15))
-        self.fallback = self.cfg['fallback_response']
-        self.pending = None
-        self.ctx_timeout = 15.0
+        self.places = self.places_data.get('places', {})
+        self.categories = self.places_data.get('categories', {})
+        self.services = self.places_data.get('services', {})
+
+        self.threshold = float(self.cfg.get('threshold', 35.0))
+        self.priority_margin = float(self.cfg.get('priority_margin', 15.0))
+        self.fallback = self.cfg.get('fallback_response',
+                                     'Xin lỗi, tôi chưa hiểu ý bạn. Bạn có thể hỏi về cổng máy bay, quầy thủ tục hoặc nhà vệ sinh.')
 
         self._build_vocab()
         self._build_alias_map()
 
-    # ------------------------------------------------------------------
     def _build_vocab(self):
-        """Với mỗi intent: gom từ nội dung từ examples + boost_keywords
-        thành 'từ điển' riêng. Đồng thời tính idf (độ hiếm) cho mỗi từ
-        trên toàn bộ tập intent để tự động hạ trọng số từ đệm/phổ biến."""
         intents = self.cfg['intents']
         n = len(intents)
 
@@ -162,7 +152,6 @@ class NluEngine:
             it['_boost_norm'] = [clean(k) for k in it.get('boost_keywords', [])]
             it['_boost_ascii'] = [clean_ascii(k) for k in it.get('boost_keywords', [])]
 
-        # document frequency: từ này xuất hiện trong bao nhiêu intent
         df, df_ascii = {}, {}
         for it in intents:
             for w in it['_vocab']:
@@ -174,27 +163,31 @@ class NluEngine:
         self.idf_ascii = {w: math.log((1 + n) / (1 + d)) + 1.0 for w, d in df_ascii.items()}
 
     def _build_alias_map(self):
-        """Dùng clean_ascii (bỏ dấu hoàn toàn) để dò tên địa điểm — chấp
-        nhận cả input gõ tay không dấu lẫn STT nghe mất dấu."""
         self.alias_map = {}
+        # Alias từ các địa điểm cụ thể
         for key, p in self.places.items():
-            for name in [key, p.get('name', '')] + p.get('aliases', []):
-                name = clean_ascii(str(name))
-                if name:
-                    self.alias_map[name] = key
+            names = [key, p.get('name', '')] + p.get('aliases', [])
+            for name in names:
+                norm_name = clean_ascii(str(name))
+                if norm_name:
+                    self.alias_map[norm_name] = {'type': 'place', 'key': key}
 
-    # ------------------------------------------------------------------
+        # Alias từ danh mục
+        for cat_key, cat in self.categories.items():
+            names = [cat_key, cat.get('name', '')] + cat.get('aliases', [])
+            for name in names:
+                norm_name = clean_ascii(str(name))
+                if norm_name:
+                    self.alias_map[norm_name] = {'type': 'category', 'key': cat_key}
+
     def _word_weight(self, w, ascii_mode=False):
         table = self.idf_ascii if ascii_mode else self.idf
-        return table.get(w, 1.0)   # từ lạ (không có trong vocab nào) -> trọng số nền
+        return table.get(w, 1.0)
 
     def _in_vocab(self, word, vocab):
-        """True nếu word khớp thẳng, hoặc khớp gần đúng (dung sai lỗi chính
-        tả) với một từ trong vocab. So khớp TỪNG TỪ bằng difflib -> ổn định,
-        không phụ thuộc thư viện ngoài."""
         if word in vocab:
             return True
-        if len(word) < 5:                     # từ ngắn: không dò lỗi chính tả, tránh khớp nhầm
+        if len(word) < 5:
             return False
         for v in vocab:
             if len(v) < 5 or abs(len(v) - len(word)) > 2:
@@ -203,145 +196,362 @@ class NluEngine:
                 return True
         return False
 
-    # ------------------------------------------------------------------
-    # Trích slot (số cổng, số hiệu chuyến bay, tên địa điểm)
-    # Dùng clean_ascii (bỏ dấu hoàn toàn) vì đây là các mã/tên riêng,
-    # dung sai cao quan trọng hơn là tránh gộp nhầm nghĩa.
-    # ------------------------------------------------------------------
-    def extract_slots(self, raw):
-        slots = {}
-        norm = clean_ascii(raw)
-        digit = words_to_digits(norm)
-
-        m = re.search(r'\b(vn|vj|qh|bl|vu)\s*-?\s*(\d{2,4})\b', digit)
-        if m:
-            slots['flight'] = (m.group(1) + m.group(2)).upper()
-
-        m = re.search(r'(?:cong|cua|gate)\s+([a-z])?\s*(\d{1,2})', digit)
-        if m:
-            letter = (m.group(1) or '')
-            num = m.group(2)
-            slots['gate'] = f'{letter.upper()}{num}'
-            slots['place_key'] = f'gate_{letter}{num}' if letter else f'gate_{num}'
-
-        for alias in sorted(self.alias_map, key=len, reverse=True):
-            if len(alias) >= 3 and alias in norm:
-                slots.setdefault('place_key', self.alias_map[alias])
-                break
-        return slots
-
-    # ------------------------------------------------------------------
-    # Chấm điểm intent: % trọng số từ khoá của câu hỏi có mặt trong
-    # từ điển intent, cộng bonus nếu khớp nguyên cụm boost_keywords.
-    # ------------------------------------------------------------------
     def _score_one(self, query_words, vocab, ascii_mode):
         if not query_words:
             return 0.0
         matched = sum(self._word_weight(w, ascii_mode) for w in query_words
-                     if self._in_vocab(w, vocab))
+                      if self._in_vocab(w, vocab))
         total = sum(self._word_weight(w, ascii_mode) for w in query_words)
         return 100.0 * matched / total if total else 0.0
 
     def score_intent(self, words, norm_query, it, ascii_mode):
-        """Chấm 1 tầng dấu duy nhất (chọn sẵn theo is_accented() của câu
-        gốc) — KHÔNG trộn lẫn 2 tầng, vì tầng bỏ dấu hoàn toàn có thể gộp
-        nhầm các từ khác nghĩa (đói/đổi) và sẽ chen điểm sai vào nếu trộn."""
         vocab = it['_vocab_ascii'] if ascii_mode else it['_vocab']
         boost = it['_boost_ascii'] if ascii_mode else it['_boost_norm']
 
         base = self._score_one(words, vocab, ascii_mode)
-        if any(kw and kw in norm_query for kw in boost):
-            base = max(base, 95.0)
+        matched_boost = [kw for kw in boost if kw and kw in norm_query]
+        if matched_boost:
+            max_boost_len = max(len(kw.split()) for kw in matched_boost)
+            base = max(base, 90.0) + (max_boost_len * 5.0)
         return base
 
-    def match_intent(self, raw):
+    def match_intent(self, raw: str):
         ascii_mode = not is_accented(raw)
         norm = clean_ascii(raw) if ascii_mode else clean(raw)
         words = content_words_ascii(raw) if ascii_mode else content_words(raw)
 
         scored = [(it, self.score_intent(words, norm, it, ascii_mode))
-                 for it in self.cfg['intents']]
-
+                  for it in self.cfg['intents']]
         passed = [(it, s) for it, s in scored if s >= self.threshold]
         pool = passed if passed else scored
 
         pool_sorted = sorted(pool, key=lambda p: p[1], reverse=True)
         best, best_score = pool_sorted[0]
 
-        # Priority chỉ dùng để phá thế hoà GIỮA các intent có điểm GẦN
-        # BẰNG intent tốt nhất (thực sự đang "ăn tranh" nhau) — ví dụ
-        # "dẫn tôi đến nhà vệ sinh" thì guide_me (95, nhờ boost) và
-        # ask_toilet (100, khớp từ khoá) đang cạnh tranh sít sao, lúc đó
-        # guide_me (priority cao hơn, vì là HÀNH ĐỘNG) mới được ưu tiên.
-        # Nếu một intent priority cao chỉ tình cờ có vài từ trùng lặp và
-        # điểm THẤP HƠN NHIỀU (như "robot" xuất hiện rải rác ở nhiều
-        # intent), nó KHÔNG được phép thắng chỉ vì priority.
         close = [(it, s) for it, s in pool_sorted
-                if best_score - s <= self.priority_margin]
+                 if best_score - s <= self.priority_margin]
         if len(close) > 1:
             best, best_score = max(close, key=lambda p: (int(p[0].get('priority', 1)), p[1]))
 
         return best, best_score
 
     # ------------------------------------------------------------------
-    # Sinh câu trả lời
+    # Trích xuất địa điểm, danh mục và phát hiện đa đích (ambiguity)
     # ------------------------------------------------------------------
-    def build_response(self, intent, slots):
-        place_key = slots.get('place_key') or intent.get('place')
-        place = self.places.get(place_key, {}) if place_key else {}
+    def extract_all_targets(self, raw: str):
+        """Trích xuất toàn bộ đích được đề cập trong câu:
+        - Dùng ranh giới từ r'\b' chặt chẽ.
+        - Trả về danh sách dict: [{'type': 'place'|'category', 'key': ..., 'matched_text': ...}]
+        """
+        expanded = expand_spoken_codes(raw)
+        found_targets = []
+        seen_keys = set()
+        matched_spans = []
 
-        need = intent.get('slot_required')
-        if need and need not in slots and not place:
-            self.pending = {'intent': intent['name'], 'time': time.time()}
-            return intent['responses'][-1], None, None
+        # 1. Tìm cổng theo mã quy chuẩn: A1, A2, A3, A4, B1, B2, C1...
+        gate_pattern = r'\b(?:cong|cua|gate)?\s*([a-d])(\d{1,2})\b'
+        for m in re.finditer(gate_pattern, expanded):
+            letter = m.group(1).lower()
+            num = m.group(2)
+            gate_code = f'{letter.upper()}{num}'
+            place_key = f'gate_{letter}{num}'
+            matched_spans.append(m.span())
+            if place_key not in seen_keys:
+                seen_keys.add(place_key)
+                found_targets.append({
+                    'type': 'place',
+                    'key': place_key,
+                    'gate_code': gate_code,
+                    'exists': place_key in self.places,
+                    'matched_text': m.group(0)
+                })
 
-        if intent.get('action') == 'query_flight':
-            code = slots.get('flight')
-            f = self.flights.get(code) if code else None
-            if f:
-                return (f'Chuyến bay {code} đi {f["route"]}, khởi hành lúc {f["time"]}, '
-                        f'{f["gate"]}, tình trạng: {f["status"]}.'), None, None
-            if code:
-                return (f'Tôi không tìm thấy chuyến bay {code}. '
-                        'Bạn vui lòng kiểm tra lại số hiệu.'), None, None
+        # Cổng chỉ có số: ví dụ 'cổng 15', 'cửa 15', 'gate 15'
+        num_gate_pattern = r'\b(?:cong|cua|gate)\s+(\d{1,2})\b'
+        for m in re.finditer(num_gate_pattern, expanded):
+            num = m.group(1)
+            gate_code = num
+            place_key = f'gate_{num}'
+            matched_spans.append(m.span())
+            if place_key not in seen_keys:
+                seen_keys.add(place_key)
+                found_targets.append({
+                    'type': 'place',
+                    'key': place_key,
+                    'gate_code': gate_code,
+                    'exists': place_key in self.places,
+                    'matched_text': m.group(0)
+                })
 
-        text = intent['responses'][0]
-        for k, v in (('{gate}', slots.get('gate', '')),
-                     ('{flight}', slots.get('flight', '')),
-                     ('{place_name}', place.get('name', 'nơi bạn cần')),
-                     ('{place_desc}', place.get('desc', 'phía trước, theo biển chỉ dẫn')),
-                     ('{time}', time.strftime('%H giờ %M'))):
-            text = text.replace(k, v)
-        text = re.sub(r'\s+', ' ', text).strip()
+        # 2. Tìm theo alias map (sắp xếp dài trước ngắn sau, khớp theo token ranh giới từ)
+        for alias, info in sorted(self.alias_map.items(), key=lambda x: len(x[0]), reverse=True):
+            pattern = rf'\b{re.escape(alias)}\b'
+            for m in re.finditer(pattern, expanded):
+                span = m.span()
+                # Nếu span này nằm bên trong một span dài hơn đã khớp trước, bỏ qua
+                if any(ex[0] <= span[0] and span[1] <= ex[1] for ex in matched_spans):
+                    continue
+                matched_spans.append(span)
+                k = info['key']
+                if k not in seen_keys:
+                    seen_keys.add(k)
+                    found_targets.append({
+                        'type': info['type'],
+                        'key': k,
+                        'exists': (k in self.places if info['type'] == 'place' else k in self.categories),
+                        'matched_text': alias
+                    })
 
-        action = intent.get('action')
-        target = place_key if action == 'navigate' else None
-        if action == 'navigate' and not target:
-            return 'Bạn muốn tôi dẫn tới đâu ạ?', None, None
-        return text, action, target
+        # 3. Kiểm tra các số cổng không hợp lệ / ngoài tầm (ví dụ A123, B99...)
+        invalid_gate_pattern = r'\b(?:cong|cua|gate)?\s*([a-z])(\d{3,})\b'
+        for m in re.finditer(invalid_gate_pattern, expanded):
+            bad_code = f'{m.group(1).upper()}{m.group(2)}'
+            bad_key = f'gate_{m.group(1).lower()}{m.group(2)}'
+            matched_spans.append(m.span())
+            if bad_key not in seen_keys:
+                seen_keys.add(bad_key)
+                found_targets.append({
+                    'type': 'place',
+                    'key': bad_key,
+                    'gate_code': bad_code,
+                    'exists': False,
+                    'matched_text': m.group(0)
+                })
+
+        # 4. Nếu có cả điểm cụ thể và danh mục cha của điểm đó (ví dụ toilet_1 và toilet), giữ lại điểm cụ thể
+        specific_cats = {self.places[t['key']].get('category') for t in found_targets if t['type'] == 'place' and t['key'] in self.places}
+        filtered = [t for t in found_targets if not (t['type'] == 'category' and t['key'] in specific_cats)]
+        return filtered
 
     # ------------------------------------------------------------------
-    def process(self, raw):
-        """Trả về dict: {text, intent, score, slots, action, target}"""
-        raw = raw.strip()
+    # Kiểm tra phủ định
+    # ------------------------------------------------------------------
+    def check_negation(self, raw: str):
+        """Phân biệt phủ định:
+        - Cancel: 'không cần nữa', 'không đi nữa', 'thôi không đi', 'hủy chuyến' -> True, 'cancel'
+        - Negated pause: 'không dừng lại', 'đừng dừng' -> True, 'negated_pause'
+        - Negated navigate: 'đừng dẫn', 'không dẫn', 'đừng đưa', 'không đi cổng a1' -> True, 'negated_nav'
+        """
+        norm = clean_ascii(raw)
+
+        # Lệnh hủy (Cancel)
+        if re.search(r'\b(khong\s+can\s+nua|khong\s+di\s+nua|thoi\s+khong\s+di|huy\s+chuyen|huy\s+nhiem\s+vu|khong\s+can\s+dan|khong\s+can)\b', norm):
+            return True, 'cancel'
+
+        # Phủ định dừng lại (Không được pause!)
+        if re.search(r'\b(khong|dung|cho)\s+(dung|dung\s+lai|pause|cho)\b', norm):
+            return True, 'negated_pause'
+
+        # Phủ định dẫn đường
+        if re.search(r'\b(dung|khong|cho)\s+(dan|dua|chi\s+duong|di\s+toi|di\s+den|di\s+theo)\b', norm):
+            return True, 'negated_nav'
+        if re.search(r'\bkhong\s+di\b', norm):
+            return True, 'negated_nav'
+
+        return False, None
+
+    # ------------------------------------------------------------------
+    # Xử lý toàn diện câu thoại
+    # ------------------------------------------------------------------
+    def process(self, raw: str):
+        raw = (raw or '').strip()
         if not raw:
             return None
 
-        slots = self.extract_slots(raw)
+        slots = {}
+
+        # 1. Kiểm tra phủ định trước
+        is_neg, neg_type = self.check_negation(raw)
+        if is_neg:
+            if neg_type == 'cancel':
+                return {
+                    'raw': raw,
+                    'text': 'Tôi đã hủy chuyến đi hiện tại.',
+                    'intent': 'cancel_robot',
+                    'score': 100.0,
+                    'action': 'cancel',
+                    'target': None,
+                    'category': None,
+                    'selection_policy': None,
+                    'slots': slots,
+                    'is_valid_target': False
+                }
+            elif neg_type == 'negated_pause':
+                return {
+                    'raw': raw,
+                    'text': 'Tôi tiếp tục di chuyển và không dừng lại.',
+                    'intent': 'negated_pause',
+                    'score': 90.0,
+                    'action': None,
+                    'target': None,
+                    'category': None,
+                    'selection_policy': None,
+                    'slots': slots,
+                    'is_valid_target': False
+                }
+            elif neg_type == 'negated_nav':
+                return {
+                    'raw': raw,
+                    'text': 'Tôi đã ghi nhận bạn không muốn dẫn đường lúc này.',
+                    'intent': 'negated_nav',
+                    'score': 95.0,
+                    'action': None,
+                    'target': None,
+                    'category': None,
+                    'selection_policy': None,
+                    'slots': slots,
+                    'is_valid_target': False
+                }
+
+        # 2. Trích xuất các đích đến
+        targets = self.extract_all_targets(raw)
+
+        # 3. Kiểm tra đa đích (Ambiguous)
+        if len(targets) > 1:
+            return {
+                'raw': raw,
+                'text': 'Yêu cầu có nhiều điểm đến chưa rõ ràng. Bạn vui lòng chọn một điểm.',
+                'intent': 'ambiguous_target',
+                'score': 90.0,
+                'action': None,
+                'target': None,
+                'category': None,
+                'selection_policy': None,
+                'slots': {'candidates': [t['key'] for t in targets]},
+                'is_valid_target': False
+            }
+
+        # 4. So khớp intent
         intent, score = self.match_intent(raw)
 
-        if self.pending and (time.time() - self.pending['time'] < self.ctx_timeout):
-            if score < self.threshold and any(
-                    slots.get(k) for k in ('gate', 'flight', 'place_key')):
-                intent = next(i for i in self.cfg['intents']
-                              if i['name'] == self.pending['intent'])
-                score = 100.0
-        self.pending = None
-
+        # 5. Phân loại theo kết quả intent & target
         if intent is None or score < self.threshold:
-            return {'text': self.fallback, 'intent': 'unknown', 'score': score,
-                    'slots': slots, 'action': None, 'target': None}
+            return {
+                'raw': raw,
+                'text': self.fallback,
+                'intent': 'unknown',
+                'score': score,
+                'action': None,
+                'target': None,
+                'category': None,
+                'selection_policy': None,
+                'slots': slots,
+                'is_valid_target': False
+            }
 
-        text, action, target = self.build_response(intent, slots)
-        return {'text': text, 'intent': intent['name'], 'score': score,
-                'slots': slots, 'action': action, 'target': target}
+        action = intent.get('action')
+        intent_name = intent['name']
+
+        # Xử lý các lệnh điều khiển chuyến (pause, resume, cancel, status, help)
+        if action in ('pause', 'resume', 'cancel', 'status', 'help'):
+            return {
+                'raw': raw,
+                'text': intent['responses'][0],
+                'intent': intent_name,
+                'score': score,
+                'action': action,
+                'target': None,
+                'category': None,
+                'selection_policy': None,
+                'slots': slots,
+                'is_valid_target': False
+            }
+
+        # Xử lý câu chào, cảm ơn, thời gian, wifi, tiện ích (action is None)
+        if action is None:
+            resp = intent['responses'][0]
+            if '{time}' in resp:
+                resp = resp.replace('{time}', time.strftime('%H giờ %M phút'))
+            return {
+                'raw': raw,
+                'text': resp,
+                'intent': intent_name,
+                'score': score,
+                'action': None,
+                'target': None,
+                'category': None,
+                'selection_policy': None,
+                'slots': slots,
+                'is_valid_target': False
+            }
+
+        # Xử lý hành động điều hướng (action == 'navigate')
+        target_info = targets[0] if targets else None
+
+        # Nếu intent đã chỉ định sẵn place hoặc category (ví dụ ask_checkin -> checkin, ask_toilet -> toilet, go_home -> home)
+        if not target_info and intent.get('place'):
+            target_info = {'type': 'place', 'key': intent['place'], 'exists': intent['place'] in self.places}
+        elif not target_info and intent.get('category'):
+            target_info = {'type': 'category', 'key': intent['category'], 'exists': intent['category'] in self.categories}
+
+        # Nếu không có đích nào
+        if not target_info:
+            return {
+                'raw': raw,
+                'text': 'Tôi chưa xác định được điểm đến. Bạn vui lòng nói rõ điểm bạn muốn đến.',
+                'intent': 'missing_destination',
+                'score': score,
+                'action': None,
+                'target': None,
+                'category': None,
+                'selection_policy': None,
+                'slots': slots,
+                'is_valid_target': False
+            }
+
+        # Kiểm tra tính tồn tại của đích trong danh mục
+        if not target_info.get('exists'):
+            raw_code = target_info.get('gate_code') or target_info.get('matched_text') or target_info.get('key')
+            return {
+                'raw': raw,
+                'text': f'Địa điểm {raw_code} chưa có trong danh mục của tôi.',
+                'intent': 'place_not_found',
+                'score': score,
+                'action': None,
+                'target': None,
+                'category': None,
+                'selection_policy': None,
+                'slots': {'attempted': target_info.get('key')},
+                'is_valid_target': False
+            }
+
+        # Đích là danh mục nhiều điểm (ví dụ toilet)
+        if target_info['type'] == 'category':
+            cat_key = target_info['key']
+            cat_obj = self.categories.get(cat_key, {})
+            slots['category'] = cat_key
+            policy = cat_obj.get('policy', 'shortest_path')
+            return {
+                'raw': raw,
+                'text': f'Tôi sẽ tìm đường tới {cat_obj.get("name", "địa điểm")} phù hợp nhất cho bạn.',
+                'intent': intent_name,
+                'score': score,
+                'action': 'navigate',
+                'target': None,
+                'category': cat_key,
+                'selection_policy': policy,
+                'slots': slots,
+                'is_valid_target': True
+            }
+
+        # Đích là một địa điểm cụ thể
+        target_key = target_info['key']
+        place = self.places.get(target_key, {})
+        place_name = place.get('name', target_key)
+        slots['place_key'] = target_key
+        if 'gate_code' in target_info:
+            slots['gate'] = target_info['gate_code']
+
+        resp = f'Tôi sẽ dẫn bạn đến {place_name}.'
+        return {
+            'raw': raw,
+            'text': resp,
+            'intent': intent_name,
+            'score': score,
+            'action': 'navigate',
+            'target': target_key,
+            'category': place.get('category'),
+            'selection_policy': 'direct',
+            'slots': slots,
+            'is_valid_target': True
+        }

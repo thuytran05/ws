@@ -1,208 +1,251 @@
 # airport_robot_voice
 
-Trợ lý giọng nói cho mobile robot sân bay chạy ROS 2 — **không dùng LLM**, chạy offline hoàn toàn.
+Hệ thống trợ lý giọng nói (STT + NLU rule-based tiếng Việt + TTS) cho robot hỗ trợ hành khách sân bay trên nền tảng **ROS 2 Jazzy**. Hoạt động hoàn toàn **offline**, không phụ thuộc LLM hay API đám mây.
+
+> [!TIP]
+> **Tài liệu Cài đặt & Vận hành Chi tiết (Dành cho người mới)**:
+> Vui lòng tham khảo file [COMMANDS.md](file:///home/thuytran/ws/src/.agent/COMMANDS.md) để biết đầy đủ từng bước từ cấu hình Docker, cài đặt dependency Python/ROS/Audio, tải model offline Vosk & Piper, kết nối micro/loa thật, build workspace và các lệnh chạy thử chi tiết theo từng Terminal.
+
+---
+
+## 1. Kiến trúc hệ thống
+
+Hệ thống gồm 4 node chính giao tiếp qua ROS 2 topic và action:
 
 ```
-Micro ──► stt_node ──/voice/text──► intent_node ──/voice/say──► tts_node ──► Loa
-        (Vosk STT)                (rule + fuzzy)  │
-                                                  └──/voice/intent──► nav_command_node ──► Nav2
+[Người dùng]
+     │ (Giọng nói / Bàn phím / WAV)
+     ▼
+[stt_node] ────── /voice/text ──────► [intent_node] ────── /voice/say ──────► [tts_node] ──► [Loa / Log]
+(Vosk/ALSA)                              (NLU)             (std_msgs/String)   (Log/Piper/eSpeak)
+                                           │
+                                     /voice/intent
+                                 (JSON Schema v1.0)
+                                           │
+                                           ▼
+                                  [nav_command_node] ◄──── /voice/nav_state (QoS Transient Local)
+                                     (Vòng đời Nav2)
+                                           │
+                                  NavigateToPose / ComputePathToPose
+                                           │
+                                           ▼
+                                      [Nav2 Stack]
 ```
 
-## 1. Cài đặt
+### Hai chế độ vận hành:
+1. **Chế độ Voice độc lập (`use_nav:=false`)**:
+   - Hoạt động ngay cả khi Nav2 chưa chạy.
+   - Trích xuất chính xác `target_id` hoặc `category` và phát dữ liệu có cấu trúc ra `/voice/intent`.
+   - `intent_node` trả lời câu hỏi thông tin (Wi-Fi, sạc pin, giờ mở cửa, chào hỏi, trợ giúp), và thông báo rõ: *"Đã xác định yêu cầu tới [điểm đến], nhưng hệ thống điều hướng chưa sẵn sàng"*.
+2. **Chế độ Voice kết hợp Navigation (`use_nav:=true`)**:
+   - `nav_command_node` đóng vai trò cổng điều phối nhiệm vụ và quản lý trạng thái di chuyển (IDLE, RESOLVING, ANNOUNCING, STARTING, NAVIGATING, PAUSING, PAUSED, CANCELING).
+   - Tiếp nhận lệnh: `navigate` (dẫn đường), `pause` (tạm dừng), `resume` (đi tiếp), `cancel` (hủy chuyến), `replace` (đổi đích khi đang đi), `status` (hỏi vị trí/khoảng cách còn lại).
+   - Chọn điểm tối ưu trong nhóm (ví dụ `toilet`) theo độ dài đường đi khả dụng từ `ComputePathToPose`.
 
-### 1.1 Thư viện Python
+---
+
+## 2. Chuẩn bị môi trường
+
+Mọi thao tác build và chạy được thực hiện trực tiếp trong terminal của VS Code (đang chạy trực tiếp trong môi trường ROS 2 Jazzy tại workspace `/home/ws`):
 
 ```bash
-sudo apt update
-sudo apt install -y python3-pip portaudio19-dev alsa-utils espeak-ng ffmpeg
-pip3 install vosk sounddevice
-```
+# 1. Source môi trường ROS 2 Jazzy
+source /opt/ros/jazzy/setup.bash
 
-> Phần hiểu ý định (NLU) không cần cài thêm thư viện gì — tự viết thuần Python,
-> chạy giống hệt nhau trên mọi máy (xem mục 8 bên dưới về lý do).
-
-### 1.2 Model nhận dạng giọng nói (Vosk, tiếng Việt, ~50 MB)
-
-```bash
-sudo mkdir -p /opt/vosk && cd /opt/vosk
-sudo wget https://alphacephei.com/vosk/models/vosk-model-small-vn-0.4.zip
-sudo unzip vosk-model-small-vn-0.4.zip
-```
-
-Danh sách model: https://alphacephei.com/vosk/models
-
-### 1.3 Giọng nói TTS (Piper, tiếng Việt, ~60 MB)
-
-```bash
-pip3 install piper-tts
-sudo mkdir -p /opt/piper && cd /opt/piper
-# Tải giọng vi_VN từ: https://huggingface.co/rhasspy/piper-voices/tree/main/vi/vi_VN
-sudo wget <link file .onnx>
-sudo wget <link file .onnx.json>
-```
-
-Không có internet để tải Piper? Dùng tạm `engine:=espeak` (giọng máy nhưng chạy ngay).
-
-### 1.4 Build package
-
-```bash
-cd ~/ros2_ws/src
-cp -r /đường/dẫn/airport_robot_voice .
-cd ~/ros2_ws
+# 2. Build package
+cd /home/ws
 colcon build --packages-select airport_robot_voice --symlink-install
-source install/setup.bash
+source /home/ws/install/setup.bash
 ```
 
-## 2. Chạy
+### Các dependency âm thanh đã được tích hợp sẵn:
+- STT: `vosk` và `sounddevice` (`pip install --user vosk sounddevice`).
+- Model Vosk tiếng Việt: `/opt/vosk/vosk-model-small-vn-0.4`.
+- TTS eSpeak: `espeak-ng` (`sudo apt install alsa-utils espeak-ng`) hoặc chế độ `log` (không cần thiết bị âm thanh).
+- TTS Piper: binary `/usr/local/bin/piper`, model `/opt/piper/vi_VN-vais1000-medium.onnx`.
+- Thiết bị âm thanh: `/dev/snd` đã được mount trực tiếp vào container.
 
-**Test lõi NLU trước, không cần ROS, không cần micro:**
+---
 
+## 3. Hướng dẫn chạy chi tiết theo từng Terminal
+
+> [!NOTE]
+> Do bạn thao tác trực tiếp trên VS Code Dev Container, các Terminal mở trong VS Code (`Ctrl + ` ` hoặc `Ctrl + Shift + ` `) đều đã ở sẵn bên trong container tại `/home/ws`. Bạn **không cần dùng `docker exec`**, chỉ cần mở terminal và chạy trực tiếp các lệnh bên dưới.
+
+### Cách 1: Chạy toàn bộ hệ thống bằng ROS 2 Launch
+
+#### Chế độ A: Gõ bàn phím, log-only (Khuyến nghị khi test / không cần micro/loa)
 ```bash
-cd airport_robot_voice
-python3 scripts/test_nlu.py       # chạy bộ test tự động
-python3 scripts/test_nlu.py -i    # chat thử bằng bàn phím
+source /opt/ros/jazzy/setup.bash
+source /home/ws/install/setup.bash
+ros2 launch airport_robot_voice voice_assistant.launch.py mode:=keyboard tts_engine:=log use_nav:=false
 ```
 
-**Chạy toàn hệ thống:**
-
+#### Chế độ B: Gõ bàn phím kết hợp node Navigation (có quản lý action Nav2)
 ```bash
-# Chế độ gõ phím (chưa có micro / đang debug)
-ros2 launch airport_robot_voice voice_assistant.launch.py mode:=keyboard tts_engine:=espeak use_nav:=false
-
-# Chế độ thật, có micro + Nav2
-ros2 launch airport_robot_voice voice_assistant.launch.py mode:=mic tts_engine:=piper use_nav:=true
+source /opt/ros/jazzy/setup.bash
+source /home/ws/install/setup.bash
+ros2 launch airport_robot_voice voice_assistant.launch.py mode:=keyboard tts_engine:=log use_nav:=true
 ```
 
-**Test thủ công từng topic:**
-
+#### Chế độ C: Dùng micro thật và phát âm thanh qua eSpeak-ng
 ```bash
-ros2 topic pub --once /voice/text std_msgs/String "{data: 'cổng B2 ở đâu'}"
+source /opt/ros/jazzy/setup.bash
+source /home/ws/install/setup.bash
+ros2 launch airport_robot_voice voice_assistant.launch.py mode:=mic tts_engine:=espeak use_nav:=true
+```
+
+#### Chế độ D: Kiểm thử lặp lại bằng file âm thanh WAV
+```bash
+source /opt/ros/jazzy/setup.bash
+source /home/ws/install/setup.bash
+ros2 launch airport_robot_voice voice_assistant.launch.py mode:=wav wav_file:=/tmp/test_a3.wav tts_engine:=log use_nav:=false
+```
+
+---
+
+### Cách 2: Chạy riêng từng node trong từng Terminal (Dễ debug và tương tác stdin)
+
+Mở các terminal độc lập trong VS Code (`Ctrl + Shift + ` `):
+
+#### Terminal 1: TTS Node (Phát âm thanh hoặc ghi log)
+```bash
+source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
+ros2 run airport_robot_voice tts_node --ros-args -p engine:=log
+```
+
+#### Terminal 2: Intent Node (Lõi NLU hiểu ý định)
+```bash
+source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
+ros2 run airport_robot_voice intent_node
+```
+
+#### Terminal 3: Nav Command Node (Cổng điều phối Nav2)
+```bash
+source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
+ros2 run airport_robot_voice nav_command_node
+```
+
+#### Terminal 4: STT Node (Nhập văn bản từ bàn phím)
+```bash
+source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
+ros2 run airport_robot_voice stt_node --ros-args -p mode:=keyboard
+```
+*(Gõ câu thoại như `dẫn tôi đến cổng A3`, `quầy check in ở đâu`, `nhà vệ sinh`, `dừng lại`, `đi tiếp` rồi nhấn Enter).*
+
+#### Terminal 5: Theo dõi trạng thái và sự kiện hệ thống (Monitor)
+```bash
+source /opt/ros/jazzy/setup.bash
+
+# Xem câu trả lời phát ra loa
 ros2 topic echo /voice/say
-ros2 topic echo /voice/intent
+
+# Xem yêu cầu điều hướng có cấu trúc JSON
+# ros2 topic echo /voice/intent
+
+# Xem trạng thái nhiệm vụ Nav2 latched (Transient Local QoS)
+# ros2 topic echo /voice/nav_state --qos-durability transient_local
 ```
 
-## 3. Cách hệ thống "hiểu" mà không cần LLM
+---
 
-Với câu `"em ơi cho hỏi cổng bê hai ở đâu ạ"`:
+## 4. Định dạng dữ liệu (Schema JSON)
 
-1. **Chuẩn hoá** → `em oi cho hoi cong be hai o dau a` (bỏ dấu, bỏ ký tự thừa).
-   Bỏ dấu rất quan trọng vì STT hay nhận sai thanh điệu.
-2. **Trích slot** bằng regex: chuyển chữ số sang số (`be hai` → `b 2`), bắt được `gate = B2`,
-   suy ra `place_key = gate_b2`.
-3. **So khớp mờ** câu đã chuẩn hoá với từng câu ví dụ trong `intents.json`,
-   lấy điểm cao nhất. Từ khoá "chốt hạ" (`boost_keywords`) được cộng thêm 30 điểm.
-   Trong nhóm vượt ngưỡng, intent có `priority` cao hơn (lệnh dẫn đường, dừng) thắng
-   intent hỏi thông tin — nhờ vậy "dẫn tôi đến nhà vệ sinh" ra `guide_me` chứ không phải `ask_toilet`.
-4. **Sinh câu trả lời**: lấy template của intent, thay `{gate}`, `{place_desc}`… bằng dữ liệu
-   trong `places.json`. Nếu điểm < ngưỡng → câu fallback.
-
-Toàn bộ mất **dưới 5 ms**, không cần GPU.
-
-## 4. Tuỳ biến
-
-### Thêm câu hỏi mới → chỉ sửa `config/intents.json`, KHÔNG sửa code
-
+### Topic `/voice/intent` (std_msgs/String)
+Xuất phát từ `intent_node`:
 ```json
 {
-  "name": "ask_smoking_area",
-  "examples": ["khu hút thuốc ở đâu", "chỗ nào hút thuốc được", "phòng hút thuốc"],
-  "boost_keywords": ["hút thuốc"],
-  "responses": ["Khu vực hút thuốc ở {place_desc}."],
-  "place": "smoking",
-  "action": null
+  "schema_version": "1.0",
+  "request_id": "req_1700000000_1",
+  "timestamp": 1700000000.123,
+  "raw": "dẫn tôi đến cổng A3",
+  "intent": "guide_me",
+  "action": "navigate",
+  "score": 115.0,
+  "target_id": "gate_a3",
+  "category": "gate",
+  "selection_policy": "direct",
+  "slots": {
+    "place_key": "gate_a3",
+    "gate": "A3"
+  }
 }
 ```
 
-Rồi thêm `"smoking"` vào `places` trong `places.json`.
-
-### Lấy toạ độ cho `places.json`
-
-1. Chạy Nav2 + RViz với bản đồ của bạn.
-2. Dùng teleop đẩy robot tới đúng vị trí cần lưu.
-3. `ros2 topic echo /amcl_pose --once` → lấy `position.x`, `position.y`.
-4. Đổi quaternion sang yaw: `yaw = 2 * atan2(z, w)`.
-
-### Chỉnh độ "khó tính"
-
-`"threshold": 62` trong `intents.json`. Tăng lên (70–75) nếu robot hay hiểu nhầm;
-giảm xuống (55) nếu robot hay nói "tôi chưa hiểu".
-
-### Wake word
-
-Đặt `wake_word` trong launch (ví dụ `'ro bot'`) để robot chỉ phản hồi khi được gọi tên —
-rất hữu ích ở sân bay ồn ào.
-
-## 5. Xử lý sự cố
-
-| Triệu chứng | Nguyên nhân / cách sửa |
-|---|---|
-| STT không ra chữ nào | Sai micro. Chạy `python3 -c "import sounddevice; print(sounddevice.query_devices())"` rồi set tham số `device` |
-| Robot tự nghe chính mình | Đảm bảo `tts_node` publish `/voice/speaking` và `stt_node` subscribe được (cùng namespace) |
-| Nhận dạng sai nhiều | Model small → đổi sang model lớn hơn; dùng micro mảng (ReSpeaker 4-Mic) thay micro laptop |
-| Robot hiểu nhầm intent | Thêm câu ví dụ thật vào `examples`, hoặc thêm `boost_keywords` |
-| Không có tiếng ra loa | Thử đổi `player` sang `paplay` hoặc `ffplay`; kiểm tra `aplay -l` |
-| Nav2 không nhận goal | Kiểm tra `frame_id` đúng là `map` và AMCL đã định vị xong |
-
-## 6. Phần cứng gợi ý
-
-- **Máy tính**: Jetson Orin Nano / Raspberry Pi 5 / mini PC — Vosk small chạy realtime trên CPU.
-- **Micro**: ReSpeaker Mic Array v2.0 hoặc 4-Mic (có khử ồn, beamforming) — yếu tố quan trọng
-  nhất quyết định độ chính xác ở môi trường ồn như sân bay.
-- **Loa**: loa USB nhỏ 5–10 W.
-
-## 7.5 Vì sao từng bị 4/14 và đã sửa thế nào
-
-Nếu bạn từng thấy độ chính xác rất thấp khi tự chạy `test_nlu.py`, nguyên nhân
-**không nằm ở dữ liệu** trong `intents.json` mà ở 3 lỗi trong code `nlu.py`:
-
-1. **Phụ thuộc thư viện tuỳ chọn (rapidfuzz)**: bản đầu tiên thử dùng
-   `rapidfuzz` nếu cài được, không thì lùi về `difflib`. Hai thư viện này
-   chấm điểm rất khác nhau, nên cùng một ngưỡng (`threshold`) mà máy có
-   mạng (cài được rapidfuzz) và máy không mạng (chỉ có difflib) ra kết quả
-   khác hẳn nhau. **Đã sửa**: bỏ hẳn rapidfuzz, viết thuật toán chấm điểm
-   từ khoá có trọng số (TF-IDF thu nhỏ) hoàn toàn bằng Python chuẩn — chạy
-   giống hệt nhau trên mọi máy, không phụ thuộc việc cài đặt.
-
-2. **Lỗi logic ưu tiên (priority)**: intent "ra lệnh" (dẫn đường, dừng...)
-   được ưu tiên hơn intent "hỏi thông tin" khi hai bên cùng khớp — nhưng
-   bản đầu so sánh priority TRƯỚC điểm số một cách vô điều kiện, nên một
-   intent ra lệnh chỉ tình cờ trùng 1 từ (điểm rất thấp) vẫn thắng một
-   intent hỏi thông tin khớp gần như hoàn hảo. **Đã sửa**: priority giờ chỉ
-   phá thế hoà giữa các intent có điểm SÍT SAO với intent tốt nhất (chênh
-   lệch dưới `priority_margin`, mặc định 15 điểm) — không còn ghi đè vô tội vạ.
-
-3. **Xoá dấu tiếng Việt quá tay**: bản đầu xoá luôn cả dấu tạo nguyên âm
-   gốc (ô, ơ, ê, ư, ă — đây là CHỮ CÁI riêng của tiếng Việt, không phải dấu
-   phụ), khiến các từ khác nghĩa hoàn toàn bị gộp làm một, ví dụ "đói"
-   (hungry) và "đổi" (exchange) đều thành "doi". **Đã sửa**: chỉ xoá dấu
-   THANH ĐIỆU (sắc, huyền, hỏi, ngã, nặng) khi câu có dấu đầy đủ; nếu câu
-   hoàn toàn không dấu (gõ tay hoặc STT mất dấu) mới chuyển sang so khớp bỏ
-   dấu toàn bộ. Xem chi tiết trong docstring đầu file `nlu.py`.
-
-Sau khi sửa cả 3, bộ test đã mở rộng lên 57 câu (đa dạng cách nói, có câu
-không dấu, có câu ngoài phạm vi) và đạt 57/57 — chạy `python3
-scripts/test_nlu.py` để tự kiểm chứng trên máy bạn.
-
-## 7.6 Cách tự debug nếu vẫn gặp câu bị hiểu sai
-
-```bash
-python3 -c "
-import sys; sys.path.insert(0,'.')
-from airport_robot_voice.nlu import NluEngine
-e = NluEngine('config/intents.json','config/places.json')
-it, s = e.match_intent('câu bạn muốn kiểm tra')
-print(it['name'] if it else None, s)
-"
+### Topic `/voice/nav_state` (std_msgs/String, QoS Transient Local)
+Công bố bởi `nav_command_node`:
+```json
+{
+  "schema_version": "1.0",
+  "node_online": true,
+  "mission_state": "NAVIGATING",
+  "mission_id": "mission_1",
+  "current_target_id": "gate_a3",
+  "current_target_name": "cổng A3",
+  "distance_remaining": 12.5,
+  "eta_seconds": 18,
+  "last_feedback_time": 1700000010.5,
+  "timestamp": 1700000011.0
+}
 ```
 
-Nếu điểm quá thấp: thêm câu ví dụ gần giống vào `examples` của intent đúng.
-Nếu bị nhận nhầm sang intent khác: thêm `boost_keywords` đặc trưng hơn cho
-intent đúng, hoặc kiểm tra xem 2 intent có đang share một từ không đặc
-trưng (như "thôi", "robot") — nếu có, sửa lại ví dụ để bớt từ đó.
+---
 
-## 7. Nếu sau này muốn nâng cấp
+## 5. Danh mục địa điểm (`config/places.json`) và Lấy tọa độ bản đồ
 
-Kiến trúc này giữ nguyên, chỉ thay từng khối:
-- STT: Vosk → `faster-whisper` (model `small`, chính xác hơn, vẫn chạy offline).
-- NLU: rule-based → phân loại intent bằng embedding (sentence-transformers) hoặc LLM nhỏ,
-  chỉ cần đổi hàm `match_intent()` trong `nlu.py`.
+File `config/places.json` chứa dữ liệu demo được gắn cờ `"_demo_data": true`:
+- Cổng bay: `gate_a1`, `gate_a2`, `gate_a3`, `gate_a4`, `gate_b1`, `gate_b2`, `gate_15`.
+- Quầy làm thủ tục: `checkin`.
+- Nhà vệ sinh (nhiều điểm cùng category `toilet`): `toilet_1` (sảnh A), `toilet_2` (sảnh B).
+- Điểm tiện ích: `food_court`, `baggage`, `info_desk`, `atm`, `security`, `home` (trạm sạc).
+- Thông tin dịch vụ: `wifi` (Airport-Free-WiFi), `charging` (sạc pin), `hours` (mở cửa 24/7).
+
+### Cách lấy toạ độ thực tế trên bản đồ Nav2 / Gazebo:
+1. Chạy Nav2 và RViz: Điều khiển robot tới vị trí cần lưu toạ độ.
+2. Lấy vị trí:
+   ```bash
+   ros2 topic echo /amcl_pose --once
+   ```
+3. Đọc `position.x`, `position.y` và tính góc yaw từ quaternion:
+   ```python
+   yaw = 2.0 * math.atan2(pose.orientation.z, pose.orientation.w)
+   ```
+4. Thêm mục vào `config/places.json` với cấu trúc:
+   ```json
+   "gate_c1": {
+     "name": "cổng C1",
+     "desc": "tầng 2, sảnh C",
+     "aliases": ["c1", "c một", "cổng c1"],
+     "category": "gate",
+     "enabled": true,
+     "x": 5.2, "y": -4.1, "yaw": 1.57,
+     "frame_id": "map"
+   }
+   ```
+
+---
+
+## 6. Chạy kiểm thử tự động (Test Suite)
+
+Package đi kèm bộ test toàn diện 41 kiểm thử pytest và 61 kịch bản NLU:
+
+```bash
+# 1. Chạy kiểm thử tự động NLU thuần Python (không cần ROS):
+python3 src/airport_robot_voice/scripts/test_nlu.py
+
+# 2. Chạy toàn bộ pytest suite trong môi trường ROS 2 Jazzy:
+source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
+python3 -m pytest src/airport_robot_voice/test/ -v
+```
+
+---
+
+## 7. Xử lý sự cố thường gặp (Troubleshooting)
+
+| Sự cố | Nguyên nhân | Cách khắc phục |
+|---|---|---|
+| `Thiếu thư viện âm thanh` | Chưa cài `sounddevice`/`vosk` | Chạy `pip install --user --break-system-packages sounddevice vosk` hoặc dùng `mode:=keyboard`. |
+| `Không nạp được model Vosk` | Thiếu thư mục model | Kiểm tra `/opt/vosk/vosk-model-small-vn-0.4` đã được tải về và giải nén đầy đủ. |
+| `Hệ thống điều hướng chưa sẵn sàng` | `nav_command_node` hoặc Nav2 chưa chạy | Khởi động `nav_command_node` hoặc kiểm tra action server `navigate_to_pose`. |
+| `Không có tiếng ra loa trong Docker` | Docker chưa cấu hình audio pipeline hoặc không có loa ngoài | Dùng `tts_engine:=log` (chế độ chỉ log, vẫn xác nhận và chạy thông suốt toàn bộ lifecycle). |
+| `STT không nhận ký tự khi chạy launch keyboard` | Launch wrapper nuốt stdin | Chạy `stt_node` trực tiếp trong terminal riêng bằng lệnh `ros2 run airport_robot_voice stt_node --ros-args -p mode:=keyboard`. |

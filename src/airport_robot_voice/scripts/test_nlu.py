@@ -18,100 +18,115 @@ engine = NluEngine(os.path.join(CFG, 'intents.json'),
 
 TESTS = [
     # --- greeting / thanks / goodbye / capability ---
-    ('xin chào robot', 'greeting'),
-    ('chào bạn', 'greeting'),
-    ('ê robot', 'greeting'),
-    ('cảm ơn bạn nhiều', 'thanks'),
-    ('cám ơn nhé', 'thanks'),
-    ('tạm biệt robot', 'goodbye'),
-    ('thôi tôi đi đây', 'goodbye'),
-    ('bạn giúp được gì cho tôi', 'capability'),
-    ('robot biết làm những gì vậy', 'capability'),
+    ('xin chào robot', 'greeting', None, None),
+    ('chào bạn', 'greeting', None, None),
+    ('ê robot', 'greeting', None, None),
+    ('cảm ơn bạn nhiều', 'thanks', None, None),
+    ('cám ơn nhé', 'thanks', None, None),
+    ('tạm biệt robot', 'goodbye', None, None),
+    ('thôi tôi đi đây', 'goodbye', None, None),
+    ('bạn giúp được gì cho tôi', 'capability', 'help', None),
+    ('robot biết làm những gì vậy', 'capability', 'help', None),
+    ('cách sử dụng robot', 'capability', 'help', None),
 
-    # --- toilet (nhiều cách nói) ---
-    ('cho tôi hỏi nhà vệ sinh ở đâu ạ', 'ask_toilet'),
-    ('toilet chỗ nào', 'ask_toilet'),
-    ('wc ở đâu vậy bạn', 'ask_toilet'),
-    ('tôi muốn đi vệ sinh quá', 'ask_toilet'),
-    ('nha ve sinh o dau', 'ask_toilet'),          # không dấu, giống STT nghe thiếu dấu
-    ('phòng vệ sinh gần đây nhất ở chỗ nào', 'ask_toilet'),
+    # --- gate location (chuyển sang navigate theo spec 5.1 & 5.2) ---
+    ('em ơi cổng a3 ở đâu', ('guide_me', 'ask_gate_location'), 'navigate', 'gate_a3'),
+    ('cổng A3 ở đâu', ('guide_me', 'ask_gate_location'), 'navigate', 'gate_a3'),
+    ('cổng a ba ở đâu', ('guide_me', 'ask_gate_location'), 'navigate', 'gate_a3'),
+    ('dẫn tôi đến cổng a3', 'guide_me', 'navigate', 'gate_a3'),
+    ('cho tôi tới cổng bê hai', 'guide_me', 'navigate', 'gate_b2'),
+    ('cổng b2 chỗ nào', ('guide_me', 'ask_gate_location'), 'navigate', 'gate_b2'),
+    ('cổng số 15 ở đâu ạ', 'ask_gate_location', 'navigate', 'gate_15'),
+    ('cổng số mười lăm ở đâu', 'ask_gate_location', 'navigate', 'gate_15'),
+    ('gate a1 ở chỗ nào', ('guide_me', 'ask_gate_location'), 'navigate', 'gate_a1'),
+    ('dẫn tôi đến cổng a tư', 'guide_me', 'navigate', 'gate_a4'),
+
+    # --- mã không tồn tại / word boundary ---
+    ('dẫn tôi đến cổng a99', 'place_not_found', None, None),
+    ('cổng b99 ở đâu', 'place_not_found', None, None),
+    ('dẫn tôi đến cổng a123', 'place_not_found', None, None),
+    ('dẫn tôi đến cổng a10', 'place_not_found', None, None),
 
     # --- checkin ---
-    ('quầy check in ở đâu vậy', 'ask_checkin'),
-    ('tôi làm thủ tục lên máy bay ở đâu', 'ask_checkin'),
-    ('quay lam thu tuc o dau', 'ask_checkin'),
-    ('chỗ nộp hành lý ký gửi ở đâu ạ', 'ask_checkin'),
+    ('quầy check in ở đâu vậy', 'ask_checkin', 'navigate', 'checkin'),
+    ('tôi làm thủ tục lên máy bay ở đâu', 'ask_checkin', 'navigate', 'checkin'),
+    ('quay lam thu tuc o dau', 'ask_checkin', 'navigate', 'checkin'),
+    ('cho tôi tới quầy check-in', 'guide_me', 'navigate', 'checkin'),
 
-    # --- gate ---
-    ('em ơi cổng b2 ở đâu', 'ask_gate_location'),
-    ('cong b 2 o dau', 'ask_gate_location'),
-    ('cổng ra máy bay của tôi ở đâu', 'ask_gate_location'),
-    ('cổng số 15 ở đâu ạ', 'ask_gate_location'),
-    ('gate a1 ở chỗ nào', 'ask_gate_location'),
-    ('tôi lên máy bay ở cổng nào đây', 'ask_gate_location'),
+    # --- toilet (nhiều cách nói + category) ---
+    ('cho tôi hỏi nhà vệ sinh ở đâu ạ', 'ask_toilet', 'navigate', None),
+    ('toilet chỗ nào', 'ask_toilet', 'navigate', None),
+    ('wc ở đâu vậy bạn', 'ask_toilet', 'navigate', None),
+    ('tôi muốn đi vệ sinh quá', ('ask_toilet', 'guide_me'), 'navigate', None),
+    ('nha ve sinh o dau', 'ask_toilet', 'navigate', None),
+    ('dẫn tôi đến nhà vệ sinh', 'guide_me', 'navigate', None),
+    ('dẫn tôi đến nhà vệ sinh sảnh A', 'guide_me', 'navigate', 'toilet_1'),
 
-    # --- food ---
-    ('tôi đói quá', 'ask_food'),
-    ('có quán cà phê nào gần đây không', 'ask_food'),
-    ('chỗ nào bán đồ ăn nhanh không bạn', 'ask_food'),
-    ('tôi khát nước quá à', 'ask_food'),
+    # --- food / baggage / info desk / atm / security ---
+    ('tôi đói quá', 'ask_food', 'navigate', 'food_court'),
+    ('có quán cà phê nào gần đây không', 'ask_food', 'navigate', 'food_court'),
+    ('băng chuyền hành lý chỗ nào', 'ask_baggage', 'navigate', 'baggage'),
+    ('quầy thông tin ở đâu vậy bạn', 'ask_info_desk', 'navigate', 'info_desk'),
+    ('cây atm ở đâu', 'ask_atm', 'navigate', 'atm'),
+    ('cửa an ninh ở đâu ạ', 'ask_security', 'navigate', 'security'),
 
-    # --- baggage ---
-    ('lấy hành lý ở đâu', 'ask_baggage'),
-    ('băng chuyền hành lý chỗ nào', 'ask_baggage'),
-    ('vali của tôi ở đâu rồi', 'ask_baggage'),
+    # --- pause / resume / cancel / go_home ---
+    ('dừng lại', 'pause_robot', 'pause', None),
+    ('chờ tôi một chút', 'pause_robot', 'pause', None),
+    ('tạm dừng đi bạn', 'pause_robot', 'pause', None),
+    ('đi tiếp nào', 'resume_robot', 'resume', None),
+    ('tiếp tục đi', 'resume_robot', 'resume', None),
+    ('không cần nữa', 'cancel_robot', 'cancel', None),
+    ('hủy chuyến đi', 'cancel_robot', 'cancel', None),
+    ('quay về trạm sạc đi', 'go_home', 'navigate', 'home'),
 
-    # --- info desk / atm / security ---
-    ('quầy thông tin ở đâu vậy bạn', 'ask_info_desk'),
-    ('tôi cần gặp nhân viên sân bay', 'ask_info_desk'),
-    ('cây atm ở đâu', 'ask_atm'),
-    ('tôi cần đổi tiền đô la', 'ask_atm'),
-    ('cửa an ninh ở đâu ạ', 'ask_security'),
-    ('kiểm tra an ninh ở chỗ nào', 'ask_security'),
+    # --- phủ định ---
+    ('đừng dẫn tôi đến cổng A1', 'negated_nav', None, None),
+    ('không dừng lại nhé', 'negated_pause', None, None),
 
-    # --- guide_me (phải thắng ask_* dù chứa từ địa điểm) ---
-    ('dẫn tôi đến nhà vệ sinh', 'guide_me'),
-    ('đưa tôi tới quầy check in được không', 'guide_me'),
-    ('bạn dẫn tôi đi cổng b2 nhé', 'guide_me'),
-    ('chỉ đường cho tôi tới khu ăn uống', 'guide_me'),
-    ('robot dẫn tôi đến đó nhé', 'guide_me'),
+    # --- đa đích (ambiguous) & thiếu đích ---
+    ('dẫn tôi đến cổng A1 hay A2', 'ambiguous_target', None, None),
+    ('dẫn tôi đến', 'missing_destination', None, None),
 
-    # --- stop / go_home ---
-    ('dừng lại', 'stop_robot'),
-    ('đứng lại đi', 'stop_robot'),
-    ('khoan đã bạn ơi', 'stop_robot'),
-    ('quay về trạm sạc đi', 'go_home'),
+    # --- offline services: wifi, charging, hours, status, time ---
+    ('wifi sân bay tên gì', 'ask_wifi', None, None),
+    ('sạc điện thoại ở đâu', 'ask_charging', None, None),
+    ('sân bay mở cửa mấy giờ', 'ask_hours', None, None),
+    ('bạn đang dẫn tôi đi đâu', 'ask_status', 'status', None),
+    ('bây giờ là mấy giờ rồi', 'ask_time', None, None),
 
-    # --- flight status ---
-    ('chuyến bay VN216 thế nào', 'ask_flight_status'),
-    ('chuyến bay của tôi có bị trễ không', 'ask_flight_status'),
-    ('cho tôi tra cứu chuyến bay VJ130', 'ask_flight_status'),
-
-    # --- time / wifi ---
-    ('bây giờ là mấy giờ rồi', 'ask_time'),
-    ('wifi sân bay tên gì', 'ask_wifi'),
-    ('mật khẩu wifi là gì vậy', 'ask_wifi'),
-    ('lấy hành lý ở đâu', 'ask_baggage'),
-
-    # --- câu ngoài phạm vi -> phải trả unknown ---
-    ('abcxyz lảm nhảm gì đó', 'unknown'),
-    ('hôm nay thời tiết thế nào', 'unknown'),
-    ('bạn có người yêu chưa', 'unknown'),
+    # --- ngoài phạm vi ---
+    ('hôm nay thời tiết thế nào', 'unknown', None, None),
+    ('bạn có người yêu chưa', 'unknown', None, None),
+    ('abcxyz lảm nhảm', 'unknown', None, None),
 ]
+
 
 def run():
     ok = 0
-    for text, expect in TESTS:
+    total = len(TESTS)
+    for text, exp_intent, exp_action, exp_target in TESTS:
         r = engine.process(text)
-        good = r['intent'] == expect
+        if isinstance(exp_intent, tuple):
+            good = (r['intent'] in exp_intent)
+        else:
+            good = (r['intent'] == exp_intent)
+
+        if exp_action is not None:
+            good = good and (r['action'] == exp_action)
+        if exp_target is not None:
+            good = good and (r['target'] == exp_target)
+
         ok += good
         mark = 'OK ' if good else 'SAI'
-        print(f'[{mark}] "{text}"\n      -> {r["intent"]} ({r["score"]:.0f}) '
-              f'slots={r["slots"]} action={r["action"]}\n      "{r["text"]}"\n')
-    print(f'=== Kết quả: {ok}/{len(TESTS)} ===')
+        print(f'[{mark}] "{text}"\n      -> intent={r["intent"]}, action={r["action"]}, target={r["target"]}\n      "{r["text"]}"\n')
+
+    print(f'=== Kết quả kiểm thử: {ok}/{total} đạt ===')
+    return ok == total
+
 
 def interactive():
-    print('Gõ câu hỏi (Ctrl+C để thoát):')
+    print('Gõ câu thoại thử nghiệm NLU (Ctrl+C để thoát):')
     while True:
         try:
             t = input('> ')
@@ -119,8 +134,13 @@ def interactive():
             break
         r = engine.process(t)
         if r:
-            print(f'  [{r["intent"]} {r["score"]:.0f} {r["slots"]}]')
+            print(f'  [intent={r["intent"]}, action={r["action"]}, target={r["target"]}, cat={r["category"]}]')
             print(f'  ROBOT: {r["text"]}\n')
 
+
 if __name__ == '__main__':
-    interactive() if '-i' in sys.argv else run()
+    if '-i' in sys.argv:
+        interactive()
+    else:
+        success = run()
+        sys.exit(0 if success else 1)
