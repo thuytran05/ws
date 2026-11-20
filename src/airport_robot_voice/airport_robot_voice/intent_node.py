@@ -125,14 +125,14 @@ class IntentNode(Node):
 
         # Phân nhánh phát tiếng (say):
         # 1. Các hành động liên quan tới navigation (navigate, pause, resume, cancel, status)
-        if r['action'] in ('navigate', 'pause', 'resume', 'cancel', 'status'):
+        if r['action'] in ('navigate', 'replace', 'pause', 'resume', 'cancel', 'status'):
             if self.is_nav_online:
                 # Nav node đang hoạt động: nhường quyền phát thông báo cho nav node
                 self.get_logger().info(
                     f'Nav gateway đang online -> chuyển quyền phát ngôn cho nav_command_node.')
             else:
                 # Chế độ voice độc lập: thông báo rõ trạng thái
-                if r['action'] == 'navigate':
+                if r['action'] in ('navigate', 'replace'):
                     target_name = 'điểm đến'
                     if r['target'] and r['target'] in self.engine.places:
                         target_name = self.engine.places[r['target']].get('name', r['target'])

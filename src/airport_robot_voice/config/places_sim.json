@@ -1,0 +1,300 @@
+{
+  "_comment": "Dữ liệu địa điểm tối ưu hoá cho mô phỏng Gazebo (turtlebot3_world/playground) với tọa độ kiểm tra thực tế trong vùng tự do di chuyển.",
+  "_demo_data": true,
+  "places": {
+    "checkin": {
+      "name": "quầy làm thủ tục",
+      "desc": "tầng 2, khu vực sảnh A, đi thẳng khoảng 50 mét rồi rẽ trái",
+      "aliases": [
+        "quầy thủ tục",
+        "check in",
+        "checkin",
+        "quầy vé",
+        "quầy làm thủ tục"
+      ],
+      "category": "checkin",
+      "enabled": true,
+      "x": -1.2,
+      "y": -1.2,
+      "yaw": -0.78,
+      "frame_id": "map"
+    },
+    "toilet_1": {
+      "name": "nhà vệ sinh sảnh A",
+      "desc": "ngay bên phải bạn, cách đây khoảng 20 mét, cạnh thang cuốn",
+      "aliases": [
+        "nhà vệ sinh sảnh a",
+        "toilet sảnh a",
+        "vệ sinh sảnh a"
+      ],
+      "category": "toilet",
+      "enabled": true,
+      "x": -1.2,
+      "y": 1.0,
+      "yaw": 1.57,
+      "frame_id": "map"
+    },
+    "toilet_2": {
+      "name": "nhà vệ sinh sảnh B",
+      "desc": "cuối hành lang sảnh B, đối diện khu ăn uống",
+      "aliases": [
+        "nhà vệ sinh sảnh b",
+        "toilet sảnh b",
+        "vệ sinh sảnh b"
+      ],
+      "category": "toilet",
+      "enabled": true,
+      "x": 1.2,
+      "y": 1.0,
+      "yaw": 0.0,
+      "frame_id": "map"
+    },
+    "food_court": {
+      "name": "khu ăn uống",
+      "desc": "tầng 3, phía trên khu vực cách ly, có thang cuốn ngay phía trước",
+      "aliases": [
+        "khu ăn uống",
+        "nhà hàng",
+        "quán ăn",
+        "cà phê",
+        "food court"
+      ],
+      "category": "food",
+      "enabled": true,
+      "x": 1.0,
+      "y": -1.0,
+      "yaw": -1.57,
+      "frame_id": "map"
+    },
+    "baggage": {
+      "name": "băng chuyền hành lý",
+      "desc": "tầng 1, khu vực đến, theo biển chỉ dẫn Baggage Claim",
+      "aliases": [
+        "hành lý",
+        "băng chuyền",
+        "baggage",
+        "băng chuyền hành lý",
+        "lấy hành lý"
+      ],
+      "category": "baggage",
+      "enabled": true,
+      "x": -1.0,
+      "y": 0.5,
+      "yaw": 3.14,
+      "frame_id": "map"
+    },
+    "info_desk": {
+      "name": "quầy thông tin",
+      "desc": "giữa sảnh chính, ngay dưới bảng thông tin chuyến bay",
+      "aliases": [
+        "quầy thông tin",
+        "quầy hỗ trợ",
+        "information"
+      ],
+      "category": "info",
+      "enabled": true,
+      "x": 0.0,
+      "y": 1.2,
+      "yaw": 1.57,
+      "frame_id": "map"
+    },
+    "atm": {
+      "name": "cây ATM",
+      "desc": "cạnh quầy thông tin, dãy máy ATM và quầy đổi ngoại tệ",
+      "aliases": [
+        "atm",
+        "rút tiền",
+        "đổi tiền",
+        "cây atm"
+      ],
+      "category": "service",
+      "enabled": true,
+      "x": 0.5,
+      "y": -0.5,
+      "yaw": 0.0,
+      "frame_id": "map"
+    },
+    "security": {
+      "name": "cửa an ninh",
+      "desc": "cuối sảnh làm thủ tục, khu vực soi chiếu an ninh",
+      "aliases": [
+        "an ninh",
+        "soi chiếu",
+        "security",
+        "cửa an ninh",
+        "kiểm tra an ninh"
+      ],
+      "category": "security",
+      "enabled": true,
+      "x": -0.5,
+      "y": 1.2,
+      "yaw": 1.57,
+      "frame_id": "map"
+    },
+    "home": {
+      "name": "trạm sạc",
+      "desc": "vị trí chờ của robot",
+      "aliases": [
+        "trạm sạc",
+        "chỗ cũ",
+        "về trạm",
+        "vị trí sạc",
+        "quay về trạm",
+        "quay về trạm sạc",
+        "về trạm sạc"
+      ],
+      "category": "charging",
+      "enabled": true,
+      "x": 0.0,
+      "y": 0.0,
+      "yaw": 0.0,
+      "frame_id": "map"
+    },
+    "gate_a1": {
+      "name": "cổng A1",
+      "desc": "cánh trái nhà ga, đi thẳng 100 mét",
+      "aliases": [
+        "a1",
+        "a một",
+        "cổng a1",
+        "cổng a một"
+      ],
+      "category": "gate",
+      "enabled": true,
+      "x": 0.5,
+      "y": 0.5,
+      "yaw": 0.0,
+      "frame_id": "map"
+    },
+    "gate_a2": {
+      "name": "cổng A2",
+      "desc": "cánh trái nhà ga, cạnh cổng A1",
+      "aliases": [
+        "a2",
+        "a hai",
+        "cổng a2",
+        "cổng a hai"
+      ],
+      "category": "gate",
+      "enabled": true,
+      "x": -0.5,
+      "y": 0.5,
+      "yaw": 3.14,
+      "frame_id": "map"
+    },
+    "gate_a3": {
+      "name": "cổng A3",
+      "desc": "cánh trái nhà ga, đối diện cổng A1",
+      "aliases": [
+        "a3",
+        "a ba",
+        "cổng a3",
+        "cổng a ba"
+      ],
+      "category": "gate",
+      "enabled": true,
+      "x": -0.5,
+      "y": -0.8,
+      "yaw": -1.57,
+      "frame_id": "map"
+    },
+    "gate_a4": {
+      "name": "cổng A4",
+      "desc": "cánh trái nhà ga, đối diện cổng A2",
+      "aliases": [
+        "a4",
+        "a bốn",
+        "a tư",
+        "cổng a4",
+        "cổng a bốn",
+        "cổng a tư"
+      ],
+      "category": "gate",
+      "enabled": true,
+      "x": 0.8,
+      "y": -0.5,
+      "yaw": 0.0,
+      "frame_id": "map"
+    },
+    "gate_b1": {
+      "name": "cổng B1",
+      "desc": "cánh phải nhà ga, sau khu miễn thuế",
+      "aliases": [
+        "b1",
+        "b một",
+        "bê một",
+        "cổng b1",
+        "cổng b một",
+        "cổng bê một"
+      ],
+      "category": "gate",
+      "enabled": true,
+      "x": 1.2,
+      "y": -0.2,
+      "yaw": 0.0,
+      "frame_id": "map"
+    },
+    "gate_b2": {
+      "name": "cổng B2",
+      "desc": "cánh phải nhà ga, cạnh cổng B1",
+      "aliases": [
+        "b2",
+        "b hai",
+        "bê hai",
+        "cổng b2",
+        "cổng b hai",
+        "cổng bê hai"
+      ],
+      "category": "gate",
+      "enabled": true,
+      "x": -1.2,
+      "y": -0.2,
+      "yaw": 3.14,
+      "frame_id": "map"
+    },
+    "gate_15": {
+      "name": "cổng 15",
+      "desc": "khu vực cách ly quốc tế, tầng 2",
+      "aliases": [
+        "15",
+        "mười lăm",
+        "cổng 15",
+        "cổng mười lăm",
+        "cổng số 15"
+      ],
+      "category": "gate",
+      "enabled": true,
+      "x": 0.2,
+      "y": -1.2,
+      "yaw": -1.57,
+      "frame_id": "map"
+    }
+  },
+  "categories": {
+    "toilet": {
+      "name": "nhà vệ sinh",
+      "aliases": [
+        "nhà vệ sinh",
+        "toilet",
+        "wc",
+        "phòng vệ sinh",
+        "restroom",
+        "vệ sinh"
+      ],
+      "policy": "shortest_path"
+    }
+  },
+  "services": {
+    "wifi": {
+      "name": "Airport-Free-WiFi",
+      "password": null,
+      "desc": "Sân bay có Wi-Fi miễn phí tên là Airport-Free-WiFi, kết nối không cần mật khẩu."
+    },
+    "charging": {
+      "desc": "Các điểm sạc điện thoại miễn phí được bố trí tại quầy thông tin và gần các cổng chờ A, B."
+    },
+    "hours": {
+      "desc": "Các dịch vụ hành khách tại nhà ga mở cửa liên tục 24/7."
+    }
+  }
+}

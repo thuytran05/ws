@@ -209,7 +209,7 @@ class NluEngine:
         boost = it['_boost_ascii'] if ascii_mode else it['_boost_norm']
 
         base = self._score_one(words, vocab, ascii_mode)
-        matched_boost = [kw for kw in boost if kw and kw in norm_query]
+        matched_boost = [kw for kw in boost if kw and re.search(r'\b' + re.escape(kw) + r'\b', norm_query)]
         if matched_boost:
             max_boost_len = max(len(kw.split()) for kw in matched_boost)
             base = max(base, 90.0) + (max_boost_len * 5.0)
@@ -475,7 +475,28 @@ class NluEngine:
                 'is_valid_target': False
             }
 
-        # Xử lý hành động điều hướng (action == 'navigate')
+        # Phát hiện tiền tố đổi đích (replace prefix)
+        norm_ascii = clean_ascii(raw)
+        is_replace_prefix = bool(re.search(r"\b(doi\s+sang|doi\s+diem\s+den|chuyen\s+sang|doi\s+dich|doi\s+huong|doi\s+lo\s+trinh|thay\s+doi\s+diem\s+den)\b", norm_ascii))
+        if is_replace_prefix and action == 'navigate':
+            action = 'replace'
+            intent_name = 'replace_target'
+
+        # Xử lý hành động điều hướng (action in ('navigate', 'replace'))
+        if action not in ('navigate', 'replace'):
+            return {
+                'raw': raw,
+                'text': self.fallback,
+                'intent': 'unknown',
+                'score': score,
+                'action': None,
+                'target': None,
+                'category': None,
+                'selection_policy': None,
+                'slots': slots,
+                'is_valid_target': False
+            }
+
         target_info = targets[0] if targets else None
 
         # Nếu intent đã chỉ định sẵn place hoặc category (ví dụ ask_checkin -> checkin, ask_toilet -> toilet, go_home -> home)
@@ -521,12 +542,14 @@ class NluEngine:
             cat_obj = self.categories.get(cat_key, {})
             slots['category'] = cat_key
             policy = cat_obj.get('policy', 'shortest_path')
+            cat_name = cat_obj.get("name", "địa điểm")
+            resp = f'Tôi sẽ tìm đường tới {cat_name} phù hợp nhất cho bạn.' if action != 'replace' else f'Đã đổi lộ trình, tôi sẽ tìm đường tới {cat_name} phù hợp nhất cho bạn.'
             return {
                 'raw': raw,
-                'text': f'Tôi sẽ tìm đường tới {cat_obj.get("name", "địa điểm")} phù hợp nhất cho bạn.',
+                'text': resp,
                 'intent': intent_name,
                 'score': score,
-                'action': 'navigate',
+                'action': action,
                 'target': None,
                 'category': cat_key,
                 'selection_policy': policy,
@@ -542,13 +565,13 @@ class NluEngine:
         if 'gate_code' in target_info:
             slots['gate'] = target_info['gate_code']
 
-        resp = f'Tôi sẽ dẫn bạn đến {place_name}.'
+        resp = f'Tôi sẽ dẫn bạn đến {place_name}.' if action != 'replace' else f'Đã đổi lộ trình, tôi sẽ dẫn bạn đến {place_name}.'
         return {
             'raw': raw,
             'text': resp,
             'intent': intent_name,
             'score': score,
-            'action': 'navigate',
+            'action': action,
             'target': target_key,
             'category': place.get('category'),
             'selection_policy': 'direct',

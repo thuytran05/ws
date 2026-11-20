@@ -38,6 +38,10 @@
 | 12 | Treo chờ terminal sau cancel accepted | Bổ sung `cancel_terminal_timeout_sec` (4.0s), đánh dấu unconfirmed terminal, chặn resume/replace. | ĐÃ GIẢI QUYẾT |
 | 13 | Chính sách TTS strict/flexible & drop câu resume | Hỗ trợ 2 chế độ `tts_policy`, hàng đợi TTS dùng LRU cache có timestamp để câu nói sau resume phát bình thường. | ĐÃ GIẢI QUYẾT |
 | 14 | Fallback tự chọn điểm khi thiếu planner | Bỏ fallback chọn điểm tùy ý trong `resolve_category_and_start()`, báo `PLANNER_UNAVAILABLE` và về IDLE an toàn. | ĐÃ GIẢI QUYẾT |
+| 15 | Luồng đổi đích (Replace) qua đầu vào tiếng Việt | NLU dùng regex word boundary `\b` chống nhầm 'chuyển' thành 'hủy', nhận diện tiền tố đổi đích. State machine xử lý replace theo trạng thái, hủy goal cũ an toàn trước khi gửi goal mới. | ĐÃ GIẢI QUYẾT |
+| 16 | Quản lý goal chưa giải quyết & callback cũ | `_unresolved_attempts` ngăn tạo goal mới ngoài kiểm soát khi goal cũ chưa dừng hẳn; đưa `unresolved_attempts_count` và `has_unresolved_goals` vào `nav_state`; callback cũ không xóa `_unconfirmed_terminal` của goal mới. | ĐÃ GIẢI QUYẾT |
+| 17 | Kiểm tra TTS strict qua các ACK thực tế | Phân loại đầy đủ các mã ACK từ `TtsNode` (`COMPLETED`, `WARNING_NO_PLAYER`, `WARNING_PLAYBACK_*`, `ERROR_*`, `DROPPED_QUEUE_FULL`, `CANCELLED_BEFORE_PLAYBACK`). Hủy goal về IDLE ở strict policy nếu không phát được âm thanh. | ĐÃ GIẢI QUYẾT |
+| 18 | Chuẩn hóa Launch arguments & Tọa độ mô phỏng | Đồng bộ đầy đủ 9 tham số launch argument, tạo `voice_system.launch.py` song song `voice_assistant.launch.py`, bổ sung `config/places_sim.json` với tọa độ chuẩn xác trong `turtlebot3_world`. | ĐÃ GIẢI QUYẾT |
 
 ---
 
@@ -155,22 +159,23 @@
 
 ## 5. Tổng hợp Bằng chứng và Kết quả Kiểm thử (Evidence)
 
-Toàn bộ **74 bài kiểm thử tự động** đã được thực thi và xác minh 100% PASSED trực tiếp trong Container ROS 2 Jazzy:
+Toàn bộ **86 bài kiểm thử tự động** đã được thực thi và xác minh 100% PASSED trực tiếp trong Container ROS 2 Jazzy:
 
 ```bash
-# Lệnh thực thi:
-python3 -m pytest src/airport_robot_voice/test/ -v
+# Lệnh thực thi theo 2 nhóm độc lập:
+python3 -m pytest src/airport_robot_voice/test/test_audio.py src/airport_robot_voice/test/test_nlu.py src/airport_robot_voice/test/test_places.py src/airport_robot_voice/test/test_planner_resolution.py -v
+python3 -m pytest src/airport_robot_voice/test/test_ros_lifecycle.py -v
 ```
 
 ### Bảng kết quả chi tiết từng file kiểm thử:
 | File kiểm thử | Số test | Kết quả | Thời gian | Nội dung xác minh |
 |---|---|---|---|---|
-| `test_ros_lifecycle.py` | 22 | **22/22 PASSED** | ~55.3s | Vòng đời Nav2, 3 pha cancel/pause, server reject, pause in resolving, replace, freshness, deduplication, tts sync, acceptance timeout, late acceptance revocation, timer isolation, cancel terminal timeout, tts strict/flexible |
+| `test_ros_lifecycle.py` | 30 | **30/30 PASSED** | ~82.4s | Vòng đời Nav2, 3 pha cancel/pause, server reject, pause in resolving, replace trong khi chạy & tạm dừng, đích mới không hợp lệ, chặn goal mới khi còn unresolved, callback cũ không xóa unconfirmed terminal, status phản ánh unresolved, TTS strict & actual ACK statuses |
 | `test_planner_resolution.py` | 8 | **8/8 PASSED** | ~5.8s | So sánh độ dài đường đi, unreachable, timeout candidate, late callback discard, replace category, planner missing báo lỗi an toàn (0 nav goals) |
 | `test_audio.py` | 13 | **13/13 PASSED** | ~3.8s | STT known speech WAV, silence WAV, model missing, invalid format, wake timeout, Piper WAV format, TTS cancel queue, dropped queue full, resume allows new speech after pause/cancel, ALSA devices |
-| `test_nlu.py` | 24 | **24/24 PASSED** | ~0.04s | Cổng A3/B2, cách đọc tiếng Việt, phủ định, cancel/pause/resume, ambiguous, missing slot, Wi-Fi, sạc pin, giờ mở cửa, Unicode tổ hợp |
+| `test_nlu.py` | 28 | **28/28 PASSED** | ~0.05s | Cổng A3/B2, cách đọc tiếng Việt, phủ định, cancel/pause/resume, ambiguous, missing slot, Wi-Fi, sạc pin, giờ mở cửa, Unicode tổ hợp, và 4 test đổi đích replace destination |
 | `test_places.py` | 7 | **7/7 PASSED** | ~0.02s | Schema JSON places/intents, demo flag, required gates, aliases không trùng lặp |
-| **TỔNG CỘNG** | **74** | **74/74 PASSED 100%** | **59.44s** | **Đạt tiêu chuẩn xuất xưởng và nghiệm thu** |
+| **TỔNG CỘNG** | **86** | **86/86 PASSED 100%** | **91.8s** | **Đạt tiêu chuẩn xuất xưởng và nghiệm thu** |
 
 - File log bằng chứng chi tiết: `.agent/airport_robot_voice/evidence/full_pytest.log`.
 - Kịch bản NLU độc lập: `python3 src/airport_robot_voice/scripts/test_nlu.py` đạt **61/61 PASSED**.
@@ -181,7 +186,7 @@ python3 -m pytest src/airport_robot_voice/test/ -v
 ## 6. Phân định kết quả kiểm chứng theo 3 môi trường
 
 ### 6.1. Môi trường Test Fixture & Mock Server (ĐÃ XÁC MINH 100%)
-- **Trạng thái**: ĐẠT 100% (74/74 tests pytest, 61/61 test_nlu).
+- **Trạng thái**: ĐẠT 100% (86/86 tests pytest, 61/61 test_nlu).
 - **Phạm vi xác minh**:
   - Xử lý NLU tiếng Việt, phủ định, Unicode tổ hợp, ranh giới từ, trích xuất slot, lọc đích tồn tại.
   - Thuật toán chọn đường bằng `ComputePathToPose` (so sánh độ dài đường đi, unreachable, timeout, cancel ngắt resolving, late callback discard, planner unavailable).

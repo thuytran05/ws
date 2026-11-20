@@ -23,6 +23,7 @@ from geometry_msgs.msg import PoseStamped
 from action_msgs.msg import GoalStatus
 
 from airport_robot_voice.nav_command_node import NavCommandNode, MissionState
+from airport_robot_voice.intent_node import IntentNode
 
 
 class ControllableNavServer(Node):
@@ -128,9 +129,14 @@ class NavTestHarness:
             return orig_fb(event, status, message)
         self.nav_node.publish_feedback = mock_fb
 
+        self.intent_node = IntentNode()
+        self.intent_node.nav_timeout = 10.0
+        self.text_pub = self.server.create_publisher(String, '/voice/text', 10)
+
         self.executor = MultiThreadedExecutor()
         self.executor.add_node(self.server)
         self.executor.add_node(self.nav_node)
+        self.executor.add_node(self.intent_node)
 
         self._thread = threading.Thread(target=self.executor.spin, daemon=True)
         self._thread.start()
@@ -180,8 +186,16 @@ class NavTestHarness:
         if self.planner_hold:
             self.planner_hold.set()
         self.executor.shutdown()
+        if hasattr(self, 'intent_node') and self.intent_node:
+            try:
+                self.intent_node.destroy_node()
+            except Exception:
+                pass
         self.nav_node.destroy_node()
         self.server.destroy_node()
+
+    def send_voice_text(self, text: str):
+        self.text_pub.publish(String(data=text))
 
 
 @pytest.fixture(scope="module")
@@ -654,7 +668,9 @@ def test_acceptance_timeout_and_late_acceptance_revoked(ros_context):
 def test_acceptance_timeout_new_request_late_acceptance_discarded(ros_context):
     """
     Test 16: Attempt 1 bị timeout. Yêu cầu mới Attempt 2 được gửi.
-    Acceptance cũ của Attempt 1 về sau không được làm hỏng hoặc dừng timer của Attempt 2.
+    Theo quy tắc an toàn: Attempt 2 bị từ chối chừng nào Attempt 1 chưa terminal.
+    Sau khi Attempt 1 giải phóng acceptance muộn, bị thu hồi và terminal CANCELED,
+    Attempt 2 mới được chấp nhận và chuyển sang NAVIGATING.
     """
     harness = NavTestHarness('act_acc_to_new_req')
     try:
@@ -666,21 +682,28 @@ def test_acceptance_timeout_new_request_late_acceptance_discarded(ros_context):
         harness.wait_state(MissionState.STARTING, timeout=2.0)
         harness.wait_state(MissionState.IDLE, timeout=2.0)
         assert harness.nav_node.state == MissionState.IDLE
+        assert len(harness.nav_node._unresolved_attempts) >= 1
 
-        # 2. Gửi request 2 (đích khác)
-        harness.nav_node.goal_acceptance_timeout_sec = 4.0  # Tăng timeout cho request 2
+        # 2. Gửi request 2 khi Attempt 1 chưa giải quyết xong -> Phải bị từ chối
+        harness.nav_node.goal_acceptance_timeout_sec = 4.0
         harness.nav_node.on_intent(String(data=json.dumps({'action': 'navigate', 'target_id': 'gate_a4', 'request_id': 'req_to_req2'})))
-        harness.wait_state(MissionState.STARTING, timeout=2.0)
+        assert any(fb.get('status') == 'UNRESOLVED_GOALS_PENDING' for fb in harness.feedback_messages)
+        assert harness.nav_node.state == MissionState.IDLE
 
-        # 3. Server nhả acceptance cho cả 2
+        # 3. Server nhả acceptance cho Attempt 1 -> node thu hồi và hủy an toàn
         harness.server.hold_acceptance.set()
+        t0 = time.time()
+        while len(harness.nav_node._unresolved_attempts) > 0 and time.time() - t0 < 3.0:
+            time.sleep(0.02)
+        assert len(harness.nav_node._unresolved_attempts) == 0
 
-        # Node phải chuyển sang NAVIGATING với đích là gate_a4
+        # 4. Khi Attempt 1 đã terminal sạch sẽ, gửi request 2 thành công
+        harness.nav_node.on_intent(String(data=json.dumps({'action': 'navigate', 'target_id': 'gate_a4', 'request_id': 'req_to_req3'})))
         harness.wait_state(MissionState.NAVIGATING, timeout=3.0)
         assert harness.nav_node.state == MissionState.NAVIGATING
         assert harness.nav_node._current_target_key == 'gate_a4'
 
-        # Goal 1 phải bị hủy, Goal 2 đang active
+        # Goal 1 đã bị hủy và Goal 2 đang active
         assert len(harness.server.received_cancels) >= 1
     finally:
         harness.shutdown()
@@ -841,5 +864,273 @@ def test_tts_flexible_policy_fallbacks_on_timeout(ros_context):
         assert harness.nav_node.state == MissionState.NAVIGATING
         assert any(fb.get('status') == 'TTS_TIMEOUT_FALLBACK' for fb in harness.feedback_messages)
         assert len(harness.server.received_goals) >= 1
+    finally:
+        harness.shutdown()
+
+
+
+def test_end_to_end_voice_text_replace_while_navigating(ros_context):
+    """
+    Test 23: Luồng đổi đích từ đầu vào giọng nói '/voice/text' qua IntentNode -> NavCommandNode
+    khi robot đang NAVIGATING với câu 'đổi sang cổng A4'.
+    Xác nhận:
+    - Câu thoại ban đầu 'dẫn tôi đến cổng A3' đưa robot sang NAVIGATING.
+    - Câu thoại 'đổi sang cổng A4' kích hoạt cancel goal 1 (A3).
+    - Sau khi goal 1 dừng hẳn (terminal CANCELED), goal 2 mới được gửi tới A4.
+    - Robot chuyển sang NAVIGATING với target 'gate_a4'.
+    """
+    harness = NavTestHarness('act_e2e_rep_nav')
+    try:
+        harness.send_voice_text('dẫn tôi đến cổng A3')
+        harness.wait_state(MissionState.NAVIGATING, timeout=4.0)
+        assert harness.nav_node.state == MissionState.NAVIGATING
+        assert harness.nav_node._current_target_key == 'gate_a3'
+        assert len(harness.server.received_goals) == 1
+
+        # Gửi câu đổi đích qua /voice/text
+        harness.send_voice_text('đổi sang cổng A4')
+
+        # Đợi cho đến khi goal 1 được hủy và goal 2 (gate_a4) chuyển sang NAVIGATING
+        t0 = time.time()
+        while (harness.nav_node._current_target_key != 'gate_a4' or harness.nav_node.state != MissionState.NAVIGATING) and time.time() - t0 < 5.0:
+            time.sleep(0.02)
+        assert harness.nav_node.state == MissionState.NAVIGATING
+        assert harness.nav_node._current_target_key == 'gate_a4'
+        assert len(harness.server.received_cancels) >= 1
+        assert len(harness.server.received_goals) == 2
+    finally:
+        harness.shutdown()
+
+
+def test_end_to_end_voice_text_navigate_phrase_while_navigating(ros_context):
+    """
+    Test 24: Khi đang NAVIGATING mà nhận câu 'dẫn tôi đến cổng A4' thông thường.
+    Xác nhận:
+    - handle_navigate_request() nhận diện robot đang chạy và tự động chuyển sang luồng replace.
+    - KHÔNG gọi thẳng start_specific_mission() bỏ qua replace.
+    - Thứ tự hủy goal cũ rồi mới gửi goal mới được bảo đảm an toàn.
+    """
+    harness = NavTestHarness('act_e2e_nav_in_nav')
+    try:
+        harness.send_voice_text('dẫn tôi đến cổng A3')
+        harness.wait_state(MissionState.NAVIGATING, timeout=4.0)
+        assert harness.nav_node.state == MissionState.NAVIGATING
+        assert harness.nav_node._current_target_key == 'gate_a3'
+
+        # Chặn terminal result của goal 1 để xác nhận goal 2 chưa được gửi
+        harness.server.hold_terminal = threading.Event()
+
+        # Người dùng nói câu dẫn đường thông thường trong lúc robot đang chạy
+        harness.send_voice_text('dẫn tôi đến cổng A4')
+
+        # Node phải ở PAUSING chờ goal cũ dừng
+        t0 = time.time()
+        while harness.nav_node.state != MissionState.PAUSING and time.time() - t0 < 2.0:
+            time.sleep(0.02)
+        assert harness.nav_node.state == MissionState.PAUSING
+        assert len(harness.server.received_goals) == 1
+
+        # Giải phóng terminal cho goal 1
+        harness.server.hold_terminal.set()
+
+        # Goal 2 được gửi và robot sang NAVIGATING với gate_a4
+        harness.wait_state(MissionState.NAVIGATING, timeout=4.0)
+        assert harness.nav_node.state == MissionState.NAVIGATING
+        assert harness.nav_node._current_target_key == 'gate_a4'
+        assert len(harness.server.received_goals) == 2
+    finally:
+        harness.shutdown()
+
+
+def test_end_to_end_voice_text_replace_while_paused(ros_context):
+    """
+    Test 25: Đổi đích khi robot đang ở trạng thái PAUSED.
+    Xác nhận:
+    - Đích được cập nhật sang gate_a4.
+    - Trạng thái robot VẪN GIỮ NGUYÊN là PAUSED (không tự ý chạy tiếp!).
+    - Chỉ sau khi có lệnh 'đi tiếp', goal mới tới gate_a4 mới được gửi đi.
+    """
+    harness = NavTestHarness('act_e2e_rep_paused')
+    try:
+        harness.send_voice_text('dẫn tôi đến cổng A3')
+        harness.wait_state(MissionState.NAVIGATING, timeout=4.0)
+
+        # Gửi pause
+        harness.send_voice_text('dừng lại')
+        harness.wait_state(MissionState.PAUSED, timeout=4.0)
+        assert harness.nav_node.state == MissionState.PAUSED
+
+        # Gửi lệnh đổi đích khi đang PAUSED
+        harness.send_voice_text('đổi sang cổng A4')
+
+        # Đợi xử lý intent
+        t0 = time.time()
+        while harness.nav_node._current_target_key != 'gate_a4' and time.time() - t0 < 2.0:
+            time.sleep(0.02)
+
+        # Đích đã đổi sang gate_a4 nhưng state VẪN LÀ PAUSED
+        assert harness.nav_node._current_target_key == 'gate_a4'
+        assert harness.nav_node.state == MissionState.PAUSED
+
+        # Lệnh 'đi tiếp'
+        harness.send_voice_text('đi tiếp')
+        harness.wait_state(MissionState.NAVIGATING, timeout=4.0)
+        assert harness.nav_node.state == MissionState.NAVIGATING
+        assert harness.nav_node._current_target_key == 'gate_a4'
+    finally:
+        harness.shutdown()
+
+
+def test_replace_with_invalid_target_preserves_current_mission(ros_context):
+    """
+    Test 26: Đổi đích sang mục tiêu không hợp lệ khi đang NAVIGATING.
+    Xác nhận:
+    - Node phản hồi từ chối rõ ràng (feedback REJECTED, INVALID_NEW_TARGET).
+    - Bảo toàn nguyên vẹn nhiệm vụ hiện tại (tiếp tục NAVIGATING tới đích cũ).
+    """
+    harness = NavTestHarness('act_rep_invalid')
+    try:
+        harness.send_voice_text('dẫn tôi đến cổng A3')
+        harness.wait_state(MissionState.NAVIGATING, timeout=4.0)
+        assert harness.nav_node._current_target_key == 'gate_a3'
+
+        # Đổi sang cổng A99 không tồn tại
+        harness.send_voice_text('đổi sang cổng A99')
+
+        t0 = time.time()
+        while not any('A99' in s or 'không hợp lệ' in s for s in harness.spoken_messages) and time.time() - t0 < 2.0:
+            time.sleep(0.02)
+
+        assert harness.nav_node.state == MissionState.NAVIGATING
+        assert harness.nav_node._current_target_key == 'gate_a3'
+        assert len(harness.server.received_cancels) == 0
+    finally:
+        harness.shutdown()
+
+
+def test_unresolved_attempts_blocks_new_mission_until_cleared(ros_context):
+    """
+    Test 27: Goal 1 bị acceptance timeout. Attempt vẫn lưu trong _unresolved_attempts.
+    Yêu cầu nhiệm vụ mới bị chặn (UNRESOLVED_GOALS_PENDING) cho tới khi goal cũ dừng hẳn.
+    """
+    harness = NavTestHarness('act_unresolved_block')
+    try:
+        harness.nav_node.goal_acceptance_timeout_sec = 0.3
+        harness.server.hold_acceptance = threading.Event()
+
+        # Gửi goal 1
+        harness.nav_node.on_intent(String(data=json.dumps({'action': 'navigate', 'target_id': 'gate_a3', 'request_id': 'req_unres_1'})))
+        harness.wait_state(MissionState.STARTING, timeout=2.0)
+        harness.wait_state(MissionState.IDLE, timeout=2.0)
+        assert harness.nav_node.state == MissionState.IDLE
+        assert len(harness.nav_node._unresolved_attempts) >= 1
+
+        # Gửi goal 2 khi goal 1 chưa giải quyết xong -> Phải bị chặn
+        harness.nav_node.on_intent(String(data=json.dumps({'action': 'navigate', 'target_id': 'gate_a4', 'request_id': 'req_unres_2'})))
+        assert any(fb.get('status') == 'UNRESOLVED_GOALS_PENDING' for fb in harness.feedback_messages)
+        assert harness.nav_node.state == MissionState.IDLE
+
+        # Server giải phóng acceptance muộn cho goal 1 -> node tự hủy và dọn dẹp
+        harness.server.hold_acceptance.set()
+
+        t0 = time.time()
+        while len(harness.nav_node._unresolved_attempts) > 0 and time.time() - t0 < 3.0:
+            time.sleep(0.02)
+        assert len(harness.nav_node._unresolved_attempts) == 0
+
+        # Bây giờ goal 2 gửi được bình thường
+        harness.nav_node.on_intent(String(data=json.dumps({'action': 'navigate', 'target_id': 'gate_a4', 'request_id': 'req_unres_3'})))
+        harness.wait_state(MissionState.NAVIGATING, timeout=3.0)
+        assert harness.nav_node.state == MissionState.NAVIGATING
+        assert harness.nav_node._current_target_key == 'gate_a4'
+    finally:
+        harness.shutdown()
+
+
+def test_late_result_does_not_clear_new_goal_unconfirmed_terminal(ros_context):
+    """
+    Test 28: Goal mới đang có _unconfirmed_terminal = True.
+    Một callback kết quả muộn từ goal cũ trở về -> KHÔNG ĐƯỢC xóa _unconfirmed_terminal của goal mới.
+    """
+    harness = NavTestHarness('act_late_res_iso')
+    try:
+        # Giả lập goal 2 đang có unconfirmed terminal
+        harness.nav_node._current_goal_attempt_id = 'att_new_2'
+        harness.nav_node._current_mission_id = 'mis_new_2'
+        harness.nav_node._unconfirmed_terminal = True
+
+        # Giả lập mock future của goal cũ
+        class MockFuture:
+            def result(self):
+                class MockRes:
+                    status = GoalStatus.STATUS_CANCELED
+                return MockRes()
+
+        # Gọi on_goal_result với attempt cũ 'att_old_1'
+        harness.nav_node.on_goal_result(MockFuture(), 'att_old_1', 'mis_old_1')
+
+        # _unconfirmed_terminal của goal 2 PHẢI VẪN LÀ TRUE!
+        assert harness.nav_node._unconfirmed_terminal is True
+    finally:
+        harness.shutdown()
+
+
+def test_status_inquiry_with_unresolved_attempts(ros_context):
+    """
+    Test 29: Hỏi trạng thái (STATUS) khi node ở IDLE nhưng vẫn còn attempt chưa giải quyết.
+    Xác nhận: Phản hồi rõ ràng UNRESOLVED_GOALS_PENDING cho người dùng.
+    """
+    harness = NavTestHarness('act_status_unresolved')
+    try:
+        harness.nav_node._unresolved_attempts.add('att_dummy_pending')
+        harness.nav_node.handle_status_request('req_status_test')
+
+        assert any(fb.get('status') == 'UNRESOLVED_GOALS_PENDING' for fb in harness.feedback_messages)
+        assert any('chuyến đi trước' in s or 'chưa hoàn tất' in s for s in harness.spoken_messages)
+    finally:
+        harness.shutdown()
+
+
+def test_tts_strict_and_actual_ack_statuses(ros_context):
+    """
+    Test 30: Kiểm tra chi tiết các trạng thái TTS ACK thực tế từ TtsNode.
+    - WARNING_NO_PLAYER: strict hủy goal, flexible fallback gửi goal.
+    - WARNING_PLAYBACK_1: strict hủy goal, flexible fallback gửi goal.
+    - ERROR_PIPER_SYNTHESIS_1: strict hủy goal, flexible fallback gửi goal.
+    - COMPLETED với engine 'log': strict chấp nhận và gửi goal.
+    - CANCELLED_BEFORE_PLAYBACK: không để node mắc lại ANNOUNCING.
+    """
+    harness = NavTestHarness('act_tts_actual_acks')
+    try:
+        harness.nav_node.tts_policy = 'strict'
+        harness.nav_node.tts_ack_timeout = 2.0
+
+        # 1. WARNING_NO_PLAYER trong strict -> abort to IDLE
+        harness.nav_node.on_intent(String(data=json.dumps({'action': 'navigate', 'target_id': 'gate_a3', 'request_id': 'req_ack_1'})))
+        harness.wait_state(MissionState.ANNOUNCING, timeout=2.0)
+        sp_id = harness.nav_node._pending_speech_id
+
+        # Giả lập TtsNode phát ACK WARNING_NO_PLAYER
+        ack_msg = json.dumps({'speech_id': sp_id, 'mission_id': harness.nav_node._current_mission_id, 'status': 'WARNING_NO_PLAYER', 'engine': 'piper', 'audio_played': False})
+        harness.nav_node.on_tts_ack(String(data=ack_msg))
+        assert harness.nav_node.state == MissionState.IDLE
+        assert any('TTS_WARNING_NO_PLAYER' in fb.get('status', '') for fb in harness.feedback_messages)
+
+        # 2. CANCELLED_BEFORE_PLAYBACK -> thoát ANNOUNCING về IDLE
+        harness.nav_node.on_intent(String(data=json.dumps({'action': 'navigate', 'target_id': 'gate_a3', 'request_id': 'req_ack_2'})))
+        harness.wait_state(MissionState.ANNOUNCING, timeout=2.0)
+        sp_id2 = harness.nav_node._pending_speech_id
+        ack_cancel = json.dumps({'speech_id': sp_id2, 'mission_id': harness.nav_node._current_mission_id, 'status': 'CANCELLED_BEFORE_PLAYBACK', 'engine': 'log', 'audio_played': False})
+        harness.nav_node.on_tts_ack(String(data=ack_cancel))
+        assert harness.nav_node.state == MissionState.IDLE
+
+        # 3. COMPLETED với engine 'log' -> chấp nhận và sang STARTING / NAVIGATING
+        harness.nav_node.on_intent(String(data=json.dumps({'action': 'navigate', 'target_id': 'gate_a3', 'request_id': 'req_ack_3'})))
+        harness.wait_state(MissionState.ANNOUNCING, timeout=2.0)
+        sp_id3 = harness.nav_node._pending_speech_id
+        ack_log = json.dumps({'speech_id': sp_id3, 'mission_id': harness.nav_node._current_mission_id, 'status': 'COMPLETED', 'engine': 'log', 'audio_played': False})
+        harness.nav_node.on_tts_ack(String(data=ack_log))
+        harness.wait_state(MissionState.NAVIGATING, timeout=3.0)
+        assert harness.nav_node.state == MissionState.NAVIGATING
     finally:
         harness.shutdown()

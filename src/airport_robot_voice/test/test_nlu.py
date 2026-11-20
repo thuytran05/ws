@@ -190,3 +190,37 @@ class TestUnicodeAndNoDiacritics:
         r2 = engine.process("toilet o dau")
         assert r2['action'] == 'navigate'
         assert r2['category'] == 'toilet'
+
+
+class TestNluReplaceDestination:
+    def test_replace_gate_phrases(self, engine):
+        for phrase in [
+            "đổi sang cổng A4",
+            "đổi điểm đến sang cổng A4",
+            "chuyển sang cổng A4",
+            "đổi đích sang cổng a4",
+            "đổi lộ trình sang cổng A4"
+        ]:
+            r = engine.process(phrase)
+            assert r['action'] == 'replace', f"Failed on '{phrase}': action={r.get('action')}"
+            assert r['target'] == 'gate_a4', f"Failed on '{phrase}': target={r.get('target')}"
+            assert r['is_valid_target'] is True
+            assert 'Đã đổi lộ trình' in r['text']
+
+    def test_replace_category_phrases(self, engine):
+        for phrase in ["đổi sang nhà vệ sinh", "chuyển sang nhà vệ sinh", "đổi điểm đến sang nhà vệ sinh"]:
+            r = engine.process(phrase)
+            assert r['action'] == 'replace', f"Failed on '{phrase}': action={r.get('action')}"
+            assert r['category'] == 'toilet', f"Failed on '{phrase}': category={r.get('category')}"
+            assert r['is_valid_target'] is True
+            assert 'Đã đổi lộ trình' in r['text']
+
+    def test_replace_nonexistent_gate(self, engine):
+        r = engine.process("đổi sang cổng A99")
+        assert r['intent'] == 'place_not_found'
+        assert r['action'] is None
+
+    def test_replace_missing_destination(self, engine):
+        r = engine.process("đổi sang")
+        assert r['intent'] == 'missing_destination'
+        assert r['action'] is None

@@ -249,32 +249,54 @@ python3 src/airport_robot_voice/scripts/test_nlu.py -i
 ```
 *(Gõ thử: `dẫn tôi đến cổng a3`, `nhà vệ sinh ở đâu`, `đừng dẫn tôi đi đâu`, `hủy chuyến`, nhấn Ctrl+C để thoát).*
 
-#### 3. Chạy toàn bộ 74 kiểm thử pytest trong ROS 2 Jazzy:
+#### 3. Chạy toàn bộ 86 kiểm thử pytest trong ROS 2 Jazzy:
+Để tránh tích tụ tài nguyên bộ nhớ của nhiều tiến trình action server trong một phiên test dài, khuyến nghị chạy theo 2 nhóm test:
+
 ```bash
 # Thư mục: /home/ws
-python3 -m pytest src/airport_robot_voice/test/ -v
+# Nhóm 1: Kiểm thử Audio, NLU, Places Schema, và Planner Resolution (56 tests)
+python3 -m pytest src/airport_robot_voice/test/test_audio.py src/airport_robot_voice/test/test_nlu.py src/airport_robot_voice/test/test_places.py src/airport_robot_voice/test/test_planner_resolution.py -v
+
+# Nhóm 2: Kiểm thử Toàn diện Vòng đời ROS Lifecycle, Đổi đích & Hủy an toàn (30 tests)
+python3 -m pytest src/airport_robot_voice/test/test_ros_lifecycle.py -v
 ```
-*Dấu hiệu thành công*: `74 passed in ~60s` (bao gồm 13 tests audio, 24 tests NLU, 7 tests places schema, 8 tests planner resolution, 22 tests action lifecycle).
+*Dấu hiệu thành công*:
+- Nhóm 1: `56 passed in ~9.4s` (13 tests audio, 28 tests NLU, 7 tests places schema, 8 tests planner resolution).
+- Nhóm 2: `30 passed in ~82.4s` (30 tests action lifecycle, 3-phase cancel/pause, late acceptance revocation, unresolved goals blocking, end-to-end voice text replacement, tts strict/flexible).
+- Toàn bộ: **86/86 passed 100%**.
 
 ---
 
 ### 6.2 Khởi động trọn gói bằng Launch file (Khuyến nghị)
 
-Cách nhanh nhất để khởi động toàn bộ các node của hệ thống:
+Package hỗ trợ cả hai tên launch file tương đương: `voice_system.launch.py` và `voice_assistant.launch.py`.
 
+#### Bảng 9 tham số cấu hình Launch Argument:
+| Tham số | Giá trị mặc định | Giá trị khả dụng | Ý nghĩa |
+|---|---|---|---|
+| `mode` | `keyboard` | `keyboard`, `mic`, `wav` | Nguồn đầu vào của giọng nói |
+| `wav_file` | `""` | Đường dẫn file .wav | File âm thanh đầu vào khi `mode:=wav` |
+| `tts_engine` | `log` | `log`, `espeak`, `piper` | Công cụ phát âm thanh (log-only, máy, tự nhiên) |
+| `tts_policy` | `flexible` | `flexible`, `strict` | Chính sách: `strict` hủy goal nếu TTS lỗi/timeout; `flexible` tiếp tục gửi goal |
+| `use_sim_time`| `false` | `true`, `false` | Đồng bộ thời gian mô phỏng (Gazebo /clock) |
+| `places_file` | `places.json` | Đường dẫn file JSON | Cơ sở dữ liệu tọa độ các điểm đến |
+| `vosk_model` | `/opt/vosk/vosk-model-small-vn-0.4` | Đường dẫn model | Model STT tiếng Việt |
+| `use_nav` | `true` | `true`, `false` | Bật/tắt node điều hướng `nav_command_node` |
+| `launch_stt` | `true` | `true`, `false` | Bật/tắt node nhận dạng giọng nói `stt_node` |
+
+#### Lệnh khởi chạy tiêu biểu:
 ```bash
 source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
 
-# Chế độ kiểm thử độc lập (STT bàn phím + TTS ghi log, không cần mic/loa):
-ros2 launch airport_robot_voice voice_system.launch.py \
-  mode:=keyboard \
-  tts_engine:=log \
-  tts_policy:=flexible
+# 1. Chế độ kiểm thử độc lập (Bàn phím + TTS log, không cần mic/loa/Nav2):
+ros2 launch airport_robot_voice voice_system.launch.py   mode:=keyboard   tts_engine:=log   tts_policy:=flexible
 
-# Hoặc chế độ đầy đủ với micro và loa ngoài:
-# ros2 launch airport_robot_voice voice_system.launch.py mode:=mic tts_engine:=piper tts_policy:=flexible
+# 2. Chế độ tích hợp mô phỏng Gazebo (đồng bộ sim time & nạp places_sim.json):
+# ros2 launch airport_robot_voice voice_system.launch.py #   mode:=keyboard #   tts_engine:=log #   use_sim_time:=true #   places_file:=/home/ws/src/airport_robot_voice/config/places_sim.json
+
+# 3. Chế độ thực tế đầy đủ với micro và loa ngoài:
+# ros2 launch airport_robot_voice voice_system.launch.py #   mode:=mic #   tts_engine:=piper #   tts_policy:=flexible
 ```
-
 ---
 
 ### 6.3 Vận hành từng Node riêng biệt theo từng Terminal
@@ -367,39 +389,51 @@ ros2 topic echo /voice/say
 
 ### 6.5 Kịch bản nghiệm thu tích hợp Gazebo & Nav2 theo từng Terminal
 
-Khi tích hợp với robot mô phỏng trong Gazebo và hệ thống điều hướng Nav2:
+Workspace đã tích hợp sẵn package `linorobot2` (`linorobot2_gazebo` và `linorobot2_navigation`). Quy trình khởi động và nghiệm thu hoàn chỉnh theo từng Terminal:
 
-#### Terminal 1: Khởi động Mô phỏng Gazebo & Điều hướng Nav2
+#### Terminal 1: Khởi động Mô phỏng Robot trong Gazebo
+```bash
+# Thiết lập base robot và nạp môi trường
+export LINOROBOT2_BASE=2wd
+source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
+
+# Khởi động mô phỏng với thế giới turtlebot3_world
+ros2 launch linorobot2_gazebo gazebo.launch.py world_name:=turtlebot3_world
+```
+
+#### Terminal 2: Khởi động Hệ thống Điều hướng Nav2
 ```bash
 source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
 
-# Khởi động mô phỏng và Nav2 (ví dụ linorobot2 hoặc robot mô phỏng tương ứng)
-# ros2 launch linorobot2_gazebo gazebo.launch.py
-# ros2 launch linorobot2_navigation navigation.launch.py rviz:=true
+# Khởi động Nav2 stack kèm bản đồ tương ứng và giao diện RViz2
+ros2 launch linorobot2_navigation navigation.launch.py   sim:=true   map:=/home/ws/src/linorobot2/linorobot2_navigation/maps/turtlebot3_world.yaml   rviz:=true
 ```
-*Kiểm tra sẵn sàng*:
+
+*Kiểm tra sẵn sàng trước khi kết nối voice*:
 ```bash
+# Kiểm tra các action server của Nav2 đã xuất hiện:
 ros2 action list | grep -E "navigate_to_pose|compute_path_to_pose"
+
+# Kiểm tra tọa độ AMCL của robot:
 ros2 topic echo /amcl_pose --once
 ```
 
-#### Terminal 2: Khởi động Airport Robot Voice
+#### Terminal 3: Khởi động Airport Robot Voice
 ```bash
 source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
-ros2 launch airport_robot_voice voice_system.launch.py \
-  mode:=keyboard \
-  tts_engine:=log \
-  tts_policy:=flexible
+
+# Khởi chạy voice với cờ sim_time và bản đồ tọa độ mô phỏng places_sim.json:
+ros2 launch airport_robot_voice voice_system.launch.py   mode:=keyboard   tts_engine:=log   tts_policy:=flexible   use_sim_time:=true   places_file:=/home/ws/src/airport_robot_voice/config/places_sim.json
 ```
 
-#### Terminal 3: Giám sát Trạng thái Điều hướng
+#### Terminal 4: Giám sát Trạng thái Điều hướng (/voice/nav_state)
 ```bash
 source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
 ros2 topic echo /voice/nav_state --qos-durability transient_local
 ```
 
-#### Terminal 4: Nhập lệnh tương tác kiểm thử
-Nhập các câu lệnh tại Terminal 4 (hoặc qua micro):
+#### Terminal 5: Nhập lệnh tương tác kiểm thử (STT Keyboard)
+Nhập các câu lệnh tương tác tại Terminal chạy `stt_node` (hoặc Terminal 3):
 1. `dẫn tôi đến cổng A3` -> Robot nhận goal và bắt đầu di chuyển trong Gazebo; nav_state chuyển `NAVIGATING`.
 2. `nhà vệ sinh ở đâu` -> Planner tính đường đến `toilet_1` và `toilet_2`, chọn điểm có đường đi ngắn nhất.
 3. `dừng lại` -> Robot dừng di chuyển trong mô phỏng; nav_state chuyển `PAUSING` -> `PAUSED`.
@@ -407,7 +441,6 @@ Nhập các câu lệnh tại Terminal 4 (hoặc qua micro):
 5. `đổi sang cổng A4` -> Hủy an toàn goal A3, robot chuyển hướng sang cổng A4.
 6. `bạn đang dẫn tôi đi đâu` -> Robot báo tên đích và khoảng cách còn lại (mét).
 7. `hủy chuyến đi` -> Hủy hoàn toàn goal trên Nav2, robot dừng hẳn về `IDLE`.
-
 ---
 
 ## 7. Cấu hình địa điểm (`places.json`)

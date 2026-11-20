@@ -92,3 +92,6 @@ class TestIntentsSchema:
 
         assert 'ask_status' in intents
         assert intents['ask_status']['action'] == 'status'
+
+        assert 'replace_target' in intents
+        assert intents['replace_target']['action'] == 'replace'

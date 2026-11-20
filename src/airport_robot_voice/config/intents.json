@@ -428,6 +428,44 @@
       "action": "resume"
     },
     {
+      "name": "replace_target",
+      "examples": [
+        "đổi sang",
+        "đổi điểm đến sang",
+        "đổi đích sang",
+        "đổi lộ trình sang",
+        "đổi hướng sang",
+        "chuyển sang",
+        "chuyển hướng sang",
+        "thay đổi điểm đến sang",
+        "thay đổi đích đến sang",
+        "đổi điểm đến",
+        "đổi đích",
+        "đổi lộ trình",
+        "thay đổi điểm đến",
+        "tôi muốn đổi sang",
+        "đổi sang điểm khác"
+      ],
+      "boost_keywords": [
+        "đổi sang",
+        "đổi điểm đến sang",
+        "đổi điểm đến",
+        "đổi đích sang",
+        "đổi đích",
+        "đổi lộ trình sang",
+        "đổi lộ trình",
+        "đổi hướng sang",
+        "chuyển sang",
+        "thay đổi điểm đến",
+        "thay đổi đích"
+      ],
+      "priority": 2,
+      "responses": [
+        "Đã đổi lộ trình, tôi sẽ dẫn bạn đến {place_name}."
+      ],
+      "action": "replace"
+    },
+    {
       "name": "cancel_robot",
       "examples": [
         "hủy",
