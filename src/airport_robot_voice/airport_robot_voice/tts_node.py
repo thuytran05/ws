@@ -57,6 +57,8 @@ class TtsNode(Node):
         self.declare_parameter('speed', 1.0)
         self.declare_parameter('normalize_codes', True)
         self.declare_parameter('queue_size', 30)
+        if not self.has_parameter('use_sim_time'):
+            self.declare_parameter('use_sim_time', False)
 
         self.engine = self.get_parameter('engine').value
         self.piper_bin = self.get_parameter('piper_bin').value

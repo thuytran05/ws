@@ -44,6 +44,8 @@ class IntentNode(Node):
         self.declare_parameter('intents_file', os.path.join(share, 'intents.json'))
         self.declare_parameter('places_file', os.path.join(share, 'places.json'))
         self.declare_parameter('nav_timeout_sec', 3.0)
+        if not self.has_parameter('use_sim_time'):
+            self.declare_parameter('use_sim_time', False)
 
         intents_path = self.get_parameter('intents_file').value
         places_path = self.get_parameter('places_file').value
@@ -75,12 +77,15 @@ class IntentNode(Node):
     @property
     def is_nav_online(self) -> bool:
         """Kiểm tra nav_command_node có đang hoạt động hay không."""
-        return (time.time() - self._last_nav_heartbeat) < self.nav_timeout
+        return (
+            self._last_nav_state.get('node_online', False)
+            and (time.monotonic() - self._last_nav_heartbeat) < self.nav_timeout
+        )
 
     def on_nav_state(self, msg: String):
         try:
             data = json.loads(msg.data)
-            self._last_nav_heartbeat = time.time()
+            self._last_nav_heartbeat = time.monotonic()
             self._last_nav_state = data
         except Exception as e:
             self.get_logger().warn(f'Lỗi giải mã /voice/nav_state: {e}')

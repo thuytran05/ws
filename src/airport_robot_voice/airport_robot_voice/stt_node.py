@@ -39,6 +39,8 @@ class SttNode(Node):
         self.declare_parameter('wake_timeout_sec', 15.0)    # Timeout trở về trạng thái chờ
         self.declare_parameter('min_chars', 2)
         self.declare_parameter('audio_queue_size', 50)
+        if not self.has_parameter('use_sim_time'):
+            self.declare_parameter('use_sim_time', False)
 
         self.mode = self.get_parameter('mode').value
         self.wav_file = self.get_parameter('wav_file').value

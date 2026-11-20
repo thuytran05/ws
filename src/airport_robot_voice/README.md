@@ -4,7 +4,7 @@ Hệ thống trợ lý giọng nói (STT + NLU rule-based tiếng Việt + TTS) 
 
 > [!TIP]
 > **Tài liệu Cài đặt & Vận hành Chi tiết (Dành cho người mới)**:
-> Vui lòng tham khảo file [COMMANDS.md](file:///home/thuytran/ws/src/.agent/COMMANDS.md) để biết đầy đủ từng bước từ cấu hình Docker, cài đặt dependency Python/ROS/Audio, tải model offline Vosk & Piper, kết nối micro/loa thật, build workspace và các lệnh chạy thử chi tiết theo từng Terminal.
+> Vui lòng tham khảo file [COMMANDS_VOICE.md](file:///home/thuytran/ws/src/.agent/COMMANDS_VOICE.md) để biết đầy đủ từng bước từ cấu hình Docker, cài đặt dependency Python/ROS/Audio, tải model offline Vosk & Piper, kết nối micro/loa thật, build workspace và các lệnh chạy thử chi tiết theo từng Terminal.
 
 ---
 

@@ -183,7 +183,7 @@ class NavCommandNode(Node):
         self.create_subscription(String, '/voice/tts_ack', self.on_tts_ack, 10)
 
         # Heartbeat timer (1.0s) để duy trì /voice/nav_state latched và fresh heartbeat cho intent_node
-        self._heartbeat_timer = self.create_timer(1.0, self.publish_state)
+        self._heartbeat_timer = self.create_timer(1.0, self.publish_state, clock=self._steady_clock)
 
         # Công bố trạng thái ban đầu
         self.publish_state()
@@ -380,14 +380,17 @@ class NavCommandNode(Node):
         self._revoked_attempts.add(attempt_id)
         self._cancelled_attempts.add(attempt_id)
 
-        if self.state == MissionState.STARTING and attempt_id == self._current_goal_attempt_id:
+        if self.state in (MissionState.STARTING, MissionState.CANCELING) and attempt_id == self._current_goal_attempt_id:
             self.get_logger().error(f"[{attempt_id}] Timeout ({self.goal_acceptance_timeout_sec}s) chờ Nav2 chấp nhận goal.")
             self._current_goal_attempt_id = None
-            speech = 'Hệ thống điều hướng không phản hồi yêu cầu di chuyển.'
-            self.say(speech)
-            self.state = MissionState.IDLE
-            self.publish_state()
-            self.publish_feedback('FAILED', 'ACCEPTANCE_TIMEOUT', speech)
+            if self.state == MissionState.CANCELING:
+                self._transition_to_cancelled()
+            else:
+                speech = 'Hệ thống điều hướng không phản hồi yêu cầu di chuyển.'
+                self.say(speech)
+                self.state = MissionState.IDLE
+                self.publish_state()
+                self.publish_feedback('FAILED', 'ACCEPTANCE_TIMEOUT', speech)
 
     def _start_cancel_timer(self, attempt_id: str, purpose: str):
         self._stop_cancel_timer()
@@ -537,6 +540,11 @@ class NavCommandNode(Node):
         if len(self._unresolved_attempts) > 0 and self.state == MissionState.IDLE:
             self.say('Hệ thống điều hướng đang xử lý chuyến đi trước, vui lòng chờ.')
             self.publish_feedback('REJECTED', 'UNRESOLVED_GOALS_PENDING', 'Còn goal chưa giải quyết xong')
+            return
+
+        if self.state == MissionState.CANCELING:
+            self.say('Hệ thống đang hủy chuyến đi hiện tại, vui lòng chờ.')
+            self.publish_feedback('REJECTED', 'CANCELING_ACTIVE')
             return
 
         if getattr(self, '_unconfirmed_terminal', False):
@@ -955,15 +963,77 @@ class NavCommandNode(Node):
             self.get_logger().error(f'[{attempt_id}] Lỗi hủy goal thu hồi muộn: {e}')
 
     def _on_delayed_cancel_terminal_result(self, future, attempt_id: str, mission_id: str):
-        self.get_logger().info(f'[{attempt_id}] Goal thu hồi muộn đã kết thúc terminal.')
         self._unresolved_attempts.discard(attempt_id)
-        if mission_id == self._current_mission_id:
+        try:
+            res = future.result()
+            status = getattr(res, 'status', GoalStatus.STATUS_UNKNOWN)
+        except Exception as e:
+            self.get_logger().error(f'[{attempt_id}] Lỗi lấy terminal result cho goal thu hồi muộn: {e}')
+            status = GoalStatus.STATUS_UNKNOWN
+
+        self.get_logger().info(f'[{attempt_id}] Goal thu hồi muộn kết thúc terminal với status: {status}')
+
+        if mission_id != self._current_mission_id:
+            self.get_logger().info(f'[{attempt_id}] Goal thu hồi muộn thuộc mission cũ ({mission_id} != {self._current_mission_id}), bỏ qua.')
+            return
+
+        if self.state == MissionState.CANCELING:
+            self._pending_replace_target = None
+            self._pending_replace_category = None
+            self._transition_to_cancelled()
+            return
+
+        # 1. Nếu goal kết thúc SUCCEEDED trước khi lệnh hủy tới nơi
+        if status == GoalStatus.STATUS_SUCCEEDED:
+            self.get_logger().info(f'[{attempt_id}] Goal thu hồi muộn đã hoàn thành SUCCEEDED trước khi dừng.')
+            speech = f'Chúng ta đã tới {self._current_target_name}. Chúc bạn chuyến đi vui vẻ!'
+            self.say(speech)
+            self.publish_feedback('SUCCEEDED', 'OK', speech)
+            self.state = MissionState.IDLE
+            self._current_target_key = None
+            self._current_target_name = None
+            self._current_target_pose = None
+            self._pending_replace_target = None
+            self._pending_replace_category = None
+            self.publish_state()
+            return
+
+        # 2. Nếu goal kết thúc ABORTED
+        if status == GoalStatus.STATUS_ABORTED:
+            self.get_logger().warn(f'[{attempt_id}] Goal thu hồi muộn bị ABORTED.')
+            speech = 'Tôi gặp trở ngại trên đường đi và không thể tiếp tục.'
+            self.say(speech)
+            self.publish_feedback('FAILED', 'ABORTED', speech)
+            self.state = MissionState.IDLE
+            self._current_target_key = None
+            self._current_target_name = None
+            self._current_target_pose = None
+            self._pending_replace_target = None
+            self._pending_replace_category = None
+            self.publish_state()
+            return
+
+        # 3. Nếu goal kết thúc CANCELED
+        if status == GoalStatus.STATUS_CANCELED:
             if self._pending_replace_target or self._pending_replace_category:
                 self._execute_pending_replace()
+                return
             elif self.state == MissionState.PAUSING:
                 self._transition_to_paused()
-            elif self.state == MissionState.CANCELING:
+                return
+            else:
                 self._transition_to_cancelled()
+                return
+
+        # 4. Các trạng thái khác (UNKNOWN hoặc lỗi lấy result)
+        self.get_logger().warn(f'[{attempt_id}] Goal thu hồi muộn kết thúc với trạng thái không xác định: {status}')
+        speech = 'Điều hướng không thành công.'
+        self.say(speech)
+        self.publish_feedback('FAILED', f'STATUS_{status}', speech)
+        self.state = MissionState.IDLE
+        self._pending_replace_target = None
+        self._pending_replace_category = None
+        self.publish_state()
 
     def on_goal_result(self, future, attempt_id: str, mission_id: str):
         self._stop_cancel_timer(attempt_id)
@@ -989,14 +1059,16 @@ class NavCommandNode(Node):
 
         # 1. TH Hủy thành công (STATUS_CANCELED)
         if status == GoalStatus.STATUS_CANCELED:
-            if self._pending_replace_target or self._pending_replace_category:
+            if self.state == MissionState.CANCELING:
+                self._pending_replace_target = None
+                self._pending_replace_category = None
+                self._transition_to_cancelled()
+                return
+            elif self._pending_replace_target or self._pending_replace_category:
                 self._execute_pending_replace()
                 return
             elif self.state == MissionState.PAUSING:
                 self._transition_to_paused()
-                return
-            elif self.state == MissionState.CANCELING:
-                self._transition_to_cancelled()
                 return
 
         # 2. TH Đã tới đích thành công trước khi kịp hủy hoặc khi đang chạy
@@ -1077,7 +1149,7 @@ class NavCommandNode(Node):
         elif self.state == MissionState.PAUSED:
             self.say('Robot đã đang ở trạng thái tạm dừng.')
 
-        elif self.state in (MissionState.PAUSING, MissionState.CANCELING):
+        elif self.state == MissionState.PAUSING:
             self.say('Yêu cầu dừng hoặc hủy đang được xử lý, vui lòng chờ.')
 
         else:
@@ -1106,12 +1178,19 @@ class NavCommandNode(Node):
                 self.say(speech)
                 self.publish_feedback('PAUSE_REJECTED', f'RETURN_CODE_{return_code}', speech)
                 self.publish_state()
+            elif self.state == MissionState.CANCELING:
+                self.state = MissionState.NAVIGATING
+                speech = 'Không thể hủy chuyến đi lúc này do hệ thống điều hướng từ chối yêu cầu.'
+                self.say(speech)
+                self.publish_feedback('CANCEL_REJECTED', f'RETURN_CODE_{return_code}', speech)
+                self.publish_state()
             return
 
         # Server chấp nhận cancel -> Khởi động terminal timer và chờ on_goal_result
         self._stop_cancel_timer(attempt_id)
-        self._start_cancel_terminal_timer(attempt_id, purpose='pause')
-        self.get_logger().info(f"[{attempt_id}] Server chấp nhận yêu cầu dừng. Đang chờ robot dừng hẳn...")
+        purpose = 'cancel' if self.state == MissionState.CANCELING else 'pause'
+        self._start_cancel_terminal_timer(attempt_id, purpose=purpose)
+        self.get_logger().info(f"[{attempt_id}] Server chấp nhận yêu cầu dừng ({purpose}). Đang chờ robot dừng hẳn...")
 
     def _transition_to_paused(self, is_resolving_pause: bool = False):
         self.state = MissionState.PAUSED
@@ -1164,6 +1243,11 @@ class NavCommandNode(Node):
     # Hủy nhiệm vụ (CANCEL)
     # ------------------------------------------------------------------
     def handle_cancel_request(self, req_id: str):
+        self._pending_replace_target = None
+        self._pending_replace_category = None
+        self._pending_replace_req_id = None
+        self._paused_resolution = None
+
         if self.state == MissionState.NAVIGATING:
             self.state = MissionState.CANCELING
             self.publish_state()

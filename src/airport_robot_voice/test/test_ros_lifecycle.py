@@ -1134,3 +1134,231 @@ def test_tts_strict_and_actual_ack_statuses(ros_context):
         assert harness.nav_node.state == MissionState.NAVIGATING
     finally:
         harness.shutdown()
+
+
+def test_heartbeat_with_sim_time_and_no_clock(ros_context):
+    """
+    Test 31: Heartbeat khi use_sim_time=True nhưng /clock không phát (ví dụ Gazebo pause hoặc chưa chạy).
+    Xác nhận:
+    - nav_command_node sử dụng steady clock cho _heartbeat_timer nên timer vẫn phát đều đặn 1.0s.
+    - intent_node đo thời gian bằng time.monotonic() nên nhận diện nav_command_node online (is_nav_online == True).
+    - Phân luồng câu hỏi dẫn đường sang action 'navigate' chính xác thay vì fallback trả lời offline.
+    """
+    from rclpy.parameter import Parameter
+    nav_node = NavCommandNode()
+    nav_node.set_parameters([Parameter('use_sim_time', Parameter.Type.BOOL, True)])
+
+    intent_node = IntentNode()
+    intent_node.set_parameters([Parameter('use_sim_time', Parameter.Type.BOOL, True)])
+    intent_node.nav_timeout = 3.0
+
+    executor = MultiThreadedExecutor()
+    executor.add_node(nav_node)
+    executor.add_node(intent_node)
+
+    thread = threading.Thread(target=executor.spin, daemon=True)
+    thread.start()
+
+    try:
+        # Chờ heartbeat đầu tiên được IntentNode ghi nhận qua /voice/nav_state
+        t0 = time.monotonic()
+        while not intent_node.is_nav_online and (time.monotonic() - t0 < 3.0):
+            time.sleep(0.05)
+
+        assert intent_node.is_nav_online is True, "IntentNode phải nhận diện NavCommandNode online dù không có /clock"
+
+        # Gửi transcript câu thoại và kiểm tra intent_node phân luồng
+        intent_received = []
+        sub_intent = nav_node.create_subscription(
+            String, '/voice/intent', lambda m: intent_received.append(json.loads(m.data)), 10
+        )
+        pub_text = nav_node.create_publisher(String, '/voice/text', 10)
+        time.sleep(0.1)
+
+        pub_text.publish(String(data='dẫn tôi đến cổng A3'))
+        t1 = time.monotonic()
+        while not intent_received and (time.monotonic() - t1 < 2.0):
+            time.sleep(0.05)
+
+        assert len(intent_received) > 0, "Phải nhận được intent message"
+        assert intent_received[0].get('action') == 'navigate'
+        assert intent_received[0].get('target_id') == 'gate_a3'
+    finally:
+        executor.shutdown()
+        nav_node.destroy_node()
+        intent_node.destroy_node()
+
+
+def test_cancel_during_replace_clears_pending_replace_and_cancels(ros_context):
+    """
+    Test 32: Khách yêu cầu đổi đích (A3 -> A4), sau đó nói 'hủy chuyến' trong lúc goal cũ đang hủy.
+    Xác nhận:
+    - Goal A3 bị hủy (CANCELED).
+    - Pending replace 'gate_a4' bị xóa hoàn toàn, KHÔNG gửi goal A4 sang Nav2.
+    - Máy trạng thái về IDLE an toàn.
+    - Câu thông báo hủy 'Tôi đã hủy chuyến đi hiện tại.' chỉ phát đúng 1 lần, không thông báo kép hay đổi đích.
+    """
+    harness = NavTestHarness('act_cancel_during_rep')
+    try:
+        # 1. Bắt đầu đi tới A3
+        harness.send_voice_text('dẫn tôi đến cổng A3')
+        harness.wait_state(MissionState.NAVIGATING, timeout=4.0)
+        assert harness.nav_node.state == MissionState.NAVIGATING
+        assert harness.nav_node._current_target_key == 'gate_a3'
+        assert len(harness.server.received_goals) == 1
+
+        # Chặn terminal result của goal 1
+        harness.server.hold_terminal = threading.Event()
+
+        # 2. Khách yêu cầu đổi sang A4
+        harness.send_voice_text('đổi sang cổng A4')
+        t0 = time.time()
+        while harness.nav_node.state != MissionState.PAUSING and (time.time() - t0 < 2.0):
+            time.sleep(0.02)
+        assert harness.nav_node.state == MissionState.PAUSING
+        assert harness.nav_node._pending_replace_target == 'gate_a4'
+
+        # 3. Khách nói 'hủy chuyến' ngay khi goal 1 đang hủy
+        harness.send_voice_text('hủy chuyến')
+        t1 = time.time()
+        while harness.nav_node.state != MissionState.CANCELING and (time.time() - t1 < 2.0):
+            time.sleep(0.02)
+        assert harness.nav_node.state == MissionState.CANCELING
+        assert harness.nav_node._pending_replace_target is None, "Pending replace target phải bị xóa ngay"
+
+        # 4. Cho phép goal 1 kết thúc terminal CANCELED
+        harness.server.hold_terminal.set()
+
+        # Đợi robot chuyển về IDLE
+        harness.wait_state(MissionState.IDLE, timeout=3.0)
+        assert harness.nav_node.state == MissionState.IDLE
+
+        # Xác nhận KHÔNG gửi goal A4 sang server
+        assert len(harness.server.received_goals) == 1, "Tuyệt đối không gửi goal thứ 2 khi đã hủy"
+        assert harness.nav_node._pending_replace_target is None
+
+        # Xác nhận câu thông báo hủy phát đúng 1 lần, không có thông báo đổi lộ trình A4
+        cancel_speeches = [s for s in harness.spoken_messages if 'đã hủy chuyến đi' in s]
+        assert len(cancel_speeches) == 1, f"Câu hủy chuyến phải phát đúng 1 lần, tìm thấy: {cancel_speeches}"
+        assert not any('cổng A4' in s for s in harness.spoken_messages), "Không được phát thông báo tới A4"
+    finally:
+        harness.shutdown()
+
+
+def test_cancel_during_category_replace_clears_pending_category(ros_context):
+    """
+    Test 33: Khách yêu cầu đổi sang nhóm (toilet), sau đó nói 'hủy chuyến' trong lúc goal cũ đang hủy.
+    Xác nhận:
+    - Pending replace category bị xóa.
+    - Không gọi planner để chọn điểm trong nhóm.
+    - Robot về IDLE và thông báo hủy đúng 1 lần.
+    """
+    harness = NavTestHarness('act_cancel_cat_rep')
+    try:
+        harness.send_voice_text('dẫn tôi đến cổng A3')
+        harness.wait_state(MissionState.NAVIGATING, timeout=4.0)
+        assert harness.nav_node.state == MissionState.NAVIGATING
+
+        harness.server.hold_terminal = threading.Event()
+
+        # Yêu cầu đổi sang nhà vệ sinh
+        harness.send_voice_text('đổi sang nhà vệ sinh')
+        t0 = time.time()
+        while harness.nav_node.state != MissionState.PAUSING and (time.time() - t0 < 2.0):
+            time.sleep(0.02)
+        assert harness.nav_node.state == MissionState.PAUSING
+        assert harness.nav_node._pending_replace_category == 'toilet'
+
+        # Nói 'hủy chuyến'
+        harness.send_voice_text('hủy chuyến')
+        t1 = time.time()
+        while harness.nav_node.state != MissionState.CANCELING and (time.time() - t1 < 2.0):
+            time.sleep(0.02)
+        assert harness.nav_node.state == MissionState.CANCELING
+        assert harness.nav_node._pending_replace_category is None
+
+        # Cho goal 1 kết thúc
+        harness.server.hold_terminal.set()
+        harness.wait_state(MissionState.IDLE, timeout=3.0)
+        assert harness.nav_node.state == MissionState.IDLE
+        assert len(harness.server.received_goals) == 1
+    finally:
+        harness.shutdown()
+
+
+def test_delayed_cancel_terminal_result_statuses(ros_context):
+    """
+    Test 34: Kiểm tra đầy đủ các trạng thái terminal result của goal thu hồi muộn:
+    - SUCCEEDED: Báo đã tới đích cũ, state về IDLE, feedback SUCCEEDED.
+    - ABORTED: Báo gặp trở ngại, state về IDLE, feedback FAILED ABORTED.
+    - CANCELED: Nếu có pending replace thì thực hiện, nếu không thì về CANCELLED/PAUSED.
+    - Exception khi đọc future.result(): xử lý an toàn không sập node, về IDLE.
+    """
+    node = NavCommandNode()
+    try:
+        node._current_mission_id = 'mis_test_terminal_1'
+        node._current_target_name = 'cổng A3'
+        node._current_target_key = 'gate_a3'
+        node.state = MissionState.NAVIGATING
+
+        # 1. SUCCEEDED
+        class MockSuccessFuture:
+            def result(self):
+                class Res:
+                    status = GoalStatus.STATUS_SUCCEEDED
+                return Res()
+
+        spoken = []
+        node.say = lambda t, s=None, m=None: spoken.append(t)
+        feedbacks = []
+        node.publish_feedback = lambda ev, st, msg='': feedbacks.append({'event': ev, 'status': st})
+
+        node._on_delayed_cancel_terminal_result(MockSuccessFuture(), 'att_1', 'mis_test_terminal_1')
+        assert node.state == MissionState.IDLE
+        assert any(fb['event'] == 'SUCCEEDED' for fb in feedbacks)
+        assert any('đã tới cổng A3' in s for s in spoken)
+
+        # 2. ABORTED
+        node.state = MissionState.NAVIGATING
+        node._current_mission_id = 'mis_test_terminal_2'
+        class MockAbortedFuture:
+            def result(self):
+                class Res:
+                    status = GoalStatus.STATUS_ABORTED
+                return Res()
+
+        spoken.clear()
+        feedbacks.clear()
+        node._on_delayed_cancel_terminal_result(MockAbortedFuture(), 'att_2', 'mis_test_terminal_2')
+        assert node.state == MissionState.IDLE
+        assert any(fb['event'] == 'FAILED' and fb['status'] == 'ABORTED' for fb in feedbacks)
+
+        # 3. Exception khi lấy result
+        node.state = MissionState.NAVIGATING
+        node._current_mission_id = 'mis_test_terminal_3'
+        class MockExceptionFuture:
+            def result(self):
+                raise RuntimeError('Action server RPC connection lost')
+
+        spoken.clear()
+        feedbacks.clear()
+        node._on_delayed_cancel_terminal_result(MockExceptionFuture(), 'att_3', 'mis_test_terminal_3')
+        assert node.state == MissionState.IDLE
+        assert any(fb['event'] == 'FAILED' for fb in feedbacks)
+
+        # 4. CANCELED khi CANCELING
+        node.state = MissionState.CANCELING
+        node._current_mission_id = 'mis_test_terminal_4'
+        class MockCanceledFuture:
+            def result(self):
+                class Res:
+                    status = GoalStatus.STATUS_CANCELED
+                return Res()
+
+        spoken.clear()
+        feedbacks.clear()
+        node._on_delayed_cancel_terminal_result(MockCanceledFuture(), 'att_4', 'mis_test_terminal_4')
+        assert node.state == MissionState.IDLE
+        assert any(fb['event'] == 'CANCELED' for fb in feedbacks)
+    finally:
+        node.destroy_node()

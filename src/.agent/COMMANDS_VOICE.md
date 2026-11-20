@@ -249,21 +249,21 @@ python3 src/airport_robot_voice/scripts/test_nlu.py -i
 ```
 *(Gõ thử: `dẫn tôi đến cổng a3`, `nhà vệ sinh ở đâu`, `đừng dẫn tôi đi đâu`, `hủy chuyến`, nhấn Ctrl+C để thoát).*
 
-#### 3. Chạy toàn bộ 86 kiểm thử pytest trong ROS 2 Jazzy:
-Để tránh tích tụ tài nguyên bộ nhớ của nhiều tiến trình action server trong một phiên test dài, khuyến nghị chạy theo 2 nhóm test:
+#### 3. Chạy toàn bộ 90 kiểm thử pytest trong ROS 2 Jazzy:
+Để tránh tích tụ tài nguyên bộ nhớ của nhiều tiến trình action server trong một phiên test dài, khuyến nghị chạy theo 2 nhóm test độc lập:
 
 ```bash
 # Thư mục: /home/ws
 # Nhóm 1: Kiểm thử Audio, NLU, Places Schema, và Planner Resolution (56 tests)
 python3 -m pytest src/airport_robot_voice/test/test_audio.py src/airport_robot_voice/test/test_nlu.py src/airport_robot_voice/test/test_places.py src/airport_robot_voice/test/test_planner_resolution.py -v
 
-# Nhóm 2: Kiểm thử Toàn diện Vòng đời ROS Lifecycle, Đổi đích & Hủy an toàn (30 tests)
+# Nhóm 2: Kiểm thử Toàn diện Vòng đời ROS Lifecycle, Đổi đích & Hủy an toàn (34 tests)
 python3 -m pytest src/airport_robot_voice/test/test_ros_lifecycle.py -v
 ```
 *Dấu hiệu thành công*:
-- Nhóm 1: `56 passed in ~9.4s` (13 tests audio, 28 tests NLU, 7 tests places schema, 8 tests planner resolution).
-- Nhóm 2: `30 passed in ~82.4s` (30 tests action lifecycle, 3-phase cancel/pause, late acceptance revocation, unresolved goals blocking, end-to-end voice text replacement, tts strict/flexible).
-- Toàn bộ: **86/86 passed 100%**.
+- Nhóm 1: `56 passed in ~9.6s` (13 tests audio, 28 tests NLU, 7 tests places schema, 8 tests planner resolution).
+- Nhóm 2: `34 passed in ~85s` (34 tests: vòng đời Nav2, 3-phase cancel/pause, late acceptance revocation, unresolved goals blocking, end-to-end voice text replacement, cancel pending replace, delayed cancel terminal results, heartbeat with sim time).
+- Toàn bộ: **90/90 passed 100%**.
 
 ---
 
@@ -285,27 +285,57 @@ Package hỗ trợ cả hai tên launch file tương đương: `voice_system.lau
 | `launch_stt` | `true` | `true`, `false` | Bật/tắt node nhận dạng giọng nói `stt_node` |
 
 #### Lệnh khởi chạy tiêu biểu:
+
+##### A. Chế độ Bàn phím với Hệ thống Voice (Khuyến nghị 2 bước rõ ràng):
+Để tránh chạy 2 `stt_node` đồng thời hoặc tranh chấp stdin, sử dụng 2 Terminal riêng biệt:
+
+- **Terminal 1: Khởi động hệ thống Voice (Tắt STT tự động)**:
+  ```bash
+  source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
+  ros2 launch airport_robot_voice voice_system.launch.py \
+    launch_stt:=false \
+    tts_engine:=log \
+    tts_policy:=flexible
+  ```
+
+- **Terminal 2: Chạy đúng một node nhập liệu Bàn phím**:
+  ```bash
+  source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
+  ros2 run airport_robot_voice stt_node --ros-args -p mode:=keyboard
+  ```
+  *Cách tương tác*: Gõ các câu lệnh tiếng Việt tại Terminal 2 rồi nhấn `Enter`:
+  - `dẫn tôi đến cổng A3` -> Bắt đầu dẫn đường tới cổng A3.
+  - `đổi sang cổng A4` -> Đổi lộ trình sang cổng A4 khi đang di chuyển.
+  - `dừng lại` -> Tạm dừng di chuyển.
+  - `đi tiếp` -> Tiếp tục hành trình.
+  - `hủy chuyến` -> Hủy chuyến đi hiện tại và đưa robot về IDLE.
+  - `bạn đang dẫn tôi đi đâu` -> Hỏi trạng thái dẫn đường và khoảng cách.
+  *Cách thoát sạch*: Nhấn `Ctrl + C` tại Terminal 2, sau đó `Ctrl + C` tại Terminal 1.
+
+##### B. Chế độ Voice Độc lập (Voice Only, khi Nav2 chưa khởi động):
+Khi cần kiểm thử NLU và trả lời thông tin offline mà chưa có Nav2:
+- **Terminal 1: Khởi động hệ thống Voice không dùng Nav2**:
+  ```bash
+  source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
+  ros2 launch airport_robot_voice voice_system.launch.py \
+    use_nav:=false \
+    launch_stt:=false \
+    tts_engine:=log
+  ```
+- **Terminal 2: Nhập liệu bàn phím**:
+  ```bash
+  source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
+  ros2 run airport_robot_voice stt_node --ros-args -p mode:=keyboard
+  ```
+  *(Gõ thử: `wifi sân bay tên gì`, `sân bay mở cửa mấy giờ`, `sạc pin ở đâu`, `nhà vệ sinh ở đâu`).*
+
+##### C. Chế độ Thực tế đầy đủ với Micro và Loa ngoài:
 ```bash
 source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
-
-# 1. Chế độ kiểm thử độc lập (Bàn phím + TTS log, không cần mic/loa/Nav2):
 ros2 launch airport_robot_voice voice_system.launch.py \
-  mode:=keyboard \
-  tts_engine:=log \
+  mode:=mic \
+  tts_engine:=piper \
   tts_policy:=flexible
-
-# 2. Chế độ tích hợp mô phỏng Gazebo (đồng bộ sim time & nạp places_sim.json):
-# ros2 launch airport_robot_voice voice_system.launch.py \
-#   mode:=keyboard \
-#   tts_engine:=log \
-#   use_sim_time:=true \
-#   places_file:=/home/ws/src/airport_robot_voice/config/places_sim.json
-
-# 3. Chế độ thực tế đầy đủ với micro và loa ngoài:
-# ros2 launch airport_robot_voice voice_system.launch.py \
-#   mode:=mic \
-#   tts_engine:=piper \
-#   tts_policy:=flexible
 ```
 ---
 
@@ -403,8 +433,8 @@ Workspace đã tích hợp sẵn package `linorobot2` (`linorobot2_gazebo` và `
 
 #### Terminal 1: Khởi động Mô phỏng Robot trong Gazebo
 ```bash
-# Thiết lập base robot và nạp môi trường
-export LINOROBOT2_BASE=2wd
+# Thiết lập base robot mecanum (chuẩn xác theo cấu hình phần cứng workspace)
+export LINOROBOT2_BASE=mecanum
 source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
 
 # Khởi động mô phỏng với thế giới turtlebot3_world
@@ -431,13 +461,13 @@ ros2 action list | grep -E "navigate_to_pose|compute_path_to_pose"
 ros2 topic echo /amcl_pose --once
 ```
 
-#### Terminal 3: Khởi động Airport Robot Voice
+#### Terminal 3: Khởi động Airport Robot Voice (launch_stt:=false)
 ```bash
 source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
 
-# Khởi chạy voice với cờ sim_time và bản đồ tọa độ mô phỏng places_sim.json:
+# Khởi chạy voice với cờ sim_time, nạp places_sim.json và tách STT keyboard riêng:
 ros2 launch airport_robot_voice voice_system.launch.py \
-  mode:=keyboard \
+  launch_stt:=false \
   tts_engine:=log \
   tts_policy:=flexible \
   use_sim_time:=true \
@@ -450,15 +480,22 @@ source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
 ros2 topic echo /voice/nav_state --qos-durability transient_local
 ```
 
-#### Terminal 5: Nhập lệnh tương tác kiểm thử (STT Keyboard)
-Nhập các câu lệnh tương tác tại Terminal chạy `stt_node` (hoặc Terminal 3):
+#### Terminal 5: Nhập lệnh tương tác Bàn phím (STT Keyboard độc lập)
+```bash
+source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
+# Chạy node nhập liệu bàn phím duy nhất:
+ros2 run airport_robot_voice stt_node --ros-args -p mode:=keyboard
+```
+*Chuỗi kịch bản nghiệm thu kiểm thử tuần tự*:
 1. `dẫn tôi đến cổng A3` -> Robot nhận goal và bắt đầu di chuyển trong Gazebo; nav_state chuyển `NAVIGATING`.
-2. `nhà vệ sinh ở đâu` -> Planner tính đường đến `toilet_1` và `toilet_2`, chọn điểm có đường đi ngắn nhất.
-3. `dừng lại` -> Robot dừng di chuyển trong mô phỏng; nav_state chuyển `PAUSING` -> `PAUSED`.
-4. `đi tiếp` -> Robot tiếp tục di chuyển; nav_state quay lại `NAVIGATING`.
-5. `đổi sang cổng A4` -> Hủy an toàn goal A3, robot chuyển hướng sang cổng A4.
-6. `bạn đang dẫn tôi đi đâu` -> Robot báo tên đích và khoảng cách còn lại (mét).
-7. `hủy chuyến đi` -> Hủy hoàn toàn goal trên Nav2, robot dừng hẳn về `IDLE`.
+2. `nhà vệ sinh ở đâu` -> Planner tính đường đến `toilet_1` (-1.0, 1.8) và `toilet_2` (0.2, 1.8), chọn điểm gần hơn (`toilet_2`).
+3. `dừng lại` -> Robot dừng di chuyển hoàn toàn trong mô phỏng (/cmd_vel về 0); nav_state chuyển `PAUSING` -> `PAUSED`.
+4. `đi tiếp` -> Robot tiếp tục hành trình tới đích; nav_state quay lại `NAVIGATING`.
+5. `đổi sang cổng A4` -> Hủy an toàn goal A3, robot chuyển hướng sang cổng A4 (1.2, -0.6).
+6. `hủy chuyến` (trong lúc đang đổi sang A4) -> Dừng hẳn ngay lập tức, hủy toàn bộ nhiệm vụ, không gửi goal A4, về `IDLE`.
+7. `bạn đang dẫn tôi đi đâu` -> Robot báo tên đích và khoảng cách còn lại (mét).
+8. `dẫn tôi đến cổng Z9` -> Báo địa điểm chưa có trong danh mục, không kích hoạt điều hướng.
+9. `tôi không muốn đến cổng A1` -> Nhận diện câu phủ định, không kích hoạt điều hướng.
 ---
 
 ## 7. Cấu hình địa điểm (`places.json`)

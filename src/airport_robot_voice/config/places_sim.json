@@ -14,9 +14,9 @@
       ],
       "category": "checkin",
       "enabled": true,
-      "x": -1.2,
-      "y": -1.2,
-      "yaw": -0.78,
+      "x": -1.0,
+      "y": -1.8,
+      "yaw": -1.57,
       "frame_id": "map"
     },
     "toilet_1": {
@@ -29,8 +29,8 @@
       ],
       "category": "toilet",
       "enabled": true,
-      "x": -1.2,
-      "y": 1.0,
+      "x": -1.0,
+      "y": 1.8,
       "yaw": 1.57,
       "frame_id": "map"
     },
@@ -44,9 +44,9 @@
       ],
       "category": "toilet",
       "enabled": true,
-      "x": 1.2,
-      "y": 1.0,
-      "yaw": 0.0,
+      "x": 0.2,
+      "y": 1.8,
+      "yaw": 1.57,
       "frame_id": "map"
     },
     "food_court": {
@@ -61,8 +61,8 @@
       ],
       "category": "food",
       "enabled": true,
-      "x": 1.0,
-      "y": -1.0,
+      "x": 0.0,
+      "y": -1.8,
       "yaw": -1.57,
       "frame_id": "map"
     },
@@ -78,9 +78,9 @@
       ],
       "category": "baggage",
       "enabled": true,
-      "x": -1.0,
-      "y": 0.5,
-      "yaw": 3.14,
+      "x": 0.4,
+      "y": -1.8,
+      "yaw": 0.0,
       "frame_id": "map"
     },
     "info_desk": {
@@ -94,7 +94,7 @@
       "category": "info",
       "enabled": true,
       "x": 0.0,
-      "y": 1.2,
+      "y": 1.6,
       "yaw": 1.57,
       "frame_id": "map"
     },
@@ -109,9 +109,9 @@
       ],
       "category": "service",
       "enabled": true,
-      "x": 0.5,
-      "y": -0.5,
-      "yaw": 0.0,
+      "x": 0.2,
+      "y": -0.6,
+      "yaw": -1.57,
       "frame_id": "map"
     },
     "security": {
@@ -126,8 +126,8 @@
       ],
       "category": "security",
       "enabled": true,
-      "x": -0.5,
-      "y": 1.2,
+      "x": -0.4,
+      "y": 1.8,
       "yaw": 1.57,
       "frame_id": "map"
     },
@@ -146,7 +146,7 @@
       "category": "charging",
       "enabled": true,
       "x": 0.0,
-      "y": 0.0,
+      "y": 0.5,
       "yaw": 0.0,
       "frame_id": "map"
     },
@@ -161,9 +161,9 @@
       ],
       "category": "gate",
       "enabled": true,
-      "x": 0.5,
-      "y": 0.5,
-      "yaw": 0.0,
+      "x": 0.0,
+      "y": 0.6,
+      "yaw": 1.57,
       "frame_id": "map"
     },
     "gate_a2": {
@@ -177,8 +177,8 @@
       ],
       "category": "gate",
       "enabled": true,
-      "x": -0.5,
-      "y": 0.5,
+      "x": -1.0,
+      "y": 0.6,
       "yaw": 3.14,
       "frame_id": "map"
     },
@@ -193,8 +193,8 @@
       ],
       "category": "gate",
       "enabled": true,
-      "x": -0.5,
-      "y": -0.8,
+      "x": -1.0,
+      "y": -0.6,
       "yaw": -1.57,
       "frame_id": "map"
     },
@@ -211,8 +211,8 @@
       ],
       "category": "gate",
       "enabled": true,
-      "x": 0.8,
-      "y": -0.5,
+      "x": 1.2,
+      "y": -0.6,
       "yaw": 0.0,
       "frame_id": "map"
     },
@@ -229,8 +229,8 @@
       ],
       "category": "gate",
       "enabled": true,
-      "x": 1.2,
-      "y": -0.2,
+      "x": 1.4,
+      "y": 0.6,
       "yaw": 0.0,
       "frame_id": "map"
     },
@@ -247,9 +247,9 @@
       ],
       "category": "gate",
       "enabled": true,
-      "x": -1.2,
-      "y": -0.2,
-      "yaw": 3.14,
+      "x": 1.4,
+      "y": -0.4,
+      "yaw": 0.0,
       "frame_id": "map"
     },
     "gate_15": {
@@ -264,8 +264,8 @@
       ],
       "category": "gate",
       "enabled": true,
-      "x": 0.2,
-      "y": -1.2,
+      "x": 0.0,
+      "y": -0.6,
       "yaw": -1.57,
       "frame_id": "map"
     }

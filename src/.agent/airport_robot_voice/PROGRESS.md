@@ -42,6 +42,10 @@
 | 16 | Quản lý goal chưa giải quyết & callback cũ | `_unresolved_attempts` ngăn tạo goal mới ngoài kiểm soát khi goal cũ chưa dừng hẳn; đưa `unresolved_attempts_count` và `has_unresolved_goals` vào `nav_state`; callback cũ không xóa `_unconfirmed_terminal` của goal mới. | ĐÃ GIẢI QUYẾT |
 | 17 | Kiểm tra TTS strict qua các ACK thực tế | Phân loại đầy đủ các mã ACK từ `TtsNode` (`COMPLETED`, `WARNING_NO_PLAYER`, `WARNING_PLAYBACK_*`, `ERROR_*`, `DROPPED_QUEUE_FULL`, `CANCELLED_BEFORE_PLAYBACK`). Hủy goal về IDLE ở strict policy nếu không phát được âm thanh. | ĐÃ GIẢI QUYẾT |
 | 18 | Chuẩn hóa Launch arguments & Tọa độ mô phỏng | Đồng bộ đầy đủ 9 tham số launch argument, tạo `voice_system.launch.py` song song `voice_assistant.launch.py`, bổ sung `config/places_sim.json` với tọa độ chuẩn xác trong `turtlebot3_world`. | ĐÃ GIẢI QUYẾT |
+| 19 | Heartbeat khi simulation pause / không có /clock | `_heartbeat_timer` dùng `self._steady_clock`, `intent_node` kiểm tra bằng `time.monotonic()` và `node_online: true`, đảm bảo phân luồng đúng kể cả khi Gazebo pause hoặc chưa có `/clock`. | ĐÃ GIẢI QUYẾT |
+| 20 | Cancel loại bỏ hoàn toàn yêu cầu đổi đích đang chờ | `handle_cancel_request` lập tức xóa `_pending_replace_target` và category; `on_goal_result` ưu tiên `CANCELING` trước pending replace; không gửi goal thay thế, thông báo hủy duy nhất 1 lần. | ĐÃ GIẢI QUYẾT |
+| 21 | Kiểm tra terminal result của goal thu hồi muộn | `_on_delayed_cancel_terminal_result` đọc `status = future.result().status`, bắt exception; nếu SUCCEEDED thì ghi nhận đã tới đích cũ và hủy pending replace; xử lý đầy đủ ABORTED, CANCELED, UNKNOWN. | ĐÃ GIẢI QUYẾT |
+| 22 | Chuẩn hóa Base Robot mecanum & Keyboard 2 bước | Xác minh phần cứng `LINOROBOT2_BASE=mecanum` (omni drive), tách `stt_node` keyboard độc lập (`launch_stt:=false`) tránh xung đột stdin, kiểm tra độ an toàn clearance >= 0.50m toàn bộ 16 điểm mô phỏng. | ĐÃ GIẢI QUYẾT |
 
 ---
 
@@ -159,7 +163,7 @@
 
 ## 5. Tổng hợp Bằng chứng và Kết quả Kiểm thử (Evidence)
 
-Toàn bộ **86 bài kiểm thử tự động** đã được thực thi và xác minh 100% PASSED trực tiếp trong Container ROS 2 Jazzy:
+Toàn bộ **90 bài kiểm thử tự động** đã được thực thi và xác minh 100% PASSED trực tiếp trong Container ROS 2 Jazzy:
 
 ```bash
 # Lệnh thực thi theo 2 nhóm độc lập:
@@ -170,12 +174,12 @@ python3 -m pytest src/airport_robot_voice/test/test_ros_lifecycle.py -v
 ### Bảng kết quả chi tiết từng file kiểm thử:
 | File kiểm thử | Số test | Kết quả | Thời gian | Nội dung xác minh |
 |---|---|---|---|---|
-| `test_ros_lifecycle.py` | 30 | **30/30 PASSED** | ~82.4s | Vòng đời Nav2, 3 pha cancel/pause, server reject, pause in resolving, replace trong khi chạy & tạm dừng, đích mới không hợp lệ, chặn goal mới khi còn unresolved, callback cũ không xóa unconfirmed terminal, status phản ánh unresolved, TTS strict & actual ACK statuses |
+| `test_ros_lifecycle.py` | 34 | **34/34 PASSED** | ~88.2s | Vòng đời Nav2, 3 pha cancel/pause, server reject, pause in resolving, replace trong khi chạy & tạm dừng, đích mới không hợp lệ, chặn goal mới khi còn unresolved, callback cũ không xóa unconfirmed terminal, status phản ánh unresolved, TTS strict & actual ACK statuses, heartbeat khi simulation pause không có /clock, cancel loại bỏ pending replace, cancel category replace, terminal result của goal thu hồi muộn (SUCCEEDED, ABORTED, CANCELED, exception) |
 | `test_planner_resolution.py` | 8 | **8/8 PASSED** | ~5.8s | So sánh độ dài đường đi, unreachable, timeout candidate, late callback discard, replace category, planner missing báo lỗi an toàn (0 nav goals) |
 | `test_audio.py` | 13 | **13/13 PASSED** | ~3.8s | STT known speech WAV, silence WAV, model missing, invalid format, wake timeout, Piper WAV format, TTS cancel queue, dropped queue full, resume allows new speech after pause/cancel, ALSA devices |
 | `test_nlu.py` | 28 | **28/28 PASSED** | ~0.05s | Cổng A3/B2, cách đọc tiếng Việt, phủ định, cancel/pause/resume, ambiguous, missing slot, Wi-Fi, sạc pin, giờ mở cửa, Unicode tổ hợp, và 4 test đổi đích replace destination |
 | `test_places.py` | 7 | **7/7 PASSED** | ~0.02s | Schema JSON places/intents, demo flag, required gates, aliases không trùng lặp |
-| **TỔNG CỘNG** | **86** | **86/86 PASSED 100%** | **91.8s** | **Đạt tiêu chuẩn xuất xưởng và nghiệm thu** |
+| **TỔNG CỘNG** | **90** | **90/90 PASSED 100%** | **97.8s** | **Đạt tiêu chuẩn xuất xưởng và nghiệm thu** |
 
 - File log bằng chứng chi tiết: `.agent/airport_robot_voice/evidence/full_pytest.log`.
 - Kịch bản NLU độc lập: `python3 src/airport_robot_voice/scripts/test_nlu.py` đạt **61/61 PASSED**.
@@ -194,17 +198,20 @@ python3 -m pytest src/airport_robot_voice/test/test_ros_lifecycle.py -v
   - Đồng bộ âm thanh TTS (speech_id, mission_id, tts_ack, strict/flexible policy, queue cancellation, LRU cache).
   - Định dạng file WAV, nhận diện âm thanh offline qua Vosk, xử lý hàng đợi audio.
 
-### 6.2. Môi trường Thiết bị âm thanh vật lý (ĐÃ XÁC MINH CẤU HÌNH, SẴN SÀNG THỬ NGHIỆM VỚI NGƯỜI DÙNG)
-- **Đã kiểm chứng**:
-  - Container nhận diện 11 thiết bị âm thanh ALSA qua `/dev/snd`.
-  - eSpeak-ng và Piper tổng hợp tiếng Việt ra file WAV chuẩn mono 16-bit.
-  - Model Vosk tiếng Việt giải mã âm thanh chính xác.
-  - Chế độ `tts_engine:=log` và `mode:=keyboard` hoạt động độc lập hoàn hảo không cần micro/loa.
+### 6.2. Môi trường Thiết bị âm thanh vật lý (ĐÃ XÁC MINH CẤU HÌNH VÀ TỔNG HỢP / GIẢI MÃ THỰC TẾ)
+- **Thiết bị phần cứng ALSA thực tế trong container**:
+  - Capture: Card 1 `sofhdadsp` [sof-hda-dsp], device 0 (HDA Analog), device 6 (DMIC), device 7 (DMIC16kHz - chuẩn trực tiếp cho Vosk STT).
+  - Playback: Card 1 `sofhdadsp`, device 0 (HDA Analog Speakers/Headphones), device 3/4/5 (HDMI); Card 0 `NVidia` (HDMI 0..3).
+- **Đã kiểm chứng chất lượng âm thanh offline**:
+  - eSpeak-ng: Tổng hợp câu tiếng Việt (`espeak-ng -v vi -s 140`) ra WAV 22050Hz mono, thời gian phản hồi ~0.08s.
+  - Piper ONNX: Tổng hợp giọng tiếng Việt tự nhiên (`vi_VN-vais1000-medium.onnx`) ra WAV 22050Hz mono, thời lượng 1.63s cho câu dẫn đường cổng A3.
+  - Vosk Offline STT: Model `/opt/vosk/vosk-model-small-vn-0.4` nhận dạng và giải mã chuẩn xác âm thanh tiếng Việt từ file WAV.
+  - Chế độ `tts_engine:=log` và `mode:=keyboard` vận hành độc lập hoàn hảo không cần micro/loa.
 - **Thao tác thử nghiệm micro và loa thật**:
-  - Thu âm thử: `arecord -f S16_LE -r 16000 -c 1 -d 3 /tmp/test_mic.wav`
-  - Nghe lại: `aplay /tmp/test_mic.wav`
+  - Thu âm thử từ DMIC16kHz: `arecord -D hw:1,7 -f S16_LE -r 16000 -c 1 -d 3 /tmp/test_mic.wav` (hoặc mặc định `arecord -f S16_LE -r 16000 -c 1 -d 3 /tmp/test_mic.wav`)
+  - Nghe lại ra loa: `aplay -D hw:1,0 /tmp/test_mic.wav` (hoặc `aplay /tmp/test_mic.wav`)
   - Chạy STT với micro: `ros2 run airport_robot_voice stt_node --ros-args -p mode:=mic`
-  - Chạy TTS với loa: `ros2 run airport_robot_voice tts_node --ros-args -p engine:=espeak` (hoặc `piper`).
+  - Chạy TTS với loa: `ros2 run airport_robot_voice tts_node --ros-args -p engine:=piper` (hoặc `espeak`).
 
 ### 6.3. Kịch bản nghiệm thu mô phỏng Gazebo & Nav2 theo từng Terminal
 Để nghiệm thu hệ thống voice tích hợp đầy đủ với mô phỏng robot sân bay (Gazebo + Nav2), thực hiện theo các bước tuần tự trong 4 Terminal VS Code:
@@ -212,12 +219,14 @@ python3 -m pytest src/airport_robot_voice/test/test_ros_lifecycle.py -v
 #### Terminal 1: Khởi động Mô phỏng Gazebo và Điều hướng Nav2
 ```bash
 # Nạp môi trường ROS 2 Jazzy và Workspace
+export LINOROBOT2_BASE=mecanum
 source /opt/ros/jazzy/setup.bash
 source /home/ws/install/setup.bash
 
-# Khởi động mô phỏng robot và Nav2 (ví dụ Linorobot2 hoặc turtlebot3 simulation)
-# ros2 launch linorobot2_gazebo gazebo.launch.py
-# ros2 launch linorobot2_navigation navigation.launch.py rviz:=true
+# Khởi động mô phỏng robot mecanum trong turtlebot3_world:
+ros2 launch linorobot2_gazebo gazebo.launch.py world_name:=turtlebot3_world
+# Khởi động Nav2 stack (Terminal 2):
+# ros2 launch linorobot2_navigation navigation.launch.py sim:=true map:=/home/ws/src/linorobot2/linorobot2_navigation/maps/turtlebot3_world.yaml rviz:=true
 ```
 *Kiểm tra sẵn sàng*:
 ```bash
