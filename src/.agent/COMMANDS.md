@@ -289,13 +289,23 @@ Package hỗ trợ cả hai tên launch file tương đương: `voice_system.lau
 source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
 
 # 1. Chế độ kiểm thử độc lập (Bàn phím + TTS log, không cần mic/loa/Nav2):
-ros2 launch airport_robot_voice voice_system.launch.py   mode:=keyboard   tts_engine:=log   tts_policy:=flexible
+ros2 launch airport_robot_voice voice_system.launch.py \
+  mode:=keyboard \
+  tts_engine:=log \
+  tts_policy:=flexible
 
 # 2. Chế độ tích hợp mô phỏng Gazebo (đồng bộ sim time & nạp places_sim.json):
-# ros2 launch airport_robot_voice voice_system.launch.py #   mode:=keyboard #   tts_engine:=log #   use_sim_time:=true #   places_file:=/home/ws/src/airport_robot_voice/config/places_sim.json
+# ros2 launch airport_robot_voice voice_system.launch.py \
+#   mode:=keyboard \
+#   tts_engine:=log \
+#   use_sim_time:=true \
+#   places_file:=/home/ws/src/airport_robot_voice/config/places_sim.json
 
 # 3. Chế độ thực tế đầy đủ với micro và loa ngoài:
-# ros2 launch airport_robot_voice voice_system.launch.py #   mode:=mic #   tts_engine:=piper #   tts_policy:=flexible
+# ros2 launch airport_robot_voice voice_system.launch.py \
+#   mode:=mic \
+#   tts_engine:=piper \
+#   tts_policy:=flexible
 ```
 ---
 
@@ -406,7 +416,10 @@ ros2 launch linorobot2_gazebo gazebo.launch.py world_name:=turtlebot3_world
 source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
 
 # Khởi động Nav2 stack kèm bản đồ tương ứng và giao diện RViz2
-ros2 launch linorobot2_navigation navigation.launch.py   sim:=true   map:=/home/ws/src/linorobot2/linorobot2_navigation/maps/turtlebot3_world.yaml   rviz:=true
+ros2 launch linorobot2_navigation navigation.launch.py \
+  sim:=true \
+  map:=/home/ws/src/linorobot2/linorobot2_navigation/maps/turtlebot3_world.yaml \
+  rviz:=true
 ```
 
 *Kiểm tra sẵn sàng trước khi kết nối voice*:
@@ -423,7 +436,12 @@ ros2 topic echo /amcl_pose --once
 source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
 
 # Khởi chạy voice với cờ sim_time và bản đồ tọa độ mô phỏng places_sim.json:
-ros2 launch airport_robot_voice voice_system.launch.py   mode:=keyboard   tts_engine:=log   tts_policy:=flexible   use_sim_time:=true   places_file:=/home/ws/src/airport_robot_voice/config/places_sim.json
+ros2 launch airport_robot_voice voice_system.launch.py \
+  mode:=keyboard \
+  tts_engine:=log \
+  tts_policy:=flexible \
+  use_sim_time:=true \
+  places_file:=/home/ws/src/airport_robot_voice/config/places_sim.json
 ```
 
 #### Terminal 4: Giám sát Trạng thái Điều hướng (/voice/nav_state)
