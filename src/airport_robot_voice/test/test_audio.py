@@ -139,6 +139,38 @@ class TestTtsEnginesAndWavFormat:
         assert any(a.get('speech_id') == 'sp_overflow' and a.get('status') == 'DROPPED_QUEUE_FULL' for a in acks)
         tts.destroy_node()
 
+    def test_tts_resume_allows_new_speech_after_pause_cancel(self, ros_context):
+        """Kiểm tra sau khi pause/cancel mission_1, câu nói mới sau resume của mission_1 vẫn được phát."""
+        tts = TtsNode()
+        acks = []
+        tts.pub_tts_ack = type('MockPub', (), {'publish': lambda self, msg: acks.append(json.loads(msg.data))})()
+
+        # 1. Hủy mission_1
+        tts.on_tts_cancel(String(data=json.dumps({'mission_id': 'mission_test_res'})))
+        time.sleep(0.05)
+
+        # 2. Câu nói mới sau khi resume (enqueued sau thời điểm cancel)
+        payload = {'speech_id': 'sp_after_resume', 'mission_id': 'mission_test_res', 'text': 'Chúng ta tiếp tục di chuyển'}
+        tts.on_say(String(data=json.dumps(payload)))
+
+        t0 = time.time()
+        while time.time() - t0 < 2.0:
+            if any(a.get('speech_id') == 'sp_after_resume' for a in acks):
+                break
+            time.sleep(0.02)
+
+        matching = [a for a in acks if a.get('speech_id') == 'sp_after_resume']
+        assert len(matching) == 1
+        assert matching[0]['status'] == 'COMPLETED'
+
+        # 3. Kiểm tra giới hạn bộ nhớ LRU <= 200 items
+        for i in range(250):
+            tts.on_tts_cancel(String(data=json.dumps({'speech_id': f'sp_bulk_{i}', 'mission_id': f'mis_bulk_{i}'})))
+        assert len(tts._cancelled_speeches) <= 200
+        assert len(tts._cancelled_missions) <= 200
+
+        tts.destroy_node()
+
 
 class TestSttNodeOfflineProcessing:
     def test_stt_known_speech_wav_and_nlu_intent(self, ros_context):

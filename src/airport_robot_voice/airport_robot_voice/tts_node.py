@@ -15,6 +15,7 @@ Subscribe:
   /voice/say      (std_msgs/String)        <- Nhận nội dung cần phát (plain text hoặc JSON)
 """
 
+import collections
 import json
 import os
 import queue
@@ -67,8 +68,8 @@ class TtsNode(Node):
 
         self.q = queue.Queue(maxsize=self.queue_size)
         self._running = True
-        self._cancelled_speeches = set()
-        self._cancelled_missions = set()
+        self._cancelled_speeches = collections.OrderedDict()  # speech_id -> cancel_time
+        self._cancelled_missions = collections.OrderedDict()  # mission_id -> cancel_time
 
         self.pub_speaking = self.create_publisher(Bool, '/voice/speaking', 10)
         self.pub_tts_ack = self.create_publisher(String, '/voice/tts_ack', 10)
@@ -87,17 +88,27 @@ class TtsNode(Node):
         data_str = msg.data.strip()
         if not data_str:
             return
+        now = time.time()
         try:
             data = json.loads(data_str)
+            action = data.get('action')
             sp_id = data.get('speech_id')
             m_id = data.get('mission_id')
-            if sp_id:
-                self._cancelled_speeches.add(sp_id)
-            if m_id:
-                self._cancelled_missions.add(m_id)
+            if action == 'clear_mission_cancel' and m_id:
+                self._cancelled_missions.pop(m_id, None)
+            else:
+                if sp_id:
+                    self._cancelled_speeches[sp_id] = now
+                if m_id:
+                    self._cancelled_missions[m_id] = now
         except Exception:
-            self._cancelled_speeches.add(data_str)
-            self._cancelled_missions.add(data_str)
+            self._cancelled_speeches[data_str] = now
+            self._cancelled_missions[data_str] = now
+
+        while len(self._cancelled_speeches) > 200:
+            self._cancelled_speeches.popitem(last=False)
+        while len(self._cancelled_missions) > 200:
+            self._cancelled_missions.popitem(last=False)
         self.get_logger().info(f"Đã nhận yêu cầu hủy câu nói TTS: {data_str}")
 
     def on_say(self, msg: String):
@@ -124,8 +135,9 @@ class TtsNode(Node):
         if not speech_id:
             speech_id = f"sp_{int(time.time() * 1000)}"
 
+        enqueued_at = time.time()
         try:
-            self.q.put_nowait((text, speech_id, mission_id, request_id))
+            self.q.put_nowait((text, speech_id, mission_id, request_id, enqueued_at))
         except queue.Full:
             self.get_logger().error(f'Hàng đợi TTS đầy ({self.queue_size}), từ chối câu nói mới: {text}')
             ack_payload = {
@@ -149,8 +161,16 @@ class TtsNode(Node):
             except queue.Empty:
                 continue
 
-            raw_text, speech_id, mission_id, request_id = item
-            if speech_id in self._cancelled_speeches or (mission_id and mission_id in self._cancelled_missions):
+            raw_text, speech_id, mission_id, request_id, enqueued_at = item
+            is_cancelled = False
+            if speech_id in self._cancelled_speeches:
+                is_cancelled = True
+            elif mission_id and mission_id in self._cancelled_missions:
+                cancel_time = self._cancelled_missions[mission_id]
+                if enqueued_at <= cancel_time:
+                    is_cancelled = True
+
+            if is_cancelled:
                 self.get_logger().info(f"Bỏ qua câu nói đã bị hủy trong hàng đợi: [{speech_id}] '{raw_text}'")
                 ack_payload = {
                     'speech_id': speech_id,

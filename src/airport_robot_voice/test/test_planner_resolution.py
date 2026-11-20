@@ -369,7 +369,7 @@ def test_planner_server_unavailable_reports_unavailability(ros_context):
     """
     Test 8: Planner server vắng mặt / chưa sẵn sàng.
     Xác nhận: Hệ thống phát thông báo giải thích rõ chưa thể chọn điểm theo đường đi,
-    không tự tuyên bố đã chọn điểm gần nhất, và phát feedback PLANNER_UNAVAILABLE_FALLBACK.
+    không tự tuyên bố đã chọn điểm gần nhất, không tự ý gửi goal Nav2, về IDLE và phát feedback PLANNER_UNAVAILABLE.
     """
     # Dùng action name không có server nào lắng nghe
     nav_node = NavCommandNode()
@@ -378,6 +378,8 @@ def test_planner_server_unavailable_reports_unavailability(ros_context):
 
     spoken = []
     feedbacks = []
+    sent_goals = []
+
     orig_say = nav_node.say
     def mock_say(text, speech_id=None, mission_id=None):
         spoken.append(text)
@@ -390,14 +392,30 @@ def test_planner_server_unavailable_reports_unavailability(ros_context):
         return orig_fb(event, status, message)
     nav_node.publish_feedback = mock_fb
 
+    orig_send = nav_node.send_nav_goal
+    def mock_send():
+        sent_goals.append(True)
+        return orig_send()
+    nav_node.send_nav_goal = mock_send
+
     nav_payload = {'action': 'navigate', 'category': 'toilet', 'request_id': 'req_unavail'}
     nav_node.on_intent(String(data=json.dumps(nav_payload)))
 
     for _ in range(10):
         rclpy.spin_once(nav_node, timeout_sec=0.03)
 
+    # 1. Thông báo rõ chưa sẵn sàng
     assert any('chưa sẵn sàng' in s for s in spoken)
     assert not any('tối ưu' in s or 'gần nhất' in s for s in spoken if 'chưa thể' not in s)
-    assert any(fb.get('event') == 'PLANNER_UNAVAILABLE_FALLBACK' for fb in feedbacks)
+
+    # 2. Báo lỗi PLANNER_UNAVAILABLE
+    assert any(fb.get('status') == 'PLANNER_UNAVAILABLE' for fb in feedbacks)
+
+    # 3. Trạng thái về IDLE
+    assert nav_node.state == MissionState.IDLE
+
+    # 4. TUYỆT ĐỐI không gửi bất kỳ navigation goal nào
+    assert len(sent_goals) == 0
+    assert nav_node._current_goal_attempt_id is None
 
     nav_node.destroy_node()

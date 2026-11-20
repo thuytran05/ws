@@ -81,6 +81,7 @@ class NavCommandNode(Node):
         self.declare_parameter('feedback_freshness_sec', 5.0)
         self.declare_parameter('cancel_timeout_sec', 3.0)
         self.declare_parameter('goal_acceptance_timeout_sec', 4.0)
+        self.declare_parameter('cancel_terminal_timeout_sec', 4.0)
         self.declare_parameter('tts_policy', 'flexible')  # 'strict' | 'flexible'
 
         places_path = self.get_parameter('places_file').value
@@ -93,6 +94,7 @@ class NavCommandNode(Node):
         self.feedback_freshness_sec = float(self.get_parameter('feedback_freshness_sec').value)
         self.cancel_timeout_sec = float(self.get_parameter('cancel_timeout_sec').value)
         self.goal_acceptance_timeout_sec = float(self.get_parameter('goal_acceptance_timeout_sec').value)
+        self.cancel_terminal_timeout_sec = float(self.get_parameter('cancel_terminal_timeout_sec').value)
         self.tts_policy = str(self.get_parameter('tts_policy').value)
 
         with open(places_path, 'r', encoding='utf-8') as f:
@@ -100,8 +102,9 @@ class NavCommandNode(Node):
             self.places = db.get('places', {})
             self.categories = db.get('categories', {})
 
-        # Máy trạng thái & Danh tính
+        # Máy trạng thái & Danh tính duy nhất theo phiên
         self.state = MissionState.IDLE
+        self._session_start_ms = int(time.time() * 1000)
         self._mission_counter = 0
         self._goal_attempt_counter = 0
         self._speech_counter = 0
@@ -116,6 +119,9 @@ class NavCommandNode(Node):
         self._active_goal_handle = None
         self._pending_goal_future = None
         self._cancelled_attempts = set()
+        self._revoked_attempts = set()
+        self._unresolved_attempts = set()
+        self._unconfirmed_terminal = False
 
         # Quản lý Resolving (Planner)
         self._resolving_active = False
@@ -135,9 +141,15 @@ class NavCommandNode(Node):
         self._pending_replace_category = None
         self._pending_replace_req_id = None
 
-        # Quản lý Timers
+        # Quản lý Timers gắn định danh attempt / operation
         self._acceptance_timeout_timer = None
+        self._acceptance_timer_attempt = None
         self._cancel_response_timer = None
+        self._cancel_response_timer_attempt = None
+        self._cancel_terminal_timer = None
+        self._cancel_terminal_timer_attempt = None
+        self._tts_timeout_timer = None
+        self._tts_timer_speech_id = None
 
         # Feedback
         self._distance_remaining = None
@@ -231,61 +243,107 @@ class NavCommandNode(Node):
 
             if status == 'CANCELLED_BEFORE_PLAYBACK':
                 self.get_logger().info(f'Thông báo [{ack_speech_id}] đã bị hủy trước khi phát.')
+                self._stop_tts_timeout_timer(ack_speech_id)
+                self._pending_speech_id = None
                 return
 
             if status == 'DROPPED_QUEUE_FULL':
                 self.get_logger().warn(f'Thông báo [{ack_speech_id}] bị DROPPED_QUEUE_FULL.')
+                self._stop_tts_timeout_timer(ack_speech_id)
+                self._pending_speech_id = None
                 if self.tts_policy == 'strict':
                     self.say('Hệ thống âm thanh bận, không thể phát thông báo.')
                     self.state = MissionState.IDLE
                     self.publish_state()
-                    self.publish_feedback('FAILED', 'TTS_DROPPED_QUEUE_FULL')
+                    self.publish_feedback('FAILED', 'TTS_DROPPED_QUEUE_FULL', 'Hàng đợi âm thanh đầy')
+                    return
+                else:
+                    self.publish_feedback('WARNING', 'TTS_DROPPED_QUEUE_FULL_FALLBACK', 'Hàng đợi âm thanh đầy, tiếp tục gửi goal')
+                    self.state = MissionState.STARTING
+                    self.publish_state()
+                    self.send_nav_goal()
                     return
 
-            if status.startswith('ERROR_'):
+            if status.startswith('ERROR_') or (self.tts_policy == 'strict' and status.startswith('WARNING_PLAYBACK_')):
                 self.get_logger().warn(f'Thông báo [{ack_speech_id}] gặp lỗi TTS: {status}')
+                self._stop_tts_timeout_timer(ack_speech_id)
+                self._pending_speech_id = None
                 if self.tts_policy == 'strict':
                     self.state = MissionState.IDLE
                     self.publish_state()
-                    self.publish_feedback('FAILED', f'TTS_{status}')
+                    self.publish_feedback('FAILED', f'TTS_{status}', 'Lỗi âm thanh trong chế độ strict')
+                    return
+                else:
+                    self.publish_feedback('WARNING', f'TTS_{status}_FALLBACK', 'Lỗi âm thanh, tiếp tục gửi goal')
+                    self.state = MissionState.STARTING
+                    self.publish_state()
+                    self.send_nav_goal()
                     return
 
             self.get_logger().info(f'Nhận được TTS ACK hợp lệ cho [{ack_speech_id}] (status={status}). Tiến hành gửi goal Nav2.')
-            self._cancel_tts_timeout_timer()
+            self._stop_tts_timeout_timer(ack_speech_id)
             self._pending_speech_id = None
             self.state = MissionState.STARTING
             self.publish_state()
             self.send_nav_goal()
 
-    def _cancel_tts_timeout_timer(self):
-        if self._tts_timeout_timer:
+    def _start_tts_timeout_timer(self, expected_speech_id: str):
+        self._stop_tts_timeout_timer()
+        self._tts_timer_speech_id = expected_speech_id
+        self._tts_timeout_timer = self.create_timer(
+            self.tts_ack_timeout,
+            lambda: self._on_tts_ack_timeout(expected_speech_id)
+        )
+
+    def _stop_tts_timeout_timer(self, speech_id: str = None):
+        if speech_id is not None and self._tts_timer_speech_id != speech_id:
+            return
+        if hasattr(self, '_tts_timeout_timer') and self._tts_timeout_timer:
             try:
                 self._tts_timeout_timer.cancel()
                 self.destroy_timer(self._tts_timeout_timer)
             except Exception:
                 pass
             self._tts_timeout_timer = None
+            self._tts_timer_speech_id = None
+
+    def _cancel_tts_timeout_timer(self):
+        self._stop_tts_timeout_timer()
 
     def _on_tts_ack_timeout(self, expected_speech_id: str):
-        self._cancel_tts_timeout_timer()
-        if self.state == MissionState.ANNOUNCING and self._pending_speech_id == expected_speech_id:
-            self.get_logger().warn(f'Timeout ({self.tts_ack_timeout}s) chờ tts_ack cho [{expected_speech_id}]. Tiến hành gửi goal fallback.')
+        self._stop_tts_timeout_timer(expected_speech_id)
+        if self.state != MissionState.ANNOUNCING or self._pending_speech_id != expected_speech_id:
+            return
+
+        if self.tts_policy == 'strict':
+            self.get_logger().error(f"Timeout ({self.tts_ack_timeout}s) chờ tts_ack cho [{expected_speech_id}] ở chế độ strict. Hủy gửi goal!")
             self._pending_speech_id = None
-            self.state = MissionState.STARTING
+            self.state = MissionState.IDLE
             self.publish_state()
-            self.send_nav_goal()
+            self.publish_feedback('FAILED', 'TTS_TIMEOUT_STRICT_ABORT', 'Không nhận được xác nhận âm thanh trong chế độ strict')
+            return
+
+        self.get_logger().warn(f"Timeout ({self.tts_ack_timeout}s) chờ tts_ack cho [{expected_speech_id}] ở chế độ flexible. Tiếp tục gửi goal fallback.")
+        self._pending_speech_id = None
+        self.publish_feedback('WARNING', 'TTS_TIMEOUT_FALLBACK', 'Tiếp tục gửi goal dù TTS không phản hồi')
+        self.state = MissionState.STARTING
+        self.publish_state()
+        self.send_nav_goal()
 
     # ------------------------------------------------------------------
-    # Timer cho Acceptance và Cancel Response
+    # Timer cho Acceptance, Cancel Response và Cancel Terminal
     # ------------------------------------------------------------------
     def _start_acceptance_timer(self, attempt_id: str):
         self._stop_acceptance_timer()
+        self._acceptance_timer_attempt = attempt_id
         self._acceptance_timeout_timer = self.create_timer(
             self.goal_acceptance_timeout_sec,
             lambda: self._on_acceptance_timeout(attempt_id)
         )
 
-    def _stop_acceptance_timer(self):
+    def _stop_acceptance_timer(self, attempt_id: str = None):
+        if attempt_id is not None and self._acceptance_timer_attempt != attempt_id:
+            return
         if hasattr(self, '_acceptance_timeout_timer') and self._acceptance_timeout_timer:
             try:
                 self._acceptance_timeout_timer.cancel()
@@ -293,11 +351,17 @@ class NavCommandNode(Node):
             except Exception:
                 pass
             self._acceptance_timeout_timer = None
+            self._acceptance_timer_attempt = None
 
     def _on_acceptance_timeout(self, attempt_id: str):
-        self._stop_acceptance_timer()
+        self._stop_acceptance_timer(attempt_id)
+        # Đánh dấu attempt này bị thu hồi để nếu server accept muộn thì lập tức hủy
+        self._revoked_attempts.add(attempt_id)
+        self._cancelled_attempts.add(attempt_id)
+
         if self.state == MissionState.STARTING and attempt_id == self._current_goal_attempt_id:
             self.get_logger().error(f"[{attempt_id}] Timeout ({self.goal_acceptance_timeout_sec}s) chờ Nav2 chấp nhận goal.")
+            self._current_goal_attempt_id = None
             speech = 'Hệ thống điều hướng không phản hồi yêu cầu di chuyển.'
             self.say(speech)
             self.state = MissionState.IDLE
@@ -306,12 +370,15 @@ class NavCommandNode(Node):
 
     def _start_cancel_timer(self, attempt_id: str, purpose: str):
         self._stop_cancel_timer()
+        self._cancel_response_timer_attempt = attempt_id
         self._cancel_response_timer = self.create_timer(
             self.cancel_timeout_sec,
             lambda: self._on_cancel_timeout(attempt_id, purpose)
         )
 
-    def _stop_cancel_timer(self):
+    def _stop_cancel_timer(self, attempt_id: str = None):
+        if attempt_id is not None and self._cancel_response_timer_attempt != attempt_id:
+            return
         if hasattr(self, '_cancel_response_timer') and self._cancel_response_timer:
             try:
                 self._cancel_response_timer.cancel()
@@ -319,18 +386,50 @@ class NavCommandNode(Node):
             except Exception:
                 pass
             self._cancel_response_timer = None
+            self._cancel_response_timer_attempt = None
 
     def _on_cancel_timeout(self, attempt_id: str, purpose: str):
-        self._stop_cancel_timer()
+        self._stop_cancel_timer(attempt_id)
         if attempt_id != self._current_goal_attempt_id:
             return
         self.get_logger().error(f"[{attempt_id}] Timeout ({self.cancel_timeout_sec}s) chờ phản hồi hủy goal (mục đích: {purpose}).")
-        # Không tự ý coi như đã dừng an toàn! Robot có thể vẫn đang chạy!
         if self.state in (MissionState.PAUSING, MissionState.CANCELING):
             self.state = MissionState.NAVIGATING
             speech = 'Không nhận được phản hồi hủy từ hệ thống điều hướng. Robot tiếp tục lộ trình.'
             self.say(speech)
             self.publish_feedback('CANCEL_TIMEOUT', 'TIMEOUT', speech)
+            self.publish_state()
+
+    def _start_cancel_terminal_timer(self, attempt_id: str, purpose: str):
+        self._stop_cancel_terminal_timer()
+        self._cancel_terminal_timer_attempt = attempt_id
+        self._cancel_terminal_timer = self.create_timer(
+            self.cancel_terminal_timeout_sec,
+            lambda: self._on_cancel_terminal_timeout(attempt_id, purpose)
+        )
+
+    def _stop_cancel_terminal_timer(self, attempt_id: str = None):
+        if attempt_id is not None and self._cancel_terminal_timer_attempt != attempt_id:
+            return
+        if hasattr(self, '_cancel_terminal_timer') and self._cancel_terminal_timer:
+            try:
+                self._cancel_terminal_timer.cancel()
+                self.destroy_timer(self._cancel_terminal_timer)
+            except Exception:
+                pass
+            self._cancel_terminal_timer = None
+            self._cancel_terminal_timer_attempt = None
+
+    def _on_cancel_terminal_timeout(self, attempt_id: str, purpose: str):
+        self._stop_cancel_terminal_timer(attempt_id)
+        if attempt_id != self._current_goal_attempt_id:
+            return
+        self.get_logger().error(f"[{attempt_id}] Timeout ({self.cancel_terminal_timeout_sec}s) chờ xác nhận kết thúc terminal sau khi hủy đã được chấp nhận.")
+        if self.state in (MissionState.PAUSING, MissionState.CANCELING):
+            self._unconfirmed_terminal = True
+            speech = 'Hệ thống điều hướng chưa xác nhận dừng hoàn toàn. Vui lòng chờ trước khi tiếp tục.'
+            self.say(speech)
+            self.publish_feedback('CANCEL_TERMINAL_TIMEOUT', 'TIMEOUT', speech)
             self.publish_state()
 
     # ------------------------------------------------------------------
@@ -409,6 +508,11 @@ class NavCommandNode(Node):
         category = data.get('category')
         req_id = data.get('request_id')
 
+        if getattr(self, '_unconfirmed_terminal', False):
+            self.say('Hệ thống điều hướng chưa xác nhận trạng thái dừng của chuyến đi trước. Vui lòng chờ trong giây lát.')
+            self.publish_feedback('REJECTED', 'UNCONFIRMED_TERMINAL_PENDING')
+            return
+
         # Đang trong tiến trình chuyển tiếp (PAUSING hoặc CANCELING)
         if self.state in (MissionState.PAUSING, MissionState.CANCELING):
             self.get_logger().warn('Nhận lệnh navigate khi đang PAUSING/CANCELING. Chuyển thành replace hoặc yêu cầu chờ.')
@@ -482,14 +586,13 @@ class NavCommandNode(Node):
 
         # Kiểm tra planner action server (với timeout ngắn)
         if not self.planner_client.wait_for_server(timeout_sec=0.2):
-            self.get_logger().warn(f'Planner server chưa sẵn sàng. Fallback chọn ứng viên đầu tiên: {candidates[0]}')
-            chosen_key = candidates[0]
-            chosen_name = self.places[chosen_key].get('name', chosen_key)
+            self.get_logger().warn('Bộ điều phối đường (planner) chưa sẵn sàng. Không thể chọn điểm tối ưu cho danh mục.')
             self._resolving_active = False
-            speech = f'Bộ điều phối đường chưa sẵn sàng nên chưa thể tìm điểm tối ưu theo đường đi. Tôi sẽ tạm dẫn bạn đến {chosen_name}.'
+            self.state = MissionState.IDLE
+            self.publish_state()
+            speech = 'Bộ điều phối đường chưa sẵn sàng nên hiện tại tôi chưa thể tìm đường đến các điểm trong nhóm yêu cầu.'
             self.say(speech)
-            self.publish_feedback('PLANNER_UNAVAILABLE_FALLBACK', 'WARNING_PLANNER_UNAVAILABLE', speech)
-            self.start_specific_mission(chosen_key, req_id, custom_speech=speech)
+            self.publish_feedback('FAILED', 'PLANNER_UNAVAILABLE', speech)
             return
 
         self.get_logger().info(f'[{res_id}] Bắt đầu truy vấn planner cho {len(candidates)} ứng viên trong nhóm {category}...')
@@ -661,7 +764,7 @@ class NavCommandNode(Node):
 
     def start_specific_mission(self, target_key: str, req_id: str, custom_speech: str = None):
         self._mission_counter += 1
-        self._current_mission_id = f"mission_{self._mission_counter}_{int(time.time() * 1000) % 100000}"
+        self._current_mission_id = f"mis_{self._session_start_ms}_{self._mission_counter}"
         self._current_request_id = req_id
         self._current_target_key = target_key
 
@@ -682,12 +785,8 @@ class NavCommandNode(Node):
         self._pending_speech_id = self.say(speech, mission_id=self._current_mission_id)
         self.publish_feedback('ANNOUNCING', 'OK', speech)
 
-        # Timer timeout dự phòng nếu TTS vắng mặt hoặc ack bị trễ
-        self._cancel_tts_timeout_timer()
-        self._tts_timeout_timer = self.create_timer(
-            self.tts_ack_timeout,
-            lambda: self._on_tts_ack_timeout(self._pending_speech_id)
-        )
+        # Khởi động timer cho speech này
+        self._start_tts_timeout_timer(self._pending_speech_id)
 
     def create_pose_stamped(self, place: dict) -> PoseStamped:
         p = PoseStamped()
@@ -712,9 +811,10 @@ class NavCommandNode(Node):
             return
 
         self._goal_attempt_counter += 1
-        attempt_id = f"att_{self._goal_attempt_counter}_{int(time.time() * 1000) % 100000}"
+        attempt_id = f"att_{self._session_start_ms}_{self._goal_attempt_counter}"
         self._current_goal_attempt_id = attempt_id
         mission_id = self._current_mission_id
+        self._unresolved_attempts.add(attempt_id)
 
         goal = NavigateToPose.Goal()
         goal.pose = self._current_target_pose
@@ -725,6 +825,7 @@ class NavCommandNode(Node):
             goal,
             feedback_callback=lambda f_msg: self.on_nav_feedback(f_msg.feedback, attempt_id)
         )
+        self._pending_goal_future = future
         future.add_done_callback(
             lambda fut: self.on_goal_response(fut, attempt_id, mission_id)
         )
@@ -742,18 +843,20 @@ class NavCommandNode(Node):
         self.publish_state()
 
     def on_goal_response(self, future, attempt_id: str, mission_id: str):
-        self._stop_acceptance_timer()
-        self._pending_goal_future = None
+        # Chỉ dừng acceptance timer của chính attempt này
+        self._stop_acceptance_timer(attempt_id)
+        if self._pending_goal_future == future:
+            self._pending_goal_future = None
 
-        # 1. Nếu attempt này đã bị đánh dấu cancel trước khi kịp accept
-        is_pre_cancelled = (attempt_id in self._cancelled_attempts)
+        is_revoked = (attempt_id in self._revoked_attempts or attempt_id in self._cancelled_attempts)
         is_outdated_mission = (mission_id != self._current_mission_id or attempt_id != self._current_goal_attempt_id)
 
         try:
             goal_handle = future.result()
         except Exception as e:
             self.get_logger().error(f'[{attempt_id}] Lỗi nhận goal handle: {e}')
-            if not is_outdated_mission:
+            self._unresolved_attempts.discard(attempt_id)
+            if not is_outdated_mission and not is_revoked:
                 self.state = MissionState.IDLE
                 self.publish_state()
             return
@@ -761,14 +864,18 @@ class NavCommandNode(Node):
         # Goal bị từ chối bởi server
         if not goal_handle.accepted:
             self.get_logger().warn(f'[{attempt_id}] Goal bị Nav2 từ chối.')
-            if self._pending_replace_target or self._pending_replace_category:
-                self._execute_pending_replace()
-                return
-            if is_outdated_mission or is_pre_cancelled:
-                if self.state == MissionState.PAUSING:
+            self._unresolved_attempts.discard(attempt_id)
+            if mission_id == self._current_mission_id:
+                if self._pending_replace_target or self._pending_replace_category:
+                    self._execute_pending_replace()
+                    return
+                elif self.state == MissionState.PAUSING:
                     self._transition_to_paused()
+                    return
                 elif self.state == MissionState.CANCELING:
                     self._transition_to_cancelled()
+                    return
+            if is_outdated_mission or is_revoked:
                 return
             self.say('Tôi không thể di chuyển tới đó lúc này.')
             self.state = MissionState.IDLE
@@ -776,16 +883,16 @@ class NavCommandNode(Node):
             self.publish_feedback('REJECTED', 'GOAL_REJECTED')
             return
 
-        # Goal được chấp nhận nhưng đã bị thu hồi / cancel trước đó
-        if is_outdated_mission or is_pre_cancelled:
+        # Goal được chấp nhận nhưng đã bị thu hồi / cancel / timeout trước đó
+        if is_outdated_mission or is_revoked:
             self.get_logger().info(f'[{attempt_id}] Thu hồi goal cũ được chấp nhận muộn.')
             cancel_fut = goal_handle.cancel_goal_async()
             cancel_fut.add_done_callback(
-                lambda cf: self._on_delayed_cancel_confirmed(cf, attempt_id)
+                lambda cf: self._on_delayed_cancel_confirmed(cf, attempt_id, goal_handle)
             )
             # Đồng thời theo dõi terminal result của goal thu hồi
             goal_handle.get_result_async().add_done_callback(
-                lambda rf: self._on_delayed_cancel_terminal_result(rf, attempt_id)
+                lambda rf: self._on_delayed_cancel_terminal_result(rf, attempt_id, mission_id)
             )
             return
 
@@ -801,24 +908,37 @@ class NavCommandNode(Node):
             lambda fut: self.on_goal_result(fut, attempt_id, mission_id)
         )
 
-    def _on_delayed_cancel_confirmed(self, future, attempt_id: str):
+    def _on_delayed_cancel_confirmed(self, future, attempt_id: str, goal_handle=None):
         try:
             res = future.result()
-            self.get_logger().info(f'[{attempt_id}] Phản hồi hủy goal thu hồi muộn (return_code={res.return_code}).')
+            return_code = getattr(res, 'return_code', 0)
+            goals_canceling = getattr(res, 'goals_canceling', [])
+            is_accepted = (return_code == 0 and len(goals_canceling) > 0)
+            if not is_accepted:
+                self.get_logger().warn(f'[{attempt_id}] Server từ chối hủy goal thu hồi muộn (code={return_code}).')
+                self.publish_feedback('WARNING', 'REVOKED_GOAL_CANCEL_REJECTED', f'Goal cũ {attempt_id} từ chối hủy')
+            else:
+                self.get_logger().info(f'[{attempt_id}] Server chấp nhận hủy goal thu hồi muộn (return_code={return_code}).')
         except Exception as e:
             self.get_logger().error(f'[{attempt_id}] Lỗi hủy goal thu hồi muộn: {e}')
 
-    def _on_delayed_cancel_terminal_result(self, future, attempt_id: str):
+    def _on_delayed_cancel_terminal_result(self, future, attempt_id: str, mission_id: str):
         self.get_logger().info(f'[{attempt_id}] Goal thu hồi muộn đã kết thúc terminal.')
-        if self._pending_replace_target or self._pending_replace_category:
-            self._execute_pending_replace()
-        elif self.state == MissionState.PAUSING:
-            self._transition_to_paused()
-        elif self.state == MissionState.CANCELING:
-            self._transition_to_cancelled()
+        self._unresolved_attempts.discard(attempt_id)
+        if mission_id == self._current_mission_id:
+            if self._pending_replace_target or self._pending_replace_category:
+                self._execute_pending_replace()
+            elif self.state == MissionState.PAUSING:
+                self._transition_to_paused()
+            elif self.state == MissionState.CANCELING:
+                self._transition_to_cancelled()
 
     def on_goal_result(self, future, attempt_id: str, mission_id: str):
-        self._stop_cancel_timer()
+        self._stop_cancel_timer(attempt_id)
+        self._stop_cancel_terminal_timer(attempt_id)
+        self._unconfirmed_terminal = False
+        self._unresolved_attempts.discard(attempt_id)
+
         # Bỏ qua nếu không phải attempt hiện tại
         if attempt_id != self._current_goal_attempt_id or mission_id != self._current_mission_id:
             self.get_logger().warn(f'Bỏ qua goal result của attempt cũ: {attempt_id}')
@@ -954,7 +1074,9 @@ class NavCommandNode(Node):
                 self.publish_state()
             return
 
-        # Server chấp nhận cancel -> Chờ on_goal_result xác nhận STATUS_CANCELED trước khi chuyển PAUSED
+        # Server chấp nhận cancel -> Khởi động terminal timer và chờ on_goal_result
+        self._stop_cancel_timer(attempt_id)
+        self._start_cancel_terminal_timer(attempt_id, purpose='pause')
         self.get_logger().info(f"[{attempt_id}] Server chấp nhận yêu cầu dừng. Đang chờ robot dừng hẳn...")
 
     def _transition_to_paused(self, is_resolving_pause: bool = False):
@@ -969,7 +1091,12 @@ class NavCommandNode(Node):
         self.publish_state()
 
     def handle_resume_request(self, req_id: str):
-        # Resume CHỈ được phép khi PAUSED hoàn tất (không còn active goal handle)
+        # Resume CHỈ được phép khi PAUSED hoàn tất (không còn active goal handle và không bị unconfirmed)
+        if self._unconfirmed_terminal:
+            self.say('Hệ thống điều hướng chưa xác nhận trạng thái dừng của chuyến đi trước. Vui lòng chờ trong giây lát.')
+            self.publish_feedback('REJECTED', 'UNCONFIRMED_TERMINAL_PENDING')
+            return
+
         if self.state != MissionState.PAUSED or self._active_goal_handle is not None:
             self.say('Robot hiện không trong trạng thái tạm dừng hoàn tất.')
             return
@@ -1067,7 +1194,9 @@ class NavCommandNode(Node):
                 self.publish_state()
             return
 
-        # Server chấp nhận cancel -> Chờ on_goal_result xác nhận STATUS_CANCELED trước khi chuyển CANCELLED/IDLE
+        # Server chấp nhận cancel -> Khởi động terminal timer và chờ on_goal_result
+        self._stop_cancel_timer(attempt_id)
+        self._start_cancel_terminal_timer(attempt_id, purpose='cancel')
         self.get_logger().info(f"[{attempt_id}] Server chấp nhận yêu cầu hủy. Đang chờ goal kết thúc terminal...")
 
     def _transition_to_cancelled(self):
@@ -1095,6 +1224,11 @@ class NavCommandNode(Node):
         new_target_id = data.get('target_id')
         new_cat = data.get('category')
         req_id = data.get('request_id')
+
+        if getattr(self, '_unconfirmed_terminal', False):
+            self.say('Hệ thống điều hướng chưa xác nhận trạng thái dừng của chuyến đi trước. Vui lòng chờ trong giây lát.')
+            self.publish_feedback('REJECTED', 'UNCONFIRMED_TERMINAL_PENDING')
+            return
 
         # 1. Xác minh điểm đến mới trước
         valid_key = self.validate_target(new_target_id)

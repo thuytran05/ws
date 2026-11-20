@@ -614,3 +614,232 @@ def test_speech_single_emission_per_event(ros_context):
         assert len(cancel_speeches) == 1
     finally:
         harness.shutdown()
+
+
+def test_acceptance_timeout_and_late_acceptance_revoked(ros_context):
+    """
+    Test 15: Acceptance timeout xảy ra (STARTING -> IDLE), sau đó server chấp nhận muộn.
+    Xác nhận: Goal được hủy ngay, node duy trì IDLE, không bị lọt sang NAVIGATING.
+    """
+    harness = NavTestHarness('act_acc_to_late')
+    try:
+        harness.nav_node.goal_acceptance_timeout_sec = 0.3
+        harness.server.hold_acceptance = threading.Event()
+
+        harness.nav_node.on_intent(String(data=json.dumps({'action': 'navigate', 'target_id': 'gate_a3', 'request_id': 'req_acc_to_1'})))
+        harness.wait_state(MissionState.STARTING, timeout=2.0)
+
+        # Chờ timeout xảy ra và node về IDLE
+        harness.wait_state(MissionState.IDLE, timeout=2.0)
+        assert harness.nav_node.state == MissionState.IDLE
+        assert 'att_' in str(harness.nav_node._revoked_attempts)
+
+        # Server chấp nhận muộn
+        harness.server.hold_acceptance.set()
+
+        # Chờ 0.5s để callback acceptance muộn được xử lý
+        t0 = time.time()
+        while len(harness.server.received_cancels) == 0 and time.time() - t0 < 3.0:
+            time.sleep(0.02)
+
+        # Goal muộn phải bị hủy ngay lập tức
+        assert len(harness.server.received_cancels) >= 1
+        # Trạng thái local vẫn là IDLE, không bị chuyển sang NAVIGATING
+        assert harness.nav_node.state == MissionState.IDLE
+        assert harness.nav_node._active_goal_handle is None
+    finally:
+        harness.shutdown()
+
+
+def test_acceptance_timeout_new_request_late_acceptance_discarded(ros_context):
+    """
+    Test 16: Attempt 1 bị timeout. Yêu cầu mới Attempt 2 được gửi.
+    Acceptance cũ của Attempt 1 về sau không được làm hỏng hoặc dừng timer của Attempt 2.
+    """
+    harness = NavTestHarness('act_acc_to_new_req')
+    try:
+        harness.nav_node.goal_acceptance_timeout_sec = 0.3
+        harness.server.hold_acceptance = threading.Event()
+
+        # 1. Gửi request 1
+        harness.nav_node.on_intent(String(data=json.dumps({'action': 'navigate', 'target_id': 'gate_a3', 'request_id': 'req_to_req1'})))
+        harness.wait_state(MissionState.STARTING, timeout=2.0)
+        harness.wait_state(MissionState.IDLE, timeout=2.0)
+        assert harness.nav_node.state == MissionState.IDLE
+
+        # 2. Gửi request 2 (đích khác)
+        harness.nav_node.goal_acceptance_timeout_sec = 4.0  # Tăng timeout cho request 2
+        harness.nav_node.on_intent(String(data=json.dumps({'action': 'navigate', 'target_id': 'gate_a4', 'request_id': 'req_to_req2'})))
+        harness.wait_state(MissionState.STARTING, timeout=2.0)
+
+        # 3. Server nhả acceptance cho cả 2
+        harness.server.hold_acceptance.set()
+
+        # Node phải chuyển sang NAVIGATING với đích là gate_a4
+        harness.wait_state(MissionState.NAVIGATING, timeout=3.0)
+        assert harness.nav_node.state == MissionState.NAVIGATING
+        assert harness.nav_node._current_target_key == 'gate_a4'
+
+        # Goal 1 phải bị hủy, Goal 2 đang active
+        assert len(harness.server.received_cancels) >= 1
+    finally:
+        harness.shutdown()
+
+
+def test_late_acceptance_cancel_rejected(ros_context):
+    """
+    Test 17: Goal cũ được chấp nhận muộn nhưng server từ chối hủy.
+    Xác nhận: Node ghi nhận cảnh báo REVOKED_GOAL_CANCEL_REJECTED, local state không bị crash.
+    """
+    harness = NavTestHarness('act_late_acc_rej')
+    try:
+        harness.nav_node.goal_acceptance_timeout_sec = 0.3
+        harness.server.hold_acceptance = threading.Event()
+        harness.server.accept_cancels = False  # Từ chối hủy
+
+        harness.nav_node.on_intent(String(data=json.dumps({'action': 'navigate', 'target_id': 'gate_a3', 'request_id': 'req_late_rej'})))
+        harness.wait_state(MissionState.STARTING, timeout=2.0)
+        harness.wait_state(MissionState.IDLE, timeout=2.0)
+
+        # Server nhả acceptance muộn
+        harness.server.hold_acceptance.set()
+
+        t0 = time.time()
+        while not any(fb.get('status') == 'REVOKED_GOAL_CANCEL_REJECTED' for fb in harness.feedback_messages) and time.time() - t0 < 3.0:
+            time.sleep(0.02)
+
+        assert any(fb.get('status') == 'REVOKED_GOAL_CANCEL_REJECTED' for fb in harness.feedback_messages)
+        assert harness.nav_node.state == MissionState.IDLE
+    finally:
+        harness.shutdown()
+
+
+def test_pending_acceptance_never_completes(ros_context):
+    """
+    Test 18: Server không bao giờ phản hồi acceptance (treo).
+    Xác nhận: Node tự động timeout hữu hạn, về IDLE an toàn, không bị kẹt mãi ở STARTING.
+    """
+    harness = NavTestHarness('act_never_acc')
+    try:
+        harness.nav_node.goal_acceptance_timeout_sec = 0.4
+        harness.server.hold_acceptance = threading.Event()  # Giữ mãi không set
+
+        harness.nav_node.on_intent(String(data=json.dumps({'action': 'navigate', 'target_id': 'gate_a3', 'request_id': 'req_never_acc'})))
+        harness.wait_state(MissionState.STARTING, timeout=2.0)
+
+        # Chờ timeout kích hoạt
+        harness.wait_state(MissionState.IDLE, timeout=2.0)
+        assert harness.nav_node.state == MissionState.IDLE
+        assert any(fb.get('status') == 'ACCEPTANCE_TIMEOUT' for fb in harness.feedback_messages)
+    finally:
+        harness.shutdown()
+
+
+def test_timer_isolation_between_operations(ros_context):
+    """
+    Test 19: Kiểm tra cô lập timer giữa các attempt/operation.
+    Callback cũ của attempt 1 không được dừng timer acceptance của attempt 2.
+    """
+    harness = NavTestHarness('act_timer_iso')
+    try:
+        # Giả lập timer của attempt 2 đang chạy
+        harness.nav_node._start_acceptance_timer('att_2')
+        assert harness.nav_node._acceptance_timer_attempt == 'att_2'
+        assert harness.nav_node._acceptance_timeout_timer is not None
+
+        # Gọi _stop_acceptance_timer với attempt_id cũ 'att_1'
+        harness.nav_node._stop_acceptance_timer('att_1')
+        # Timer của att_2 vẫn phải tồn tại!
+        assert harness.nav_node._acceptance_timeout_timer is not None
+        assert harness.nav_node._acceptance_timer_attempt == 'att_2'
+
+        # Gọi đúng att_2 -> timer mới được dọn dẹp
+        harness.nav_node._stop_acceptance_timer('att_2')
+        assert harness.nav_node._acceptance_timeout_timer is None
+    finally:
+        harness.shutdown()
+
+
+def test_cancel_terminal_timeout_and_late_terminal(ros_context):
+    """
+    Test 20: Server chấp nhận cancel nhưng trì hoãn terminal result.
+    Xác nhận: Kích hoạt cancel_terminal_timeout, ghi nhận unconfirmed terminal, chặn resume/replace.
+    Khi terminal result đến muộn: Dọn dẹp trạng thái và cho phép hoạt động lại.
+    """
+    harness = NavTestHarness('act_can_term_to')
+    try:
+        harness.nav_node.cancel_terminal_timeout_sec = 0.3
+        harness.server.hold_terminal = threading.Event()
+
+        # Xuất phát và chuyển sang NAVIGATING
+        harness.nav_node.on_intent(String(data=json.dumps({'action': 'navigate', 'target_id': 'gate_a3', 'request_id': 'req_ctt_1'})))
+        harness.wait_state(MissionState.NAVIGATING, timeout=3.0)
+
+        # Gửi pause -> server chấp nhận cancel nhưng kẹt ở hold_terminal
+        harness.nav_node.handle_pause_request('req_pause_term')
+        harness.wait_state(MissionState.PAUSING, timeout=2.0)
+
+        # Chờ terminal timeout kích hoạt
+        t0 = time.time()
+        while not harness.nav_node._unconfirmed_terminal and time.time() - t0 < 2.0:
+            time.sleep(0.02)
+        assert harness.nav_node._unconfirmed_terminal is True
+        assert any(fb.get('status') == 'TIMEOUT' and fb.get('event') == 'CANCEL_TERMINAL_TIMEOUT' for fb in harness.feedback_messages)
+
+        # Lệnh resume bị từ chối do chưa xác nhận dừng
+        harness.nav_node.handle_resume_request('req_resume_blocked')
+        assert any(fb.get('status') == 'UNCONFIRMED_TERMINAL_PENDING' for fb in harness.feedback_messages)
+
+        # Server nhả terminal result
+        harness.server.hold_terminal.set()
+        harness.wait_state(MissionState.PAUSED, timeout=3.0)
+        assert harness.nav_node._unconfirmed_terminal is False
+        assert harness.nav_node.state == MissionState.PAUSED
+    finally:
+        harness.shutdown()
+
+
+def test_tts_strict_policy_aborts_on_timeout_and_error(ros_context):
+    """
+    Test 21: Chính sách tts_policy = 'strict'.
+    Khi timeout chờ ACK hoặc nhận ACK lỗi -> Hủy gửi goal, về IDLE, feedback FAILED.
+    """
+    harness = NavTestHarness('act_tts_strict')
+    try:
+        harness.nav_node.tts_policy = 'strict'
+        harness.nav_node.tts_ack_timeout = 0.3
+
+        # Gửi navigate nhưng không trả ACK
+        harness.nav_node.on_intent(String(data=json.dumps({'action': 'navigate', 'target_id': 'gate_a3', 'request_id': 'req_strict_to'})))
+        harness.wait_state(MissionState.ANNOUNCING, timeout=2.0)
+
+        # Chờ timeout strict xảy ra
+        harness.wait_state(MissionState.IDLE, timeout=2.0)
+        assert harness.nav_node.state == MissionState.IDLE
+        assert any(fb.get('status') == 'TTS_TIMEOUT_STRICT_ABORT' for fb in harness.feedback_messages)
+        # Không có goal Nav2 nào được gửi
+        assert len(harness.server.received_goals) == 0
+    finally:
+        harness.shutdown()
+
+
+def test_tts_flexible_policy_fallbacks_on_timeout(ros_context):
+    """
+    Test 22: Chính sách tts_policy = 'flexible'.
+    Khi timeout chờ ACK -> Fallback gửi goal Nav2 kèm feedback WARNING.
+    """
+    harness = NavTestHarness('act_tts_flex')
+    try:
+        harness.nav_node.tts_policy = 'flexible'
+        harness.nav_node.tts_ack_timeout = 0.3
+
+        harness.nav_node.on_intent(String(data=json.dumps({'action': 'navigate', 'target_id': 'gate_a3', 'request_id': 'req_flex_to'})))
+        harness.wait_state(MissionState.ANNOUNCING, timeout=2.0)
+
+        # Sau timeout flexible, goal được gửi và chuyển sang NAVIGATING
+        harness.wait_state(MissionState.NAVIGATING, timeout=3.0)
+        assert harness.nav_node.state == MissionState.NAVIGATING
+        assert any(fb.get('status') == 'TTS_TIMEOUT_FALLBACK' for fb in harness.feedback_messages)
+        assert len(harness.server.received_goals) >= 1
+    finally:
+        harness.shutdown()

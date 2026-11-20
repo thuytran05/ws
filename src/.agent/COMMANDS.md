@@ -249,18 +249,37 @@ python3 src/airport_robot_voice/scripts/test_nlu.py -i
 ```
 *(Gõ thử: `dẫn tôi đến cổng a3`, `nhà vệ sinh ở đâu`, `đừng dẫn tôi đi đâu`, `hủy chuyến`, nhấn Ctrl+C để thoát).*
 
-#### 3. Chạy toàn bộ 65 kiểm thử pytest trong ROS 2 Jazzy:
+#### 3. Chạy toàn bộ 74 kiểm thử pytest trong ROS 2 Jazzy:
 ```bash
 # Thư mục: /home/ws
 python3 -m pytest src/airport_robot_voice/test/ -v
 ```
-*Dấu hiệu thành công*: `65 passed in ~41s` (bao gồm 12 tests audio, 24 tests NLU, 7 tests places schema, 8 tests planner resolution, 14 tests action lifecycle).
+*Dấu hiệu thành công*: `74 passed in ~60s` (bao gồm 13 tests audio, 24 tests NLU, 7 tests places schema, 8 tests planner resolution, 22 tests action lifecycle).
 
 ---
 
-### 6.2 Vận hành hệ thống theo từng Terminal
+### 6.2 Khởi động trọn gói bằng Launch file (Khuyến nghị)
 
-Để vận hành hệ thống độc lập, mở 5 terminal tương tác vào container:
+Cách nhanh nhất để khởi động toàn bộ các node của hệ thống:
+
+```bash
+source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
+
+# Chế độ kiểm thử độc lập (STT bàn phím + TTS ghi log, không cần mic/loa):
+ros2 launch airport_robot_voice voice_system.launch.py \
+  mode:=keyboard \
+  tts_engine:=log \
+  tts_policy:=flexible
+
+# Hoặc chế độ đầy đủ với micro và loa ngoài:
+# ros2 launch airport_robot_voice voice_system.launch.py mode:=mic tts_engine:=piper tts_policy:=flexible
+```
+
+---
+
+### 6.3 Vận hành từng Node riêng biệt theo từng Terminal
+
+Để quan sát chi tiết log của từng node, mở các Terminal tương tác riêng biệt:
 
 #### Terminal 1: TTS Node (Phát tiếng nói hoặc ghi log)
 ```bash
@@ -320,7 +339,7 @@ ros2 topic echo /voice/say
 
 ---
 
-### 6.3 Các kịch bản kiểm tra chức năng (Nhập tại Terminal 4)
+### 6.4 Bảng kịch bản kiểm tra chức năng giọng nói (Nhập tại Terminal 4)
 
 | Kịch bản | Câu nhập | Phản hồi mong đợi | Hành vi hệ thống |
 |---|---|---|---|
@@ -343,6 +362,51 @@ ros2 topic echo /voice/say
 | **Thông tin Wi-Fi** | `wifi sân bay tên gì` | *"Sân bay có Wi-Fi miễn phí tên là Airport-Free-WiFi..."* | Trả lời offline, không di chuyển. |
 | **Thông tin sạc pin** | `sạc điện thoại ở đâu` | *"Các điểm sạc điện thoại miễn phí bố trí tại..."* | Trả lời offline. |
 | **Giờ mở cửa** | `sân bay mở cửa mấy giờ` | *"Các dịch vụ hành khách mở cửa liên tục 24/7"* | Trả lời offline. |
+
+---
+
+### 6.5 Kịch bản nghiệm thu tích hợp Gazebo & Nav2 theo từng Terminal
+
+Khi tích hợp với robot mô phỏng trong Gazebo và hệ thống điều hướng Nav2:
+
+#### Terminal 1: Khởi động Mô phỏng Gazebo & Điều hướng Nav2
+```bash
+source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
+
+# Khởi động mô phỏng và Nav2 (ví dụ linorobot2 hoặc robot mô phỏng tương ứng)
+# ros2 launch linorobot2_gazebo gazebo.launch.py
+# ros2 launch linorobot2_navigation navigation.launch.py rviz:=true
+```
+*Kiểm tra sẵn sàng*:
+```bash
+ros2 action list | grep -E "navigate_to_pose|compute_path_to_pose"
+ros2 topic echo /amcl_pose --once
+```
+
+#### Terminal 2: Khởi động Airport Robot Voice
+```bash
+source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
+ros2 launch airport_robot_voice voice_system.launch.py \
+  mode:=keyboard \
+  tts_engine:=log \
+  tts_policy:=flexible
+```
+
+#### Terminal 3: Giám sát Trạng thái Điều hướng
+```bash
+source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
+ros2 topic echo /voice/nav_state --qos-durability transient_local
+```
+
+#### Terminal 4: Nhập lệnh tương tác kiểm thử
+Nhập các câu lệnh tại Terminal 4 (hoặc qua micro):
+1. `dẫn tôi đến cổng A3` -> Robot nhận goal và bắt đầu di chuyển trong Gazebo; nav_state chuyển `NAVIGATING`.
+2. `nhà vệ sinh ở đâu` -> Planner tính đường đến `toilet_1` và `toilet_2`, chọn điểm có đường đi ngắn nhất.
+3. `dừng lại` -> Robot dừng di chuyển trong mô phỏng; nav_state chuyển `PAUSING` -> `PAUSED`.
+4. `đi tiếp` -> Robot tiếp tục di chuyển; nav_state quay lại `NAVIGATING`.
+5. `đổi sang cổng A4` -> Hủy an toàn goal A3, robot chuyển hướng sang cổng A4.
+6. `bạn đang dẫn tôi đi đâu` -> Robot báo tên đích và khoảng cách còn lại (mét).
+7. `hủy chuyến đi` -> Hủy hoàn toàn goal trên Nav2, robot dừng hẳn về `IDLE`.
 
 ---
 
