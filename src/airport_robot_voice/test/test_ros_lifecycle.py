@@ -185,6 +185,17 @@ class NavTestHarness:
             self.server.hold_terminal.set()
         if self.planner_hold:
             self.planner_hold.set()
+        time.sleep(0.05)
+        if hasattr(self, '_planner_server') and self._planner_server:
+            try:
+                self._planner_server.destroy()
+            except Exception:
+                pass
+        if hasattr(self.server, '_server') and self.server._server:
+            try:
+                self.server._server.destroy()
+            except Exception:
+                pass
         self.executor.shutdown()
         if hasattr(self, 'intent_node') and self.intent_node:
             try:
@@ -1288,77 +1299,127 @@ def test_cancel_during_category_replace_clears_pending_category(ros_context):
 
 def test_delayed_cancel_terminal_result_statuses(ros_context):
     """
-    Test 34: Kiểm tra đầy đủ các trạng thái terminal result của goal thu hồi muộn:
-    - SUCCEEDED: Báo đã tới đích cũ, state về IDLE, feedback SUCCEEDED.
-    - ABORTED: Báo gặp trở ngại, state về IDLE, feedback FAILED ABORTED.
-    - CANCELED: Nếu có pending replace thì thực hiện, nếu không thì về CANCELLED/PAUSED.
-    - Exception khi đọc future.result(): xử lý an toàn không sập node, về IDLE.
+    Test 34: Kiểm tra toàn diện terminal result của goal thu hồi muộn và cô lập attempt:
+    - Trong CANCELING:
+      + CANCELED: Báo đã hủy, feedback CANCELED OK, giải phóng attempt khỏi _unresolved_attempts.
+      + SUCCEEDED: Báo goal đã tới đích trước khi hủy có hiệu lực, feedback SUCCEEDED ARRIVED_BEFORE_CANCEL, giải phóng attempt.
+      + ABORTED: Báo lỗi điều hướng, feedback FAILED ABORTED, giải phóng attempt.
+      + Exception / UNKNOWN: Báo chưa xác nhận được trạng thái goal, GIỮ attempt trong _unresolved_attempts, đặt _unconfirmed_terminal=True, tiếp tục chặn gửi goal mới.
+    - Khôi phục (Recovery): Lệnh hủy trong IDLE xóa sạch attempt chưa giải quyết và đưa hệ thống về trạng thái sẵn sàng.
+    - Cô lập attempt cũ trong cùng mission: Callback của attempt cũ (att_old != att_current) không thay đổi mission, không đổi đích, không kích hoạt pending replace.
     """
     node = NavCommandNode()
     try:
-        node._current_mission_id = 'mis_test_terminal_1'
-        node._current_target_name = 'cổng A3'
-        node._current_target_key = 'gate_a3'
-        node.state = MissionState.NAVIGATING
-
-        # 1. SUCCEEDED
-        class MockSuccessFuture:
+        class MockFuture:
+            def __init__(self, status=None, exc=None):
+                self._status = status
+                self._exc = exc
             def result(self):
+                if self._exc:
+                    raise self._exc
                 class Res:
-                    status = GoalStatus.STATUS_SUCCEEDED
-                return Res()
+                    pass
+                r = Res()
+                r.status = self._status
+                return r
 
         spoken = []
         node.say = lambda t, s=None, m=None: spoken.append(t)
         feedbacks = []
-        node.publish_feedback = lambda ev, st, msg='': feedbacks.append({'event': ev, 'status': st})
+        node.publish_feedback = lambda ev, st, msg='': feedbacks.append({'event': ev, 'status': st, 'msg': msg})
 
-        node._on_delayed_cancel_terminal_result(MockSuccessFuture(), 'att_1', 'mis_test_terminal_1')
-        assert node.state == MissionState.IDLE
-        assert any(fb['event'] == 'SUCCEEDED' for fb in feedbacks)
-        assert any('đã tới cổng A3' in s for s in spoken)
-
-        # 2. ABORTED
-        node.state = MissionState.NAVIGATING
-        node._current_mission_id = 'mis_test_terminal_2'
-        class MockAbortedFuture:
-            def result(self):
-                class Res:
-                    status = GoalStatus.STATUS_ABORTED
-                return Res()
+        # 1. CANCELING -> CANCELED
+        node._current_mission_id = 'mis_can_1'
+        node._current_goal_attempt_id = 'att_can_1'
+        node._unresolved_attempts = {'att_can_1'}
+        node.state = MissionState.CANCELING
 
         spoken.clear()
         feedbacks.clear()
-        node._on_delayed_cancel_terminal_result(MockAbortedFuture(), 'att_2', 'mis_test_terminal_2')
+        node._on_delayed_cancel_terminal_result(MockFuture(status=GoalStatus.STATUS_CANCELED), 'att_can_1', 'mis_can_1')
         assert node.state == MissionState.IDLE
+        assert 'att_can_1' not in node._unresolved_attempts
+        assert any(fb['event'] == 'CANCELED' for fb in feedbacks)
+        assert any('đã hủy chuyến đi' in s for s in spoken)
+
+        # 2. CANCELING -> SUCCEEDED (đã tới đích trước khi hủy)
+        node._current_mission_id = 'mis_can_2'
+        node._current_goal_attempt_id = 'att_can_2'
+        node._current_target_name = 'cổng A3'
+        node._unresolved_attempts = {'att_can_2'}
+        node.state = MissionState.CANCELING
+
+        spoken.clear()
+        feedbacks.clear()
+        node._on_delayed_cancel_terminal_result(MockFuture(status=GoalStatus.STATUS_SUCCEEDED), 'att_can_2', 'mis_can_2')
+        assert node.state == MissionState.IDLE
+        assert 'att_can_2' not in node._unresolved_attempts
+        assert any(fb['event'] == 'SUCCEEDED' and fb['status'] == 'ARRIVED_BEFORE_CANCEL' for fb in feedbacks)
+        assert any('trước khi lệnh hủy có hiệu lực' in s for s in spoken)
+
+        # 3. CANCELING -> ABORTED (lỗi điều hướng)
+        node._current_mission_id = 'mis_can_3'
+        node._current_goal_attempt_id = 'att_can_3'
+        node._unresolved_attempts = {'att_can_3'}
+        node.state = MissionState.CANCELING
+
+        spoken.clear()
+        feedbacks.clear()
+        node._on_delayed_cancel_terminal_result(MockFuture(status=GoalStatus.STATUS_ABORTED), 'att_can_3', 'mis_can_3')
+        assert node.state == MissionState.IDLE
+        assert 'att_can_3' not in node._unresolved_attempts
         assert any(fb['event'] == 'FAILED' and fb['status'] == 'ABORTED' for fb in feedbacks)
 
-        # 3. Exception khi lấy result
-        node.state = MissionState.NAVIGATING
-        node._current_mission_id = 'mis_test_terminal_3'
-        class MockExceptionFuture:
-            def result(self):
-                raise RuntimeError('Action server RPC connection lost')
-
-        spoken.clear()
-        feedbacks.clear()
-        node._on_delayed_cancel_terminal_result(MockExceptionFuture(), 'att_3', 'mis_test_terminal_3')
-        assert node.state == MissionState.IDLE
-        assert any(fb['event'] == 'FAILED' for fb in feedbacks)
-
-        # 4. CANCELED khi CANCELING
+        # 4. CANCELING -> Exception / STATUS_UNKNOWN (chưa xác nhận được trạng thái goal)
+        node._current_mission_id = 'mis_can_4'
+        node._current_goal_attempt_id = 'att_can_4'
+        node._unresolved_attempts = {'att_can_4'}
         node.state = MissionState.CANCELING
-        node._current_mission_id = 'mis_test_terminal_4'
-        class MockCanceledFuture:
-            def result(self):
-                class Res:
-                    status = GoalStatus.STATUS_CANCELED
-                return Res()
 
         spoken.clear()
         feedbacks.clear()
-        node._on_delayed_cancel_terminal_result(MockCanceledFuture(), 'att_4', 'mis_test_terminal_4')
+        node._on_delayed_cancel_terminal_result(MockFuture(exc=RuntimeError('RPC lost')), 'att_can_4', 'mis_can_4')
         assert node.state == MissionState.IDLE
-        assert any(fb['event'] == 'CANCELED' for fb in feedbacks)
+        # Phải GIỮ LẠI attempt trong _unresolved_attempts và _unconfirmed_terminal=True
+        assert 'att_can_4' in node._unresolved_attempts
+        assert node._unconfirmed_terminal is True
+        assert any(fb['event'] == 'FAILED' and fb['status'] == 'CANCEL_UNCONFIRMED_TERMINAL' for fb in feedbacks)
+        assert any('Chưa xác nhận được trạng thái dừng' in s for s in spoken)
+
+        # Thử gửi goal mới khi còn goal chưa xác nhận -> PHẢI BỊ CHẶN
+        feedbacks.clear()
+        node.on_intent(String(data=json.dumps({'action': 'navigate', 'target_id': 'gate_a3', 'request_id': 'req_blocked'})))
+        assert any(fb['status'] == 'UNRESOLVED_GOALS_PENDING' for fb in feedbacks)
+        assert node.state == MissionState.IDLE
+
+        # Khôi phục (Recovery): gửi lệnh cancel trong IDLE giải tỏa attempt kẹt
+        feedbacks.clear()
+        spoken.clear()
+        node.handle_cancel_request('req_clear_recovery')
+        assert len(node._unresolved_attempts) == 0
+        assert node._unconfirmed_terminal is False
+        assert any(fb['event'] == 'RECOVERED' and fb['status'] == 'UNRESOLVED_CLEARED' for fb in feedbacks)
+
+        # 5. Callback của attempt cũ trong cùng mission không tác động attempt mới
+        node._current_mission_id = 'mis_same'
+        node._current_goal_attempt_id = 'att_current_new'
+        node._current_target_key = 'gate_a3'
+        node._pending_replace_target = 'gate_a4'
+        node.state = MissionState.PAUSING
+        node._unresolved_attempts = {'att_old_revoked', 'att_current_new'}
+
+        spoken.clear()
+        feedbacks.clear()
+        # Callback của att_old_revoked về SUCCEEDED
+        node._on_delayed_cancel_terminal_result(MockFuture(status=GoalStatus.STATUS_SUCCEEDED), 'att_old_revoked', 'mis_same')
+        # att_old_revoked được giải phóng
+        assert 'att_old_revoked' not in node._unresolved_attempts
+        # Nhưng att_current_new vẫn còn
+        assert 'att_current_new' in node._unresolved_attempts
+        # Và trạng thái hiện tại KHÔNG bị thay đổi
+        assert node.state == MissionState.PAUSING
+        assert node._current_goal_attempt_id == 'att_current_new'
+        assert node._pending_replace_target == 'gate_a4'
+        assert node._current_target_key == 'gate_a3'
     finally:
         node.destroy_node()

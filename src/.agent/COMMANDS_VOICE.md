@@ -196,10 +196,14 @@ python3 -c "import sounddevice; print(sounddevice.query_devices())"
 
 ### 4.3 Kiểm tra thu và phát âm thực tế
 ```bash
-# Thu âm thử 3 giây từ micro mặc định (16kHz, mono)
+# Thu âm thử 3 giây từ DMIC16kHz (Card 1, Dev 7 - chuẩn trực tiếp cho Vosk STT trên ThinkPad):
+arecord -D hw:1,7 -f S16_LE -r 16000 -c 1 -d 3 /tmp/test_record.wav
+# Hoặc thu âm từ thiết bị mặc định:
 arecord -f S16_LE -r 16000 -c 1 -d 3 /tmp/test_record.wav
 
-# Nghe lại file vừa thu
+# Nghe lại file vừa thu ra loa Analog (Card 1, Dev 0):
+aplay -D hw:1,0 /tmp/test_record.wav
+# Hoặc phát qua thiết bị mặc định:
 aplay /tmp/test_record.wav
 ```
 *Lưu ý*: Nếu chạy trong môi trường không có loa ngoài hoặc container headless, sử dụng chế độ `tts_engine:=log` để kiểm thử toàn diện logic mà không phụ thuộc thiết bị âm thanh vật lý.
@@ -543,6 +547,7 @@ Toàn bộ dữ liệu toạ độ và danh mục lưu tại `config/places.json
 | `Hệ thống điều hướng chưa sẵn sàng` | `nav_command_node` hoặc Nav2 chưa chạy | Kiểm tra node: `ros2 node list` xem có `/nav_command_node` chưa |
 | `piper: command not found` | Chưa có symlink trong PATH | Chạy `sudo ln -sf ~/.local/bin/piper /usr/local/bin/piper` |
 | `ALSA lib pcm.c: cannot open` | Container thiếu thiết bị hoặc quyền audio | Thêm user vào nhóm audio: `sudo usermod -aG audio $USER` hoặc dùng `tts_engine:=log` |
+| `Goal chưa xác nhận hoặc kẹt trạng thái sau ngắt kết nối` | Action server rớt kết nối hoặc trả STATUS_UNKNOWN khi hủy goal | Phát lệnh `hủy chuyến` khi ở IDLE: hệ thống sẽ dọn dẹp sạch `_unresolved_attempts`, reset cờ unconfirmed và đưa robot về trạng thái sẵn sàng (`RECOVERED UNRESOLVED_CLEARED`) |
 
 ### 8.2 Dọn dẹp process khi kết thúc phiên
 ```bash

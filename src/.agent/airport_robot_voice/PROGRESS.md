@@ -44,7 +44,7 @@
 | 18 | Chuẩn hóa Launch arguments & Tọa độ mô phỏng | Đồng bộ đầy đủ 9 tham số launch argument, tạo `voice_system.launch.py` song song `voice_assistant.launch.py`, bổ sung `config/places_sim.json` với tọa độ chuẩn xác trong `turtlebot3_world`. | ĐÃ GIẢI QUYẾT |
 | 19 | Heartbeat khi simulation pause / không có /clock | `_heartbeat_timer` dùng `self._steady_clock`, `intent_node` kiểm tra bằng `time.monotonic()` và `node_online: true`, đảm bảo phân luồng đúng kể cả khi Gazebo pause hoặc chưa có `/clock`. | ĐÃ GIẢI QUYẾT |
 | 20 | Cancel loại bỏ hoàn toàn yêu cầu đổi đích đang chờ | `handle_cancel_request` lập tức xóa `_pending_replace_target` và category; `on_goal_result` ưu tiên `CANCELING` trước pending replace; không gửi goal thay thế, thông báo hủy duy nhất 1 lần. | ĐÃ GIẢI QUYẾT |
-| 21 | Kiểm tra terminal result của goal thu hồi muộn | `_on_delayed_cancel_terminal_result` đọc `status = future.result().status`, bắt exception; nếu SUCCEEDED thì ghi nhận đã tới đích cũ và hủy pending replace; xử lý đầy đủ ABORTED, CANCELED, UNKNOWN. | ĐÃ GIẢI QUYẾT |
+| 21 | Quản lý terminal result goal thu hồi muộn, Cô lập & Recovery | `_on_delayed_cancel_terminal_result` chỉ giải phóng attempt khi confirmed (`CANCELED`, `SUCCEEDED`, `ABORTED`), giữ nguyên và chặn goal mới khi `UNKNOWN`/exception; phân định 4 nhánh trong `CANCELING`; cô lập callback attempt cũ theo `(mission_id, attempt_id)`; hỗ trợ lệnh hủy trong IDLE để khôi phục giải tỏa attempt kẹt; triệt tiêu cảnh báo `_execute_goal`. | ĐÃ GIẢI QUYẾT |
 | 22 | Chuẩn hóa Base Robot mecanum & Keyboard 2 bước | Xác minh phần cứng `LINOROBOT2_BASE=mecanum` (omni drive), tách `stt_node` keyboard độc lập (`launch_stt:=false`) tránh xung đột stdin, kiểm tra độ an toàn clearance >= 0.50m toàn bộ 16 điểm mô phỏng. | ĐÃ GIẢI QUYẾT |
 
 ---
@@ -158,6 +158,24 @@
 - **Không tùy tiện fallback**:
   - Khi action server planner vắng mặt (`wait_for_server` timeout), node công bố feedback `FAILED` với mã `PLANNER_UNAVAILABLE`, phát thông báo giải thích rõ ràng và về `IDLE`.
   - Tuyệt đối KHÔNG gửi goal điều hướng tới ứng viên tùy ý khi chưa xác định được tính khả thi của đường đi.
+
+### 4.7. Quản lý Terminal Result của Goal Thu hồi Muộn, Cô lập Attempt và Cơ chế Khôi phục
+- **Chỉ giải phóng khi có bằng chứng terminal xác nhận**:
+  - Trong `_on_delayed_cancel_terminal_result()` và `on_goal_result()`: Node chỉ gọi `self._unresolved_attempts.discard(attempt_id)` khi `status in (STATUS_CANCELED, STATUS_SUCCEEDED, STATUS_ABORTED)`.
+  - Nếu kết quả trả về `STATUS_UNKNOWN` hoặc ném ngoại lệ khi đọc `future.result()`: Attempt được **GIỮ NGUYÊN** trong `_unresolved_attempts`, cờ `_unconfirmed_terminal = True` được bật. Hệ thống tiếp tục chặn mọi lệnh gửi goal mới (`UNRESOLVED_GOALS_PENDING`) để ngăn goal chạy ngoài kiểm soát.
+- **Phân định 4 nhánh trạng thái rõ ràng trong CANCELING**:
+  1. `STATUS_CANCELED`: Chuyển về IDLE an toàn, phát thông báo đã hủy chuyến thành công, feedback `CANCELED` `OK`.
+  2. `STATUS_SUCCEEDED`: Nhận diện robot đã tới đích trước khi lệnh hủy có hiệu lực, phát câu chúc mừng đến đích, feedback `SUCCEEDED` `ARRIVED_BEFORE_CANCEL`.
+  3. `STATUS_ABORTED`: Báo lỗi điều hướng hoặc gặp chướng ngại vật trên đường đi, feedback `FAILED` `ABORTED`.
+  4. Exception / `STATUS_UNKNOWN`: Báo chưa xác nhận được trạng thái dừng của hệ thống điều hướng, feedback `FAILED` `CANCEL_UNCONFIRMED_TERMINAL`.
+- **Cô lập Attempt cũ trong cùng Mission**:
+  - Kiểm tra điều kiện nghiêm ngặt: `if mission_id != self._current_mission_id or attempt_id != self._current_goal_attempt_id: return`.
+  - Callback của một attempt cũ đã bị thu hồi trong cùng mission hoàn toàn không thể làm thay đổi trạng thái mission hiện tại, không đổi đích và không kích hoạt sai lệch `pending replace`.
+- **Cơ chế Khôi phục Chủ động (Recovery)**:
+  - Khi hệ thống ở `IDLE` nhưng bị kẹt attempt chưa xác minh (`_unresolved_attempts` còn phần tử hoặc `_unconfirmed_terminal == True`), hành khách hoặc người vận hành chỉ cần phát lệnh `"hủy chuyến"` (`cancel_robot`).
+  - Hàm `handle_cancel_request()` sẽ tự động dọn dẹp toàn bộ `_unresolved_attempts.clear()`, đặt lại `_unconfirmed_terminal = False`, phát thông báo khôi phục và công bố feedback `RECOVERED` với mã `UNRESOLVED_CLEARED`. Hệ thống trở về trạng thái sẵn sàng nhận lệnh mới.
+- **Triệt tiêu Cảnh báo Fixture ROS**:
+  - Trong `test_ros_lifecycle.py`, bổ sung dọn dẹp tường minh `_planner_server.destroy()` và `server._server.destroy()` kèm `time.sleep(0.05)` trước khi `executor.shutdown()`. Triệt tiêu hoàn toàn 100% cảnh báo `RuntimeWarning: coroutine ActionServer._execute_goal was never awaited`.
 
 ---
 
