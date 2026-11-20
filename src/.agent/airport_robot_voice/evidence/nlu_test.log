@@ -1,0 +1,245 @@
+[OK ] "xin chào robot"
+      -> intent=greeting, action=None, target=None
+      "Xin chào! Tôi là robot hỗ trợ hành khách. Tôi có thể giúp gì cho bạn?"
+
+[OK ] "chào bạn"
+      -> intent=greeting, action=None, target=None
+      "Xin chào! Tôi là robot hỗ trợ hành khách. Tôi có thể giúp gì cho bạn?"
+
+[OK ] "ê robot"
+      -> intent=greeting, action=None, target=None
+      "Xin chào! Tôi là robot hỗ trợ hành khách. Tôi có thể giúp gì cho bạn?"
+
+[OK ] "cảm ơn bạn nhiều"
+      -> intent=thanks, action=None, target=None
+      "Rất vui được giúp bạn. Chúc bạn có chuyến bay tốt lành!"
+
+[OK ] "cám ơn nhé"
+      -> intent=thanks, action=None, target=None
+      "Rất vui được giúp bạn. Chúc bạn có chuyến bay tốt lành!"
+
+[OK ] "tạm biệt robot"
+      -> intent=goodbye, action=None, target=None
+      "Tạm biệt bạn, chúc bạn có chuyến đi thượng lộ bình an!"
+
+[OK ] "thôi tôi đi đây"
+      -> intent=goodbye, action=None, target=None
+      "Tạm biệt bạn, chúc bạn có chuyến đi thượng lộ bình an!"
+
+[OK ] "bạn giúp được gì cho tôi"
+      -> intent=capability, action=help, target=None
+      "Tôi có thể dẫn đường tới các cổng ra máy bay, quầy làm thủ tục, nhà vệ sinh, khu ăn uống, hoặc giải đáp thông tin Wi-Fi và tiện ích sân bay."
+
+[OK ] "robot biết làm những gì vậy"
+      -> intent=capability, action=help, target=None
+      "Tôi có thể dẫn đường tới các cổng ra máy bay, quầy làm thủ tục, nhà vệ sinh, khu ăn uống, hoặc giải đáp thông tin Wi-Fi và tiện ích sân bay."
+
+[OK ] "cách sử dụng robot"
+      -> intent=capability, action=help, target=None
+      "Tôi có thể dẫn đường tới các cổng ra máy bay, quầy làm thủ tục, nhà vệ sinh, khu ăn uống, hoặc giải đáp thông tin Wi-Fi và tiện ích sân bay."
+
+[OK ] "em ơi cổng a3 ở đâu"
+      -> intent=guide_me, action=navigate, target=gate_a3
+      "Tôi sẽ dẫn bạn đến cổng A3."
+
+[OK ] "cổng A3 ở đâu"
+      -> intent=guide_me, action=navigate, target=gate_a3
+      "Tôi sẽ dẫn bạn đến cổng A3."
+
+[OK ] "cổng a ba ở đâu"
+      -> intent=guide_me, action=navigate, target=gate_a3
+      "Tôi sẽ dẫn bạn đến cổng A3."
+
+[OK ] "dẫn tôi đến cổng a3"
+      -> intent=guide_me, action=navigate, target=gate_a3
+      "Tôi sẽ dẫn bạn đến cổng A3."
+
+[OK ] "cho tôi tới cổng bê hai"
+      -> intent=guide_me, action=navigate, target=gate_b2
+      "Tôi sẽ dẫn bạn đến cổng B2."
+
+[OK ] "cổng b2 chỗ nào"
+      -> intent=ask_gate_location, action=navigate, target=gate_b2
+      "Tôi sẽ dẫn bạn đến cổng B2."
+
+[OK ] "cổng số 15 ở đâu ạ"
+      -> intent=ask_gate_location, action=navigate, target=gate_15
+      "Tôi sẽ dẫn bạn đến cổng 15."
+
+[OK ] "cổng số mười lăm ở đâu"
+      -> intent=ask_gate_location, action=navigate, target=gate_15
+      "Tôi sẽ dẫn bạn đến cổng 15."
+
+[OK ] "gate a1 ở chỗ nào"
+      -> intent=ask_gate_location, action=navigate, target=gate_a1
+      "Tôi sẽ dẫn bạn đến cổng A1."
+
+[OK ] "dẫn tôi đến cổng a tư"
+      -> intent=guide_me, action=navigate, target=gate_a4
+      "Tôi sẽ dẫn bạn đến cổng A4."
+
+[OK ] "dẫn tôi đến cổng a99"
+      -> intent=place_not_found, action=None, target=None
+      "Địa điểm A99 chưa có trong danh mục của tôi."
+
+[OK ] "cổng b99 ở đâu"
+      -> intent=place_not_found, action=None, target=None
+      "Địa điểm B99 chưa có trong danh mục của tôi."
+
+[OK ] "dẫn tôi đến cổng a123"
+      -> intent=place_not_found, action=None, target=None
+      "Địa điểm A123 chưa có trong danh mục của tôi."
+
+[OK ] "dẫn tôi đến cổng a10"
+      -> intent=place_not_found, action=None, target=None
+      "Địa điểm A10 chưa có trong danh mục của tôi."
+
+[OK ] "quầy check in ở đâu vậy"
+      -> intent=ask_checkin, action=navigate, target=checkin
+      "Tôi sẽ dẫn bạn đến quầy làm thủ tục."
+
+[OK ] "tôi làm thủ tục lên máy bay ở đâu"
+      -> intent=ask_checkin, action=navigate, target=checkin
+      "Tôi sẽ dẫn bạn đến quầy làm thủ tục."
+
+[OK ] "quay lam thu tuc o dau"
+      -> intent=ask_checkin, action=navigate, target=checkin
+      "Tôi sẽ dẫn bạn đến quầy làm thủ tục."
+
+[OK ] "cho tôi tới quầy check-in"
+      -> intent=guide_me, action=navigate, target=checkin
+      "Tôi sẽ dẫn bạn đến quầy làm thủ tục."
+
+[OK ] "cho tôi hỏi nhà vệ sinh ở đâu ạ"
+      -> intent=ask_toilet, action=navigate, target=None
+      "Tôi sẽ tìm đường tới nhà vệ sinh phù hợp nhất cho bạn."
+
+[OK ] "toilet chỗ nào"
+      -> intent=ask_toilet, action=navigate, target=None
+      "Tôi sẽ tìm đường tới nhà vệ sinh phù hợp nhất cho bạn."
+
+[OK ] "wc ở đâu vậy bạn"
+      -> intent=ask_toilet, action=navigate, target=None
+      "Tôi sẽ tìm đường tới nhà vệ sinh phù hợp nhất cho bạn."
+
+[OK ] "tôi muốn đi vệ sinh quá"
+      -> intent=guide_me, action=navigate, target=None
+      "Tôi sẽ tìm đường tới nhà vệ sinh phù hợp nhất cho bạn."
+
+[OK ] "nha ve sinh o dau"
+      -> intent=ask_toilet, action=navigate, target=None
+      "Tôi sẽ tìm đường tới nhà vệ sinh phù hợp nhất cho bạn."
+
+[OK ] "dẫn tôi đến nhà vệ sinh"
+      -> intent=guide_me, action=navigate, target=None
+      "Tôi sẽ tìm đường tới nhà vệ sinh phù hợp nhất cho bạn."
+
+[OK ] "dẫn tôi đến nhà vệ sinh sảnh A"
+      -> intent=guide_me, action=navigate, target=toilet_1
+      "Tôi sẽ dẫn bạn đến nhà vệ sinh sảnh A."
+
+[OK ] "tôi đói quá"
+      -> intent=ask_food, action=navigate, target=food_court
+      "Tôi sẽ dẫn bạn đến khu ăn uống."
+
+[OK ] "có quán cà phê nào gần đây không"
+      -> intent=ask_food, action=navigate, target=food_court
+      "Tôi sẽ dẫn bạn đến khu ăn uống."
+
+[OK ] "băng chuyền hành lý chỗ nào"
+      -> intent=ask_baggage, action=navigate, target=baggage
+      "Tôi sẽ dẫn bạn đến băng chuyền hành lý."
+
+[OK ] "quầy thông tin ở đâu vậy bạn"
+      -> intent=ask_info_desk, action=navigate, target=info_desk
+      "Tôi sẽ dẫn bạn đến quầy thông tin."
+
+[OK ] "cây atm ở đâu"
+      -> intent=ask_atm, action=navigate, target=atm
+      "Tôi sẽ dẫn bạn đến cây ATM."
+
+[OK ] "cửa an ninh ở đâu ạ"
+      -> intent=ask_security, action=navigate, target=security
+      "Tôi sẽ dẫn bạn đến cửa an ninh."
+
+[OK ] "dừng lại"
+      -> intent=pause_robot, action=pause, target=None
+      "Tôi đã tạm dừng. Bạn bảo đi tiếp khi sẵn sàng nhé."
+
+[OK ] "chờ tôi một chút"
+      -> intent=pause_robot, action=pause, target=None
+      "Tôi đã tạm dừng. Bạn bảo đi tiếp khi sẵn sàng nhé."
+
+[OK ] "tạm dừng đi bạn"
+      -> intent=pause_robot, action=pause, target=None
+      "Tôi đã tạm dừng. Bạn bảo đi tiếp khi sẵn sàng nhé."
+
+[OK ] "đi tiếp nào"
+      -> intent=resume_robot, action=resume, target=None
+      "Chúng ta tiếp tục di chuyển."
+
+[OK ] "tiếp tục đi"
+      -> intent=resume_robot, action=resume, target=None
+      "Chúng ta tiếp tục di chuyển."
+
+[OK ] "không cần nữa"
+      -> intent=cancel_robot, action=cancel, target=None
+      "Tôi đã hủy chuyến đi hiện tại."
+
+[OK ] "hủy chuyến đi"
+      -> intent=cancel_robot, action=cancel, target=None
+      "Tôi đã hủy chuyến đi hiện tại."
+
+[OK ] "quay về trạm sạc đi"
+      -> intent=go_home, action=navigate, target=home
+      "Tôi sẽ dẫn bạn đến trạm sạc."
+
+[OK ] "đừng dẫn tôi đến cổng A1"
+      -> intent=negated_nav, action=None, target=None
+      "Tôi đã ghi nhận bạn không muốn dẫn đường lúc này."
+
+[OK ] "không dừng lại nhé"
+      -> intent=negated_pause, action=None, target=None
+      "Tôi tiếp tục di chuyển và không dừng lại."
+
+[OK ] "dẫn tôi đến cổng A1 hay A2"
+      -> intent=ambiguous_target, action=None, target=None
+      "Yêu cầu có nhiều điểm đến chưa rõ ràng. Bạn vui lòng chọn một điểm."
+
+[OK ] "dẫn tôi đến"
+      -> intent=missing_destination, action=None, target=None
+      "Tôi chưa xác định được điểm đến. Bạn vui lòng nói rõ điểm bạn muốn đến."
+
+[OK ] "wifi sân bay tên gì"
+      -> intent=ask_wifi, action=None, target=None
+      "Sân bay có Wi-Fi miễn phí tên là Airport-Free-WiFi, kết nối không cần mật khẩu."
+
+[OK ] "sạc điện thoại ở đâu"
+      -> intent=ask_charging, action=None, target=None
+      "Các điểm sạc điện thoại miễn phí được bố trí tại quầy thông tin và gần các cổng chờ A, B."
+
+[OK ] "sân bay mở cửa mấy giờ"
+      -> intent=ask_hours, action=None, target=None
+      "Các dịch vụ hành khách tại nhà ga mở cửa liên tục 24/7."
+
+[OK ] "bạn đang dẫn tôi đi đâu"
+      -> intent=ask_status, action=status, target=None
+      "Tôi đang kiểm tra trạng thái di chuyển."
+
+[OK ] "bây giờ là mấy giờ rồi"
+      -> intent=ask_time, action=None, target=None
+      "Bây giờ là 07 giờ 50 phút."
+
+[OK ] "hôm nay thời tiết thế nào"
+      -> intent=unknown, action=None, target=None
+      "Xin lỗi, tôi chưa hiểu ý bạn. Bạn có thể nhờ tôi dẫn tới cổng ra máy bay, quầy làm thủ tục, nhà vệ sinh, hoặc hỏi thông tin sân bay."
+
+[OK ] "bạn có người yêu chưa"
+      -> intent=unknown, action=None, target=None
+      "Xin lỗi, tôi chưa hiểu ý bạn. Bạn có thể nhờ tôi dẫn tới cổng ra máy bay, quầy làm thủ tục, nhà vệ sinh, hoặc hỏi thông tin sân bay."
+
+[OK ] "abcxyz lảm nhảm"
+      -> intent=unknown, action=None, target=None
+      "Xin lỗi, tôi chưa hiểu ý bạn. Bạn có thể nhờ tôi dẫn tới cổng ra máy bay, quầy làm thủ tục, nhà vệ sinh, hoặc hỏi thông tin sân bay."
+
+=== Kết quả kiểm thử: 61/61 đạt ===

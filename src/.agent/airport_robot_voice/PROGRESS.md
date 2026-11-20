@@ -46,6 +46,7 @@
 | 20 | Cancel loại bỏ hoàn toàn yêu cầu đổi đích đang chờ | `handle_cancel_request` lập tức xóa `_pending_replace_target` và category; `on_goal_result` ưu tiên `CANCELING` trước pending replace; không gửi goal thay thế, thông báo hủy duy nhất 1 lần. | ĐÃ GIẢI QUYẾT |
 | 21 | Quản lý terminal result goal thu hồi muộn, Cô lập & Recovery | `_on_delayed_cancel_terminal_result` chỉ giải phóng attempt khi confirmed (`CANCELED`, `SUCCEEDED`, `ABORTED`), giữ nguyên và chặn goal mới khi `UNKNOWN`/exception; phân định 4 nhánh trong `CANCELING`; cô lập callback attempt cũ theo `(mission_id, attempt_id)`; hỗ trợ lệnh hủy trong IDLE để khôi phục giải tỏa attempt kẹt; triệt tiêu cảnh báo `_execute_goal`. | ĐÃ GIẢI QUYẾT |
 | 22 | Chuẩn hóa Base Robot mecanum & Keyboard 2 bước | Xác minh phần cứng `LINOROBOT2_BASE=mecanum` (omni drive), tách `stt_node` keyboard độc lập (`launch_stt:=false`) tránh xung đột stdin, kiểm tra độ an toàn clearance >= 0.50m toàn bộ 16 điểm mô phỏng. | ĐÃ GIẢI QUYẾT |
+| 23 | Nghiệm thu tích hợp Gazebo + Nav2 + Voice End-to-End | Tự động hóa 5 ca nghiệm thu thực tế: đi tới đích, dừng lại, đi tiếp, đổi đích khi đang đi, hủy khi đang đổi đích, và chọn toilet tối ưu bằng Planner. Kiểm tra Odometry chuyển động thực tế trong Gazebo. | ĐÃ ĐẠT 100% (5/5 CA) |
 
 ---
 
@@ -201,6 +202,38 @@ python3 -m pytest src/airport_robot_voice/test/test_ros_lifecycle.py -v
 
 - File log bằng chứng chi tiết: `.agent/airport_robot_voice/evidence/full_pytest.log`.
 - Kịch bản NLU độc lập: `python3 src/airport_robot_voice/scripts/test_nlu.py` đạt **61/61 PASSED**.
+- File log pytest chi tiết: `.agent/airport_robot_voice/evidence/full_pytest.log`.
+
+### 5.2. Kết quả Nghiệm thu Tích hợp Chuyển động Gazebo Sim + Nav2 + Voice (Evidence)
+Toàn bộ **5 ca kiểm thử thực tế** trên mô phỏng Gazebo Sim với điều hướng Nav2 và odometry chuyển động thực tế đã được thực thi và xác nhận **100% PASSED** (log chi tiết: `.agent/airport_robot_voice/evidence/gazebo_verification.log`):
+
+| Ca kiểm thử | Câu lệnh nhập (/voice/text) | Hành vi và Kết quả kiểm chứng | Trạng thái |
+|---|---|---|---|
+| **Ca 1: Đi tới đích** | `"dẫn tôi đến cổng A3"` | Intent `guide_me`, target `gate_a3`. Nav state chuyển `NAVIGATING` (`mis_..._1`, `att_..._1`). Robot di chuyển thực tế trong Gazebo: Odometry delta = **0.084m** từ (0.39, 0.00) -> (0.34, -0.07). | **PASSED** |
+| **Ca 2: Tạm dừng & Đi tiếp** | `"dừng lại"` rồi `"đi tiếp"` | Lệnh dừng: state chuyển `PAUSED`, robot dừng vật lý trong Gazebo (speed <= 0.03 m/s). Lệnh đi tiếp: state chuyển lại `NAVIGATING`, robot tiếp tục di chuyển thêm **0.050m** từ (0.31, -0.13) -> (0.28, -0.17). | **PASSED** |
+| **Ca 3: Đổi đích khi đang di chuyển** | `"đổi sang cổng A4"` | Hủy goal cũ, đổi lộ trình sang cổng A4, sinh attempt mới `att_..._3`. Robot chuyển hướng trong Gazebo, di chuyển thêm **0.053m** hướng về cổng A4. | **PASSED** |
+| **Ca 4: Hủy khi đang đổi đích** | `"đổi sang quầy check in"` ngay lập tức `"hủy chuyến đi"` | Hủy goal đang chạy, loại bỏ hoàn toàn pending replace check-in, không gửi nhầm goal mới, robot dừng hẳn về `IDLE` an toàn. | **PASSED** |
+| **Ca 5: Chọn đích tối ưu qua Planner** | `"nhà vệ sinh ở đâu"` | Gọi `ComputePathToPose` cho `toilet_1` (-1.0, 1.8) và `toilet_2` (0.2, 1.8). Planner chọn điểm gần hơn (`toilet_2`, nhà vệ sinh sảnh B), kích hoạt `NAVIGATING`, sau đó hủy về `IDLE`. | **PASSED** |
+
+### 5.3. Bằng chứng Đo kiểm Chiều dài Đường đi & Triệt tiêu Goal Đổi Đích trên Gazebo Thật
+Log chi tiết: `.agent/airport_robot_voice/evidence/specific_cases_verification.log`.
+
+1. **Ca Đang đi A3 -> Đổi sang A4 -> Hủy chuyến khi đang đổi đích**:
+   - Robot xuất phát từ pose ban đầu `(0.559, 0.000)` hướng về cổng A3 (`mis_..._1`, `att_..._1`).
+   - Robot di chuyển thực tế **0.054m** trong Gazebo: `(0.56, 0.00) -> (0.53, -0.04)`.
+   - Gửi lệnh đổi đích sang cổng A4, rồi ngay lập tức gửi lệnh hủy chuyến đi trong lúc goal A3 đang hủy.
+   - **Xác nhận 1**: Không có bất kỳ goal A4 nào được gửi sang Nav2 (`Số goal A4 = 0`).
+   - **Xác nhận 2**: Robot mô phỏng dừng lại hoàn toàn trong Gazebo (`Vận tốc = 0.0000 m/s`).
+   - **Xác nhận 3**: Máy trạng thái về `IDLE` an toàn, thông báo hủy duy nhất 1 lần.
+   - **Kết quả**: **PASSED 100%**.
+
+2. **Ca Đo Chiều dài Đường Nav2 tới 2 Nhà Vệ Sinh từ Cùng Một Pose**:
+   - Pose robot tại thời điểm đo: `x = 0.502, y = -0.072`.
+   - **Chiều dài đường Nav2 tới `toilet_1` (-1.0, 1.8)**: **2.590 mét**.
+   - **Chiều dài đường Nav2 tới `toilet_2` ( 0.2, 1.8)**: **1.969 mét**.
+   - Chênh lệch: `toilet_2` gần hơn `toilet_1` là **0.621 mét** (1.969m < 2.590m).
+   - Khi phát câu: `"nhà vệ sinh ở đâu"`, hệ thống Voice tự động gọi `ComputePathToPose` và **chọn chính xác `toilet_2` (nhà vệ sinh sảnh B)**.
+   - **Kết quả**: **PASSED 100%**.
 - Build package: `colcon build --packages-select airport_robot_voice --symlink-install` hoàn tất thành công 0 warnings, 0 errors.
 
 ---
@@ -216,7 +249,7 @@ python3 -m pytest src/airport_robot_voice/test/test_ros_lifecycle.py -v
   - Đồng bộ âm thanh TTS (speech_id, mission_id, tts_ack, strict/flexible policy, queue cancellation, LRU cache).
   - Định dạng file WAV, nhận diện âm thanh offline qua Vosk, xử lý hàng đợi audio.
 
-### 6.2. Môi trường Thiết bị âm thanh vật lý (ĐÃ XÁC MINH CẤU HÌNH VÀ TỔNG HỢP / GIẢI MÃ THỰC TẾ)
+### 6.2. Môi trường Thiết bị âm thanh vật lý (CHỜ KIỂM TRA THỦ CÔNG SÁNG MAI)
 - **Thiết bị phần cứng ALSA thực tế trong container**:
   - Capture: Card 1 `sofhdadsp` [sof-hda-dsp], device 0 (HDA Analog), device 6 (DMIC), device 7 (DMIC16kHz - chuẩn trực tiếp cho Vosk STT).
   - Playback: Card 1 `sofhdadsp`, device 0 (HDA Analog Speakers/Headphones), device 3/4/5 (HDMI); Card 0 `NVidia` (HDMI 0..3).

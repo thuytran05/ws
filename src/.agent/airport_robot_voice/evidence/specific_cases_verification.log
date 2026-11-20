@@ -1,0 +1,86 @@
+========================================================================
+CHẠY XÁC MINH 2 CA CHUYÊN SÂU TRÊN GAZEBO + NAV2 + AIRPORT ROBOT VOICE
+ROS_DOMAIN_ID=10 | BASE=mecanum
+========================================================================
+Dọn dẹp các tiến trình thử nghiệm...
+Đã dọn dẹp sạch sẽ toàn bộ tiến trình.
+[1/4] Khởi động Gazebo Sim (headless)...
+Chờ Gazebo và Bridge sẵn sàng...
+Gazebo /clock đã sẵn sàng sau 1s.
+[2/4] Khởi động Nav2 Navigation Stack...
+Khởi tạo Initial Pose và kích hoạt AMCL...
+AMCL đã nhận Initial Pose và broadcast transform map->odom thành công sau 4s.
+Kích hoạt Lifecycle Manager Navigation (STARTUP = 0)...
+Nav2 bt_navigator và planner_server đã ACTIVE sau 1s.
+[3/4] Khởi động Airport Robot Voice System...
+Chờ Voice System sẵn sàng...
+Voice System sẵn sàng sau 3s.
+[4/4] Bắt đầu chạy kịch bản kiểm thử 2 ca chuyên sâu...
+[INFO] [1795162611.766588927] [specific_cases_verifier]: Khởi tạo SpecificCasesVerifier Node...
+[INFO] [1795162611.780913073] [specific_cases_verifier]: Chờ topic /odom và /voice/nav_state sẵn sàng...
+[INFO] [1795162612.353838045] [specific_cases_verifier]: >>> [GỬI GIỌNG NÓI]: "dẫn tôi đến cổng A3"
+[INFO] [1795162612.361759682] [specific_cases_verifier]: [SAY] "Tôi sẽ dẫn bạn đến cổng A3. Xin hãy đi theo tôi."
+[INFO] [1795162612.362439749] [specific_cases_verifier]: [FEEDBACK] ANNOUNCING / OK: Tôi sẽ dẫn bạn đến cổng A3. Xin hãy đi theo tôi.
+[INFO] [1795162612.415760327] [specific_cases_verifier]: [GOAL RECORDED] Attempt=att_1795162607158_1 -> Target=gate_a3 (State=NAVIGATING)
+[INFO] [1795162612.416333502] [specific_cases_verifier]: [FEEDBACK] STARTED / GOAL_ACCEPTED: 
+[INFO] [1795162612.916434383] [specific_cases_verifier]: [INTENT] guide_me | action=navigate | target=gate_a3
+[INFO] [1795162617.876980353] [specific_cases_verifier]: [ODOM] Đã di chuyển 0.054m từ (0.56, 0.00) -> (0.53, -0.04)
+[INFO] [1795162617.877225530] [specific_cases_verifier]: >>> [GỬI GIỌNG NÓI]: "đổi sang cổng A4"
+[INFO] [1795162617.957724634] [specific_cases_verifier]: >>> [GỬI GIỌNG NÓI]: "hủy chuyến đi"
+[INFO] [1795162617.958504926] [specific_cases_verifier]: [INTENT] replace_target | action=replace | target=gate_a4
+[INFO] [1795162617.958809601] [specific_cases_verifier]: [SAY] "Đã đổi lộ trình, tôi sẽ dẫn bạn đến cổng A4."
+[INFO] [1795162617.959102751] [specific_cases_verifier]: [FEEDBACK] ANNOUNCING / OK: Tôi sẽ dẫn bạn đến cổng A4. Xin hãy đi theo tôi.
+[INFO] [1795162617.959602410] [specific_cases_verifier]: [INTENT] cancel_robot | action=cancel | target=None
+[INFO] [1795162617.959859743] [specific_cases_verifier]: [SAY] "Tôi sẽ dẫn bạn đến cổng A4. Xin hãy đi theo tôi."
+[INFO] [1795162617.960115067] [specific_cases_verifier]: [FEEDBACK] CANCELED / OK: Tôi đã hủy chuyến đi hiện tại.
+[INFO] [1795162617.960673730] [specific_cases_verifier]: [SAY] "Tôi đã hủy chuyến đi hiện tại."
+[INFO] [1795162622.501955579] [specific_cases_verifier]: >>> [GỬI GIỌNG NÓI]: "nhà vệ sinh ở đâu"
+[INFO] [1795162622.503813898] [specific_cases_verifier]: [INTENT] ask_toilet | action=navigate | target=None
+[INFO] [1795162622.513910931] [specific_cases_verifier]: [SAY] "Tôi sẽ dẫn bạn đến nhà vệ sinh sảnh B. Xin hãy đi theo tôi."
+[INFO] [1795162622.514223798] [specific_cases_verifier]: [FEEDBACK] ANNOUNCING / OK: Tôi sẽ dẫn bạn đến nhà vệ sinh sảnh B. Xin hãy đi theo tôi.
+[INFO] [1795162622.568136702] [specific_cases_verifier]: [FEEDBACK] STARTED / GOAL_ACCEPTED: 
+[INFO] [1795162622.568454739] [specific_cases_verifier]: [GOAL RECORDED] Attempt=att_1795162607158_2 -> Target=toilet_2 (State=NAVIGATING)
+[INFO] [1795162626.017148664] [specific_cases_verifier]: >>> [GỬI GIỌNG NÓI]: "hủy chuyến"
+[INFO] [1795162626.018534789] [specific_cases_verifier]: [INTENT] cancel_robot | action=cancel | target=None
+[INFO] [1795162626.049152108] [specific_cases_verifier]: [SAY] "Tôi đã hủy chuyến đi hiện tại."
+[INFO] [1795162626.049677745] [specific_cases_verifier]: [FEEDBACK] CANCELED / OK: Tôi đã hủy chuyến đi hiện tại.
+===========================================================================
+CHẠY XÁC MINH CHUYÊN SÂU 2 CA NGHIỆM THU TRÊN GAZEBO THỰC TẾ
+===========================================================================
+Robot pose ban đầu trên Gazebo: x=0.559, y=0.000, speed=0.000 m/s
+
+---------------------------------------------------------------------------
+CA 1: ĐANG ĐI A3 -> ĐỔI SANG A4 -> HỦY CHUYẾN TRONG LÚC XỬ LÝ ĐỔI ĐÍCH
+---------------------------------------------------------------------------
+  [1.1] Robot nhận goal A3 và bắt đầu NAVIGATING: ĐẠT
+        Mission A3: mis_1795162607158_1, Attempt A3: att_1795162607158_1
+  [1.2] Robot di chuyển thực tế trong Gazebo hướng tới A3: ĐẠT
+  >>> Phát lệnh đổi sang cổng A4 khi robot đang di chuyển...
+  >>> Phát lệnh HỦY CHUYẾN ngay trong lúc đang xử lý đổi đích...
+  [1.3] Máy trạng thái về IDLE an toàn: ĐẠT
+  [1.4] XÁC NHẬN KHÔNG CÓ GOAL A4 NÀO ĐƯỢC GỬI SANG NAV2: ĐẠT (Số goal A4 = 0)
+  [1.5] XÁC NHẬN ROBOT MÔ PHỎNG ĐÃ DỪNG HẲN TRONG GAZEBO: ĐẠT (Vận tốc hiện tại = 0.0000 m/s)
+
+---------------------------------------------------------------------------
+CA 2: LẤY ĐƯỜNG TỚI 2 NHÀ VỆ SINH TỪ CÙNG POSE, SO SÁNH CHIỀU DÀI VÀ CHỌN ĐIỂM
+---------------------------------------------------------------------------
+  Pose bắt đầu đo đường: x=0.502, y=-0.072
+  [2.1] Chiều dài đường Nav2 tới toilet_1 (-1.0, 1.8): 2.590 mét
+  [2.2] Chiều dài đường Nav2 tới toilet_2 ( 0.2, 1.8): 1.969 mét
+  --> Điểm có đường ngắn hơn trên bản đồ Nav2 là: toilet_2 (1.969m)
+  >>> Phát câu nói: "nhà vệ sinh ở đâu"...
+  [2.3] Hệ thống Voice kích hoạt NAVIGATING: ĐẠT
+  [2.4] Điểm đến được Voice System lựa chọn: toilet_2 (nhà vệ sinh sảnh B)
+  [2.5] XÁC NHẬN HỆ THỐNG ĐÃ CHỌN ĐÚNG ĐIỂM NGẮN NHẤT (toilet_2): ĐẠT
+
+===========================================================================
+KẾT QUẢ XÁC MINH 2 CA CHUYÊN SÂU TRÊN GAZEBO
+===========================================================================
+  * Ca 1: Đi A3 -> Đổi A4 -> Hủy khi đang đổi (Không gửi A4 & Robot dừng): PASSED
+  * Ca 2: Chiều dài đường 2 toilet (2.59m vs 1.97m) & Chọn đúng điểm: PASSED
+===========================================================================
+KẾT LUẬN: TẤT CẢ ĐẠT 100%
+===========================================================================
+XÁC MINH 2 CA CHUYÊN SÂU HOÀN TẤT THÀNH CÔNG!
+Dọn dẹp các tiến trình thử nghiệm...
+Đã dọn dẹp sạch sẽ toàn bộ tiến trình.

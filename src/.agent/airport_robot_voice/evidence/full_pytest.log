@@ -62,50 +62,47 @@ src/airport_robot_voice/test/test_planner_resolution.py::test_planner_cancel_and
 src/airport_robot_voice/test/test_planner_resolution.py::test_replace_from_specific_target_to_category PASSED [ 98%]
 src/airport_robot_voice/test/test_planner_resolution.py::test_planner_server_unavailable_reports_unavailability PASSED [100%]
 
-============================== 56 passed in 9.39s ==============================
+============================== 56 passed in 9.58s ==============================
 ============================= test session starts ==============================
 platform linux -- Python 3.12.3, pytest-7.4.4, pluggy-1.4.0 -- /usr/bin/python3
 cachedir: .pytest_cache
 rootdir: /home/ws/src/airport_robot_voice
 plugins: ament-flake8-0.17.5, launch-testing-3.4.11, ament-lint-0.17.5, ament-xmllint-0.17.5, ament-copyright-0.17.5, launch-testing-ros-0.26.12, ament-pep257-0.17.5, typeguard-4.1.5, colcon-core-0.21.3
-collecting ... collected 30 items
+collecting ... collected 34 items
 
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_pause_before_goal_acceptance PASSED [  3%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_cancel_before_goal_acceptance PASSED [  6%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_cancel_rejected_leaves_goal_active_and_navigating PASSED [ 10%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_pause_rejected_leaves_goal_active_and_navigating PASSED [ 13%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_cancel_accepted_waits_for_terminal_result_before_paused_or_idle PASSED [ 16%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_goal_finishes_succeeded_or_aborted_during_cancel PASSED [ 20%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_cancel_received_while_pausing_transitions_to_canceling PASSED [ 23%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_pending_goal_rejected_after_pause_cancel_replace PASSED [ 26%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_replace_waits_for_old_goal_terminal_result_before_sending_new_goal PASSED [ 30%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_pause_and_resume_during_planner_resolving PASSED [ 33%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_discard_old_feedback_and_freshness_status PASSED [ 36%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_request_deduplication PASSED [ 40%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_tts_synchronization_and_cancel_in_announcing PASSED [ 43%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_speech_single_emission_per_event PASSED [ 46%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_acceptance_timeout_and_late_acceptance_revoked PASSED [ 50%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_acceptance_timeout_new_request_late_acceptance_discarded PASSED [ 53%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_late_acceptance_cancel_rejected PASSED [ 56%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_pending_acceptance_never_completes PASSED [ 60%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_timer_isolation_between_operations PASSED [ 63%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_cancel_terminal_timeout_and_late_terminal PASSED [ 66%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_tts_strict_policy_aborts_on_timeout_and_error PASSED [ 70%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_tts_flexible_policy_fallbacks_on_timeout PASSED [ 73%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_end_to_end_voice_text_replace_while_navigating PASSED [ 76%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_end_to_end_voice_text_navigate_phrase_while_navigating PASSED [ 80%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_end_to_end_voice_text_replace_while_paused PASSED [ 83%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_replace_with_invalid_target_preserves_current_mission PASSED [ 86%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_unresolved_attempts_blocks_new_mission_until_cleared PASSED [ 90%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_late_result_does_not_clear_new_goal_unconfirmed_terminal PASSED [ 93%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_status_inquiry_with_unresolved_attempts PASSED [ 96%]
-src/airport_robot_voice/test/test_ros_lifecycle.py::test_tts_strict_and_actual_ack_statuses PASSED [100%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_pause_before_goal_acceptance PASSED [  2%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_cancel_before_goal_acceptance PASSED [  5%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_cancel_rejected_leaves_goal_active_and_navigating PASSED [  8%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_pause_rejected_leaves_goal_active_and_navigating PASSED [ 11%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_cancel_accepted_waits_for_terminal_result_before_paused_or_idle PASSED [ 14%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_goal_finishes_succeeded_or_aborted_during_cancel PASSED [ 17%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_cancel_received_while_pausing_transitions_to_canceling PASSED [ 20%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_pending_goal_rejected_after_pause_cancel_replace PASSED [ 23%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_replace_waits_for_old_goal_terminal_result_before_sending_new_goal PASSED [ 26%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_pause_and_resume_during_planner_resolving PASSED [ 29%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_discard_old_feedback_and_freshness_status PASSED [ 32%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_request_deduplication PASSED [ 35%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_tts_synchronization_and_cancel_in_announcing PASSED [ 38%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_speech_single_emission_per_event PASSED [ 41%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_acceptance_timeout_and_late_acceptance_revoked PASSED [ 44%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_acceptance_timeout_new_request_late_acceptance_discarded PASSED [ 47%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_late_acceptance_cancel_rejected PASSED [ 50%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_pending_acceptance_never_completes PASSED [ 52%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_timer_isolation_between_operations PASSED [ 55%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_cancel_terminal_timeout_and_late_terminal PASSED [ 58%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_tts_strict_policy_aborts_on_timeout_and_error PASSED [ 61%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_tts_flexible_policy_fallbacks_on_timeout PASSED [ 64%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_end_to_end_voice_text_replace_while_navigating PASSED [ 67%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_end_to_end_voice_text_navigate_phrase_while_navigating PASSED [ 70%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_end_to_end_voice_text_replace_while_paused PASSED [ 73%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_replace_with_invalid_target_preserves_current_mission PASSED [ 76%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_unresolved_attempts_blocks_new_mission_until_cleared PASSED [ 79%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_late_result_does_not_clear_new_goal_unconfirmed_terminal PASSED [ 82%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_status_inquiry_with_unresolved_attempts PASSED [ 85%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_tts_strict_and_actual_ack_statuses PASSED [ 88%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_heartbeat_with_sim_time_and_no_clock PASSED [ 91%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_cancel_during_replace_clears_pending_replace_and_cancels PASSED [ 94%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_cancel_during_category_replace_clears_pending_category PASSED [ 97%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_delayed_cancel_terminal_result_statuses PASSED [100%]
 
-=============================== warnings summary ===============================
-test/test_ros_lifecycle.py::test_tts_flexible_policy_fallbacks_on_timeout
-  Warning: coroutine 'ActionServer._execute_goal' was never awaited
-  Enable tracemalloc to get traceback where the object was allocated.
-  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
-
--- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-=================== 30 passed, 1 warning in 82.42s (0:01:22) ===================
+============================= 34 passed in 12.19s ==============================

@@ -1,0 +1,194 @@
+# PHASE 0 AUDIT COMMAND LOG
+Timestamp: 2026-11-20T14:53:30+07:00
+Agent: person_tracking (Senior ROS 2 Jazzy Robotics Engineer)
+Workspace: /home/thuytran/ws (Host) / /home/ws (Docker Dev Container)
+
+================================================================================
+1. SCOPE & SAFETY VERIFICATION
+================================================================================
+
+[CMD 01] pwd
+Command: pwd
+Output: /home/thuytran/ws/src
+Result: PASS - Working directory is inside ws workspace.
+
+[CMD 02] readlink -f .
+Command: readlink -f .
+Output: /home/thuytran/ws/src
+Result: PASS - Confirmed canonical path.
+
+[CMD 03] git rev-parse --show-toplevel
+Command: git rev-parse --show-toplevel
+Output: /home/thuytran/ws
+Result: PASS - Git repository root is /home/thuytran/ws.
+
+[CMD 04] git status --short
+Command: git status --short
+Output:
+ M .agent/COMMANDS_VOICE.md
+ D .agent/airport_robot_voice/COMMANDS.md
+ M .agent/airport_robot_voice/PROGRESS.md
+ M airport_robot_voice/airport_robot_voice/nav_command_node.py
+ M airport_robot_voice/test/test_ros_lifecycle.py
+?? .agent/person_tracking/
+Result: PASS - Identified uncommitted modifications belong exclusively to parallel voice agent.
+Preserved untouched per Rule A.7.
+
+[CMD 05] git branch -a
+Command: git branch -a
+Output:
+* master
+  remotes/origin/master
+Result: PASS - Current branch is master.
+
+[CMD 06] ls -la .agent/person_tracking/WORKFLOW.md
+Command: ls -la .agent/person_tracking/WORKFLOW.md
+Output: -rw-rw-r-- 1 thuytran thuytran 43442 Nov 20 14:44 .agent/person_tracking/WORKFLOW.md
+Result: PASS - Source of truth 2 (WORKFLOW.md) verified present and readable.
+
+================================================================================
+2. COLCON ROOT & DEV CONTAINER MOUNT AUDIT
+================================================================================
+
+[CMD 07] ls -la /home/thuytran/ws/build /home/thuytran/ws/src/build
+Command: ls -la /home/thuytran/ws/build && ls -la /home/thuytran/ws/src/build
+Output:
+/home/thuytran/ws/build contains 15 packages:
+  airport_robot_voice, astra_camera, astra_camera_msgs, linorobot2, linorobot2_base,
+  linorobot2_bringup, linorobot2_description, linorobot2_gazebo, linorobot2_navigation,
+  linorobot2_viz, micro_ros_agent, micro_ros_msgs, my_package, person_tracking, teleop_pkg.
+/home/thuytran/ws/src/build contains:
+  airport_robot_voice (built Nov 20 12:56).
+Result: PASS - The true colcon workspace root is /home/thuytran/ws (/home/ws in Docker).
+An accidental colcon build occurred in src/ previously by the voice agent.
+Finding: Tracking builds must target /home/thuytran/ws or isolated build bases.
+
+[CMD 08] cat /home/thuytran/ws/.devcontainer/devcontainer.json
+Command: cat /home/thuytran/ws/.devcontainer/devcontainer.json
+Output:
+- workspaceFolder: /home/ws
+- workspaceMount: source=${localWorkspaceFolder},target=/home/ws,type=bind
+- runArgs: ["--gpus", "all", "--net=host", "--pid=host", "--ipc=host", "--privileged", "--mount=type=bind,source=/dev,target=/dev"]
+- containerEnv: NVIDIA_VISIBLE_DEVICES=all, NVIDIA_DRIVER_CAPABILITIES=all, ROS_DOMAIN_ID=0
+Result: PASS - Confirmed bind mount from host /home/thuytran/ws to /home/ws in container.
+GPU passthrough is enabled for container.
+
+[CMD 09] cat /home/thuytran/ws/.devcontainer/Dockerfile
+Command: cat /home/thuytran/ws/.devcontainer/Dockerfile
+Output: Base image is FROM ros:jazzy, user thuytran (uid 1000).
+Result: PASS - Target execution environment confirmed as ROS 2 Jazzy.
+
+================================================================================
+3. GPU & RUNTIME ENVIRONMENT AUDIT
+================================================================================
+
+[CMD 10] nvidia-smi
+Command: nvidia-smi
+Output:
+Driver Version: 580.178.04 | CUDA Version: 13.0
+GPU 0: NVIDIA RTX A3000 Laptop GPU | 6144MiB VRAM | Util 0%
+Result: PASS - Dedicated NVIDIA RTX A3000 GPU available on host.
+
+[CMD 11] Host Python & PyTorch check
+Command: python3 -c "import torch; print(torch.__version__)"
+Output: ModuleNotFoundError: No module named 'torch'
+Result: Expected - Host global Python (Ubuntu 22.04, Python 3.10) lacks PyTorch.
+
+[CMD 12] Model weight check
+Command: python3 check header of /home/thuytran/ws/yolo26n-pose.pt
+Output: PyTorch zip archive, size 7,878,574 bytes, best/data.pkl dated 2026-01-11.
+Result: PASS - Pretrained YOLO Pose model checkpoint exists at workspace root.
+
+================================================================================
+4. PERSON TRACKING PACKAGE AUDIT
+================================================================================
+
+[CMD 13] find /home/thuytran/ws/src/person_tracking -type f | sort
+Output:
+12 files:
+- package.xml (ament_python, v0.1.0)
+- setup.py (console_scripts: person_tracker, person_follower)
+- setup.cfg
+- README.md
+- config/person_tracking.yaml
+- launch/tracking.launch.py
+- launch/following.launch.py
+- person_tracking/control.py
+- person_tracking/person_follower.py
+- person_tracking/person_tracker.py
+- person_tracking/yolo_pose_node.py
+- resource/person_tracking
+Result: PASS - Complete inventory taken. Evaluated in INVENTORY.md.
+
+================================================================================
+5. ASTRA CAMERA SUBSYSTEM AUDIT (READ-ONLY)
+================================================================================
+
+[CMD 14] grep -rn 'stream_name_' /home/thuytran/ws/src/ros2_astra_camera/astra_camera/src
+Output:
+- ob_camera_node.cpp:284: stream_name_[DEPTH] = "depth";
+- ob_camera_node.cpp:290: stream_name_[COLOR] = "color";
+- ob_camera_node.cpp:296: stream_name_[INFRA1] = "ir";
+- ob_camera_node.cpp:383: topic = name + "/image_raw";
+- ob_camera_node.cpp:389: topic = name + "/camera_info";
+Result: PASS - Topics: /camera/color/image_raw, /camera/depth/image_raw, /camera/color/camera_info.
+
+[CMD 15] grep -rn 'encoding_' /home/thuytran/ws/src/ros2_astra_camera/astra_camera/src
+Output:
+- ob_camera_node.cpp:288: encoding_[DEPTH] = TYPE_16UC1 (unsigned 16-bit mm);
+- ob_camera_node.cpp:294: encoding_[COLOR] = RGB8;
+- ob_camera_node.cpp:300: encoding_[INFRA1] = MONO8;
+Result: PASS - Depth encoding is 16UC1 (mm). Color encoding is RGB8.
+
+[CMD 16] grep -rn 'depth_registration_' /home/thuytran/ws/src/ros2_astra_camera/astra_camera/src
+Output:
+- ob_camera_node.cpp:529: frame_id = depth_registration_ ? depth_aligned_frame_id_ : optical_frame_id_;
+- astra.launch.xml:5: <arg name="depth_registration" default="false"/>
+Result: CRITICAL FINDING - Depth registration is FALSE by default in Astra driver launch.
+If false, depth is not aligned to RGB and frame_id is camera_depth_optical_frame.
+
+[CMD 17] grep -rn 'depth_sensor' /home/thuytran/ws/src/linorobot2/linorobot2_description/urdf/
+Output:
+- mecanum_properties.urdf.xacro:27: <origin xyz="0.2375 0 0.06" rpy="0 0 0"/>
+Result: CRITICAL FINDING - Gazebo URDF models camera facing forward (rpy=0,0,0).
+Real robot hardware has camera fixed facing backward (yaw = pi).
+Per Rule A.4, Gazebo URDF must NOT be modified. Offline perception & guard must use real backward frame convention.
+
+================================================================================
+6. NAV2 & VOICE SUBSYSTEM AUDIT (READ-ONLY)
+================================================================================
+
+[CMD 18] grep -rn 'pub_nav_state' /home/thuytran/ws/src/airport_robot_voice/airport_robot_voice/nav_command_node.py
+Output:
+- nav_command_node.py:176: pub_nav_state -> /voice/nav_state (JSON String, TRANSIENT_LOCAL, RELIABLE)
+- nav_command_node.py:465: publish_state() includes: schema_version, node_online, mission_state, mission_id,
+  goal_attempt_id, current_target_id, distance_remaining, eta_seconds, timestamp.
+- ActionClient(self, NavigateToPose, 'navigate_to_pose')
+- ActionClient(self, ComputePathToPose, 'compute_path_to_pose')
+Result: PASS - Voice node is sole owner of NavigateToPose. Currently no subscription to person tracking.
+
+[CMD 19] grep -rn in linorobot2/linorobot2_navigation/config/navigation.yaml
+Output:
+- velocity_smoother: smoothing_frequency: 20.0, max_velocity: [0.5, 0.5, 2.5]
+- collision_monitor: cmd_vel_in_topic: "cmd_vel_smoothed", cmd_vel_out_topic: "cmd_vel"
+- controller_server: DWBLocalPlanner, outputs geometry_msgs/msg/Twist
+Result: PASS - Velocity chain: Nav2 controller -> velocity_smoother -> collision_monitor -> base cmd_vel.
+Tracking guard must intercept before collision_monitor.
+
+================================================================================
+7. COMMANDS FAILED / RESTRICTED IN SANDBOX
+================================================================================
+
+[FAIL 01] which ros2 / which colcon
+Exit Code: 1
+Explanation: Sandboxed host shell does not have ROS 2 environment sourced by default.
+Target execution is in Dev Container (/home/ws, ROS 2 Jazzy).
+
+[FAIL 02] docker ps
+Exit Code: 1
+Explanation: Docker daemon unix socket (/var/run/docker.sock) not mounted in host sandbox.
+Target execution verified via devcontainer.json configuration.
+
+[FAIL 03] rg (ripgrep)
+Exit Code: 127
+Explanation: Tool not installed; substituted with grep -rn.

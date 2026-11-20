@@ -1,0 +1,114 @@
+========================================================================
+KHỞI ĐỘNG HỆ THỐNG NGHIỆM THU GAZEBO + NAV2 + AIRPORT ROBOT VOICE
+ROS_DOMAIN_ID=10 | BASE=mecanum
+========================================================================
+Dọn dẹp các tiến trình thử nghiệm...
+Đã dọn dẹp sạch sẽ toàn bộ tiến trình.
+[1/4] Khởi động Gazebo Sim (headless)...
+Chờ Gazebo và Bridge sẵn sàng...
+Gazebo /clock đã sẵn sàng sau 1s.
+[2/4] Khởi động Nav2 Navigation Stack...
+Khởi tạo Initial Pose và kích hoạt AMCL...
+AMCL đã nhận Initial Pose và publish /amcl_pose sau 1s.
+Kích hoạt Lifecycle Manager Navigation (STARTUP = 0)...
+Nav2 bt_navigator và planner_server đã chuyển sang trạng thái ACTIVE sau 1s.
+[3/4] Khởi động Airport Robot Voice System...
+Chờ Voice System sẵn sàng...
+Voice System sẵn sàng sau 2s.
+[4/4] Bắt đầu chạy kịch bản kiểm thử tương tác tự động...
+[INFO] [1795161950.138823665] [gazebo_voice_verifier]: Khởi tạo GazeboVoiceVerifier Node...
+[INFO] [1795161950.150499185] [gazebo_voice_verifier]: Chờ các topic /odom và /voice/nav_state sẵn sàng...
+[INFO] [1795161950.404273652] [gazebo_voice_verifier]: >>> [GỬI GIỌNG NÓI / BÀN PHÍM]: "dẫn tôi đến cổng A3"
+[INFO] [1795161950.412286290] [gazebo_voice_verifier]: [INTENT] guide_me | action=navigate | target=gate_a3
+[INFO] [1795161950.412919379] [gazebo_voice_verifier]: [SAY] "Tôi sẽ dẫn bạn đến cổng A3. Xin hãy đi theo tôi."
+[INFO] [1795161950.413421541] [gazebo_voice_verifier]: [FEEDBACK] ANNOUNCING / OK: Tôi sẽ dẫn bạn đến cổng A3. Xin hãy đi theo tôi.
+[INFO] [1795161950.467755483] [gazebo_voice_verifier]: [FEEDBACK] STARTED / GOAL_ACCEPTED: 
+[INFO] [1795161956.846910366] [gazebo_voice_verifier]: [ODOM] Đã di chuyển 0.084m từ (0.39, 0.00) -> (0.34, -0.07)
+[INFO] [1795161956.847170574] [gazebo_voice_verifier]: >>> [GỬI GIỌNG NÓI / BÀN PHÍM]: "dừng lại"
+[INFO] [1795161956.848827457] [gazebo_voice_verifier]: [INTENT] pause_robot | action=pause | target=None
+[INFO] [1795161956.869443732] [gazebo_voice_verifier]: [SAY] "Tôi đã tạm dừng. Bạn bảo đi tiếp khi sẵn sàng nhé."
+[INFO] [1795161956.869765427] [gazebo_voice_verifier]: [FEEDBACK] PAUSED / OK: Tôi đã tạm dừng. Bạn bảo đi tiếp khi sẵn sàng nhé.
+[INFO] [1795161957.127599227] [gazebo_voice_verifier]: >>> [GỬI GIỌNG NÓI / BÀN PHÍM]: "đi tiếp"
+[INFO] [1795161957.129036143] [gazebo_voice_verifier]: [INTENT] resume_robot | action=resume | target=None
+[INFO] [1795161957.129613629] [gazebo_voice_verifier]: [SAY] "Chúng ta tiếp tục di chuyển."
+[INFO] [1795161957.129901954] [gazebo_voice_verifier]: [FEEDBACK] RESUMED / OK: Chúng ta tiếp tục di chuyển.
+[INFO] [1795161957.130845657] [gazebo_voice_verifier]: [FEEDBACK] STARTED / GOAL_ACCEPTED: 
+[INFO] [1795161957.788263902] [gazebo_voice_verifier]: [ODOM] Đã di chuyển 0.050m từ (0.31, -0.13) -> (0.28, -0.17)
+[INFO] [1795161957.788500592] [gazebo_voice_verifier]: >>> [GỬI GIỌNG NÓI / BÀN PHÍM]: "đổi sang cổng A4"
+[INFO] [1795161957.789960405] [gazebo_voice_verifier]: [INTENT] replace_target | action=replace | target=gate_a4
+[INFO] [1795161957.812293399] [gazebo_voice_verifier]: [SAY] "Đã đổi lộ trình, tôi sẽ dẫn bạn đến cổng A4."
+[INFO] [1795161957.812754179] [gazebo_voice_verifier]: [SAY] "Tôi sẽ dẫn bạn đến cổng A4. Xin hãy đi theo tôi."
+[INFO] [1795161957.813009969] [gazebo_voice_verifier]: [FEEDBACK] ANNOUNCING / OK: Tôi sẽ dẫn bạn đến cổng A4. Xin hãy đi theo tôi.
+[INFO] [1795161957.917195614] [gazebo_voice_verifier]: [FEEDBACK] STARTED / GOAL_ACCEPTED: 
+[INFO] [1795161960.407309413] [gazebo_voice_verifier]: [ODOM] Đã di chuyển 0.053m từ (0.94, -0.42) -> (0.99, -0.42)
+[INFO] [1795161960.407591499] [gazebo_voice_verifier]: >>> [GỬI GIỌNG NÓI / BÀN PHÍM]: "đổi sang quầy check in"
+[INFO] [1795161960.508026561] [gazebo_voice_verifier]: >>> [GỬI GIỌNG NÓI / BÀN PHÍM]: "hủy chuyến đi"
+[INFO] [1795161960.508645984] [gazebo_voice_verifier]: [INTENT] replace_target | action=replace | target=checkin
+[INFO] [1795161960.508947111] [gazebo_voice_verifier]: [SAY] "Đã đổi lộ trình, tôi sẽ dẫn bạn đến quầy làm thủ tục."
+[INFO] [1795161960.509226551] [gazebo_voice_verifier]: [FEEDBACK] ANNOUNCING / OK: Tôi sẽ dẫn bạn đến quầy làm thủ tục. Xin hãy đi theo tôi.
+[INFO] [1795161960.509895985] [gazebo_voice_verifier]: [INTENT] cancel_robot | action=cancel | target=None
+[INFO] [1795161960.510154495] [gazebo_voice_verifier]: [SAY] "Tôi sẽ dẫn bạn đến quầy làm thủ tục. Xin hãy đi theo tôi."
+[INFO] [1795161960.510414571] [gazebo_voice_verifier]: [FEEDBACK] CANCELED / OK: Tôi đã hủy chuyến đi hiện tại.
+[INFO] [1795161960.511008694] [gazebo_voice_verifier]: [SAY] "Tôi đã hủy chuyến đi hiện tại."
+[INFO] [1795161962.527589759] [gazebo_voice_verifier]: >>> [GỬI GIỌNG NÓI / BÀN PHÍM]: "nhà vệ sinh ở đâu"
+[INFO] [1795161962.529785012] [gazebo_voice_verifier]: [INTENT] ask_toilet | action=navigate | target=None
+[INFO] [1795161962.544810065] [gazebo_voice_verifier]: [SAY] "Tôi sẽ dẫn bạn đến nhà vệ sinh sảnh B. Xin hãy đi theo tôi."
+[INFO] [1795161962.545136577] [gazebo_voice_verifier]: [FEEDBACK] ANNOUNCING / OK: Tôi sẽ dẫn bạn đến nhà vệ sinh sảnh B. Xin hãy đi theo tôi.
+[INFO] [1795161962.599884073] [gazebo_voice_verifier]: [FEEDBACK] STARTED / GOAL_ACCEPTED: 
+[INFO] [1795161965.539273196] [gazebo_voice_verifier]: >>> [GỬI GIỌNG NÓI / BÀN PHÍM]: "hủy chuyến"
+[INFO] [1795161965.540612830] [gazebo_voice_verifier]: [INTENT] cancel_robot | action=cancel | target=None
+[INFO] [1795161965.569833540] [gazebo_voice_verifier]: [SAY] "Tôi đã hủy chuyến đi hiện tại."
+[INFO] [1795161965.570171291] [gazebo_voice_verifier]: [FEEDBACK] CANCELED / OK: Tôi đã hủy chuyến đi hiện tại.
+======================================================================
+BẮT ĐẦU NGHIỆM THU TÍCH HỢP GAZEBO + NAV2 + AIRPORT ROBOT VOICE
+======================================================================
+
+------------------------------------------------------------
+CA 1: DI CHUYỂN TỚI ĐÍCH (CỔNG A3)
+------------------------------------------------------------
+  [1.1] Kiểm tra Intent: guide_me, target=gate_a3 -> ĐẠT
+  [1.2] Kiểm tra Nav State: NAVIGATING -> ĐẠT
+        Mission ID: mis_1795161947293_1, Attempt ID: att_1795161947293_1
+  [1.3] Kiểm tra Odometry chuyển động trong Gazebo (delta >= 0.08m) -> ĐẠT
+
+------------------------------------------------------------
+CA 2: TẠM DỪNG VÀ ĐI TIẾP (PAUSE & RESUME)
+------------------------------------------------------------
+  [2.1] Kiểm tra Lệnh dừng: Nav State PAUSED -> ĐẠT
+  [2.2] Kiểm tra Dừng vật lý (speed <= 0.03 m/s) -> ĐẠT
+  [2.3] Kiểm tra Lệnh đi tiếp: Nav State NAVIGATING -> ĐẠT
+  [2.4] Kiểm tra Tiếp tục chuyển động sau resume -> ĐẠT
+
+------------------------------------------------------------
+CA 3: ĐỔI ĐÍCH KHI ĐANG DI CHUYỂN (REPLACE -> CỔNG A4)
+------------------------------------------------------------
+  [3.1] Kiểm tra Đổi đích sang gate_a4: target mới & attempt mới -> ĐẠT
+        Đích hiện tại: cổng A4, Attempt: att_1795161947293_3
+  [3.2] Kiểm tra Robot tiếp tục di chuyển hướng về đích mới -> ĐẠT
+
+------------------------------------------------------------
+CA 4: HỦY KHI ĐANG ĐỔI ĐÍCH (CANCEL DURING REPLACE)
+------------------------------------------------------------
+  [4.1] Kiểm tra Hủy thành công: Nav State về IDLE -> ĐẠT
+  [4.2] Kiểm tra Đích thay thế bị loại bỏ, không gửi nhầm goal mới -> ĐẠT
+
+------------------------------------------------------------
+CA 5: CHỌN ĐÍCH TỐI ƯU TRONG NHÓM QUA PLANNER (TOILET)
+------------------------------------------------------------
+  [5.1] Kiểm tra Planner chọn toilet và kích hoạt NAVIGATING -> ĐẠT
+        Toilet được chọn tối ưu: toilet_2 (nhà vệ sinh sảnh B)
+
+======================================================================
+TỔNG HỢP KẾT QUẢ NGHIỆM THU GAZEBO + NAV2 + VOICE
+======================================================================
+  * Ca 1: Đi tới đích                         : PASSED
+  * Ca 2: Tạm dừng & Đi tiếp                  : PASSED
+  * Ca 3: Đổi đích khi đang di chuyển         : PASSED
+  * Ca 4: Hủy khi đang đổi đích               : PASSED
+  * Ca 5: Chọn đích tối ưu qua Planner        : PASSED
+======================================================================
+KẾT LUẬN CHUNG: TẤT CẢ CÁC CA ĐẠT 100%
+======================================================================
+NGHIỆM THU HOÀN TẤT THÀNH CÔNG!
+Dọn dẹp các tiến trình thử nghiệm...
+Đã dọn dẹp sạch sẽ toàn bộ tiến trình.

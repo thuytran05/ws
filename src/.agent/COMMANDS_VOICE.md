@@ -583,3 +583,84 @@ colcon build --packages-select airport_robot_voice --symlink-install
 source /home/ws/install/setup.bash
 python3 -m pytest src/airport_robot_voice/test/ -v
 ```
+
+---
+
+## 9. Bài thử nghiệm Micro và Loa thật (5 phút khi thức dậy)
+
+Bài thử nghiệm này giúp bạn kiểm tra toàn diện chất lượng thu âm tiếng Việt từ Micro thực tế và phát tiếng nói ra Loa ngoài trong vòng **5 phút**, bắt đầu bằng **chế độ Voice độc lập (`use_nav:=false`)** không phụ thuộc vào hệ thống điều hướng Nav2 hay Gazebo.
+
+---
+
+### 9.1 Bố trí 3 Terminal trong VS Code (Chế độ Voice Độc lập)
+
+Mở 3 Terminal riêng biệt trong VS Code (nhấn `Ctrl + Shift + \`` để mở terminal mới):
+
+#### Terminal 1: Khởi động Phát âm thanh TTS ra Loa thật
+```bash
+source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
+
+# Phát tiếng nói tự nhiên bằng Piper ONNX ra loa máy tính (hoặc thay bằng engine:=espeak):
+ros2 run airport_robot_voice tts_node --ros-args -p engine:=piper
+```
+*(Node này sẽ nhận câu nói từ hệ thống, tổng hợp âm thanh và phát trực tiếp ra loa qua ALSA).*
+
+#### Terminal 2: Khởi động Lõi Xử lý Ngôn ngữ Tự nhiên NLU
+```bash
+source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
+
+# Chạy Intent Node ở chế độ độc lập (không cần Nav2):
+ros2 run airport_robot_voice intent_node
+```
+*(Node này phân tích ý định từ giọng nói, trả lời các thông tin offline và thông báo an toàn nếu yêu cầu dẫn đường khi Nav2 chưa bật).*
+
+#### Terminal 3: Khởi động Nhận diện Giọng nói STT từ Micro thật
+```bash
+source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
+
+# Chạy Vosk STT lắng nghe micro phần cứng (sử dụng model tiếng Việt offline):
+ros2 run airport_robot_voice stt_node --ros-args -p mode:=mic
+```
+*(Nếu máy có nhiều card âm thanh, truyền thêm device:=-1 hoặc xem index qua sounddevice.query_devices()).*
+
+*(Tùy chọn) Terminal 4: Giám sát văn bản nhận diện thời gian thực*:
+```bash
+source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
+ros2 topic echo /voice/text
+```
+
+---
+
+### 9.2 Bảng 3 Câu Tiếng Việt Thử Nghiệm Tuần Tự (Kèm Bước Thao tác)
+
+Ngồi trước máy tính, lần lượt nói vào Micro theo 3 câu dưới đây:
+
+| STT | Câu bạn cần nói vào Micro | Transcript nhận diện (/voice/text) | Intent phân tích (/voice/intent) | Phản hồi mong đợi phát ra Loa | Bước thao tác của bạn |
+|---|---|---|---|---|---|
+| **Câu 1** | **"wifi sân bay tên gì"** | `"wifi sân bay tên gì"` | `intent: ask_wifi`<br>`action: None`<br>`target: None` | *"Sân bay có Wi-Fi miễn phí tên là Airport-Free-WiFi, kết nối không cần mật khẩu."* | **[NÓI]** Bạn nói rõ câu vào micro.<br>**[NGHE]** Xác nhận nghe thấy tiếng Piper phát câu thông tin Wi-Fi qua loa ngoài. |
+| **Câu 2** | **"sân bay mở cửa mấy giờ"** | `"sân bay mở cửa mấy giờ"` | `intent: ask_hours`<br>`action: None`<br>`target: None` | *"Các dịch vụ hành khách tại nhà ga mở cửa liên tục 24/7."* | **[NÓI]** Bạn nói câu vào micro.<br>**[NGHE]** Xác nhận nghe tiếng loa phát rõ ràng *"mở cửa liên tục 24/7"*. |
+| **Câu 3** | **"cổng A3 ở đâu"** | `"cổng a3 ở đâu"`<br>*(hoặc `"cổng a ba ở đâu"`)* | `intent: guide_me`<br>`action: navigate`<br>`target_id: gate_a3` | *"Đã xác định yêu cầu tới cổng A3, nhưng hệ thống điều hướng chưa sẵn sàng."* | **[NÓI]** Bạn nói câu hỏi vị trí cổng A3.<br>**[NGHE]** Xác nhận nghe tiếng loa báo đã nhận diện đúng cổng A3 và thông báo an toàn do đang chạy voice độc lập (`use_nav:=false`). |
+
+---
+
+### 9.3 Cách thoát sạch sau khi thử xong
+Tại mỗi Terminal 1, 2, 3, nhấn tổ hợp phím **`Ctrl + C`** để dừng các node. Hệ thống giải phóng toàn bộ tài nguyên âm thanh ALSA.
+
+---
+
+### 9.4 Lệnh chạy lại toàn bộ Bộ Kiểm thử và Nghiệm thu Gazebo
+Nếu muốn chạy lại bất kỳ lúc nào:
+```bash
+cd /home/ws
+source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
+
+# 1. Toàn bộ 90 bài test pytest:
+python3 -m pytest src/airport_robot_voice/test/test_audio.py src/airport_robot_voice/test/test_nlu.py src/airport_robot_voice/test/test_places.py src/airport_robot_voice/test/test_planner_resolution.py -v
+python3 -m pytest src/airport_robot_voice/test/test_ros_lifecycle.py -v
+
+# 2. Toàn bộ 5 ca nghiệm thu tự động trên mô phỏng Gazebo Sim:
+bash src/airport_robot_voice/scripts/run_gazebo_voice_verification.sh
+
+# 3. Hai ca kiểm tra chuyên sâu (Đo chiều dài đường Nav2 & Hủy khi đang đổi đích):
+bash src/airport_robot_voice/scripts/run_specific_cases.sh
+```
