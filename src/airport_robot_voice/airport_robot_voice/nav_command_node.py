@@ -62,6 +62,22 @@ def compute_path_length(path_msg) -> float:
     return total
 
 
+class GoalAttemptRecord:
+    """Bản ghi theo dõi vòng đời từng attempt gửi goal tới Nav2."""
+    def __init__(self, attempt_id: str, mission_id: str, target_id: str = None, target_name: str = None):
+        self.attempt_id = attempt_id
+        self.mission_id = mission_id
+        self.target_id = target_id
+        self.target_name = target_name
+        self.created_at = time.time()
+        self.goal_handle = None
+        self.nav2_uuid = None
+        self.state = 'SENDING'  # SENDING, ACCEPTED, REJECTED, CANCEL_REQUESTED, CANCEL_ACCEPTED, CANCEL_REJECTED, TERMINAL_CONFIRMED, UNCONFIRMED_TERMINAL
+        self.is_terminal_confirmed = False
+        self.terminal_status = None
+        self.cancel_on_accept = False
+
+
 class NavCommandNode(Node):
     def __init__(self):
         super().__init__('nav_command_node')
@@ -126,6 +142,7 @@ class NavCommandNode(Node):
         self._revoked_attempts = set()
         self._unresolved_attempts = set()
         self._unconfirmed_terminal = False
+        self._attempts = {}  # Dict[str, GoalAttemptRecord]
 
         # Quản lý Resolving (Planner)
         self._resolving_active = False
@@ -201,6 +218,39 @@ class NavCommandNode(Node):
         self._stop_acceptance_timer()
         self._stop_cancel_timer()
         super().destroy_node()
+
+    def has_unresolved_goals(self) -> bool:
+        """Kiểm tra xem còn attempt nào chưa được xác nhận terminal hay không."""
+        return len(self._unresolved_attempts) > 0 or any(not att.is_terminal_confirmed for att in self._attempts.values())
+
+    def _get_or_create_attempt(self, attempt_id: str, mission_id: str = None) -> GoalAttemptRecord:
+        if attempt_id not in self._attempts:
+            self._attempts[attempt_id] = GoalAttemptRecord(
+                attempt_id=attempt_id,
+                mission_id=mission_id or self._current_mission_id,
+                target_id=self._current_target_key,
+                target_name=self._current_target_name
+            )
+            self._unresolved_attempts.add(attempt_id)
+        return self._attempts[attempt_id]
+
+    def _confirm_attempt_terminal(self, attempt_id: str, status: int):
+        rec = self._attempts.get(attempt_id)
+        if rec:
+            rec.is_terminal_confirmed = True
+            rec.terminal_status = status
+            rec.state = 'TERMINAL_CONFIRMED'
+        self._unresolved_attempts.discard(attempt_id)
+        if not self.has_unresolved_goals():
+            self._unconfirmed_terminal = False
+
+    def _mark_attempt_unconfirmed(self, attempt_id: str, status: int = GoalStatus.STATUS_UNKNOWN):
+        rec = self._get_or_create_attempt(attempt_id)
+        rec.is_terminal_confirmed = False
+        rec.terminal_status = status
+        rec.state = 'UNCONFIRMED_TERMINAL'
+        self._unresolved_attempts.add(attempt_id)
+        self._unconfirmed_terminal = True
 
     # ------------------------------------------------------------------
     # Giao tiếp giọng nói và sự kiện
@@ -474,7 +524,7 @@ class NavCommandNode(Node):
             'eta_seconds': self._eta_seconds,
             'last_feedback_time': self._last_feedback_time,
             'unresolved_attempts_count': len(self._unresolved_attempts),
-            'has_unresolved_goals': len(self._unresolved_attempts) > 0,
+            'has_unresolved_goals': self.has_unresolved_goals(),
             'timestamp': time.time()
         }
         self.pub_nav_state.publish(String(data=json.dumps(payload, ensure_ascii=False)))
@@ -536,27 +586,22 @@ class NavCommandNode(Node):
         category = data.get('category')
         req_id = data.get('request_id')
 
-        # 1. Guard khi còn goal chưa giải quyết từ trước
-        if len(self._unresolved_attempts) > 0 and self.state == MissionState.IDLE:
-            self.say('Hệ thống điều hướng đang xử lý chuyến đi trước, vui lòng chờ.')
-            self.publish_feedback('REJECTED', 'UNRESOLVED_GOALS_PENDING', 'Còn goal chưa giải quyết xong')
-            return
-
-        if self.state == MissionState.CANCELING:
-            self.say('Hệ thống đang hủy chuyến đi hiện tại, vui lòng chờ.')
-            self.publish_feedback('REJECTED', 'CANCELING_ACTIVE')
-            return
-
-        if getattr(self, '_unconfirmed_terminal', False):
-            self.say('Hệ thống điều hướng chưa xác nhận trạng thái dừng của chuyến đi trước. Vui lòng chờ trong giây lát.')
-            self.publish_feedback('REJECTED', 'UNCONFIRMED_TERMINAL_PENDING')
-            return
-
-        # 2. Nếu không ở IDLE (đang NAVIGATING, STARTING, PAUSED, ANNOUNCING, RESOLVING, PAUSING, CANCELING):
+        # 1. Nếu không ở IDLE (đang NAVIGATING, STARTING, PAUSED, ANNOUNCING, RESOLVING, PAUSING, CANCELING):
         # Chuyển yêu cầu đích mới qua luồng replace!
         if self.state != MissionState.IDLE:
+            if self.state == MissionState.CANCELING:
+                self.say('Hệ thống đang hủy chuyến đi hiện tại, vui lòng chờ.')
+                self.publish_feedback('REJECTED', 'CANCELING_ACTIVE')
+                return
             self.get_logger().info(f'Nhận lệnh điều hướng khi state={self.state}. Chuyển sang luồng replace_target.')
             self.handle_replace_target(data)
+            return
+
+        # 2. Guard khi ở IDLE mà còn goal chưa giải quyết từ trước
+        if self.has_unresolved_goals() or self._unconfirmed_terminal:
+            speech = 'Chưa xác nhận được chuyến đi cũ đã kết thúc.'
+            self.say(speech)
+            self.publish_feedback('REJECTED', 'UNRESOLVED_GOALS_PENDING', speech)
             return
 
         # 3. Đích cụ thể
@@ -606,6 +651,12 @@ class NavCommandNode(Node):
         return candidates
 
     def resolve_category_and_start(self, category: str, req_id: str):
+        if self.has_unresolved_goals() or self._unconfirmed_terminal:
+            speech = 'Chưa xác nhận được chuyến đi cũ đã kết thúc.'
+            self.say(speech)
+            self.publish_feedback('REJECTED', 'UNRESOLVED_GOALS_PENDING', speech)
+            return
+
         self._resolution_counter += 1
         res_id = f"res_{self._resolution_counter}_{int(time.time() * 1000) % 100000}"
         self._current_resolution_id = res_id
@@ -844,6 +895,15 @@ class NavCommandNode(Node):
         return p
 
     def send_nav_goal(self):
+        if self.has_unresolved_goals():
+            self.get_logger().error('Không thể gửi goal Nav2: còn attempt chưa xác minh.')
+            speech = 'Chưa xác nhận được chuyến đi cũ đã kết thúc.'
+            self.say(speech)
+            self.publish_feedback('REJECTED', 'UNRESOLVED_GOALS_PENDING', speech)
+            self.state = MissionState.IDLE
+            self.publish_state()
+            return
+
         if not self._current_target_pose:
             self.get_logger().error('Không có pose để gửi cho Nav2!')
             self.state = MissionState.IDLE
@@ -854,6 +914,8 @@ class NavCommandNode(Node):
         attempt_id = f"att_{self._session_start_ms}_{self._goal_attempt_counter}"
         self._current_goal_attempt_id = attempt_id
         mission_id = self._current_mission_id
+        rec = GoalAttemptRecord(attempt_id, mission_id, self._current_target_key, self._current_target_name)
+        self._attempts[attempt_id] = rec
         self._unresolved_attempts.add(attempt_id)
 
         goal = NavigateToPose.Goal()
@@ -888,23 +950,29 @@ class NavCommandNode(Node):
         if self._pending_goal_future == future:
             self._pending_goal_future = None
 
-        is_revoked = (attempt_id in self._revoked_attempts or attempt_id in self._cancelled_attempts)
+        rec = self._get_or_create_attempt(attempt_id, mission_id)
+        is_revoked = (attempt_id in self._revoked_attempts or attempt_id in self._cancelled_attempts or rec.cancel_on_accept)
         is_outdated_mission = (mission_id != self._current_mission_id or attempt_id != self._current_goal_attempt_id)
 
         try:
             goal_handle = future.result()
         except Exception as e:
             self.get_logger().error(f'[{attempt_id}] Lỗi nhận goal handle: {e}')
-            self._unresolved_attempts.discard(attempt_id)
+            self._mark_attempt_unconfirmed(attempt_id, GoalStatus.STATUS_UNKNOWN)
             if not is_outdated_mission and not is_revoked:
                 self.state = MissionState.IDLE
+                speech = 'Chưa xác nhận được chuyến đi cũ đã kết thúc.'
+                self.say(speech)
+                self.publish_feedback('FAILED', 'GOAL_RESPONSE_EXCEPTION', speech)
                 self.publish_state()
             return
 
-        # Goal bị từ chối bởi server
+        # Goal bị từ chối bởi server lúc gửi goal -> Đây là bằng chứng xác nhận request bị từ chối
         if not goal_handle.accepted:
             self.get_logger().warn(f'[{attempt_id}] Goal bị Nav2 từ chối.')
-            self._unresolved_attempts.discard(attempt_id)
+            rec.goal_handle = goal_handle
+            rec.state = 'REJECTED'
+            self._confirm_attempt_terminal(attempt_id, GoalStatus.STATUS_ABORTED)
             if mission_id == self._current_mission_id:
                 if self._pending_replace_target or self._pending_replace_category:
                     self._execute_pending_replace()
@@ -923,9 +991,19 @@ class NavCommandNode(Node):
             self.publish_feedback('REJECTED', 'GOAL_REJECTED')
             return
 
+        # Trích xuất UUID Nav2 nếu có
+        rec.goal_handle = goal_handle
+        rec.state = 'ACCEPTED'
+        if hasattr(goal_handle, 'goal_id') and hasattr(goal_handle.goal_id, 'uuid'):
+            try:
+                rec.nav2_uuid = bytes(goal_handle.goal_id.uuid).hex()
+            except Exception:
+                pass
+
         # Goal được chấp nhận nhưng đã bị thu hồi / cancel / timeout trước đó
         if is_outdated_mission or is_revoked:
-            self.get_logger().info(f'[{attempt_id}] Thu hồi goal cũ được chấp nhận muộn.')
+            self.get_logger().info(f'[{attempt_id}] Thu hồi goal cũ được chấp nhận muộn (uuid={rec.nav2_uuid}).')
+            rec.state = 'CANCEL_REQUESTED'
             cancel_fut = goal_handle.cancel_goal_async()
             cancel_fut.add_done_callback(
                 lambda cf: self._on_delayed_cancel_confirmed(cf, attempt_id, goal_handle)
@@ -938,7 +1016,7 @@ class NavCommandNode(Node):
 
         # Goal được chấp nhận bình thường cho mission hiện tại
         self._active_goal_handle = goal_handle
-        self.get_logger().info(f'[{attempt_id}] Goal được Nav2 chấp nhận. Bắt đầu di chuyển.')
+        self.get_logger().info(f'[{attempt_id}] Goal được Nav2 chấp nhận (uuid={rec.nav2_uuid}). Bắt đầu di chuyển.')
         self.state = MissionState.NAVIGATING
         self.publish_state()
         self.publish_feedback('STARTED', 'GOAL_ACCEPTED')
@@ -949,20 +1027,28 @@ class NavCommandNode(Node):
         )
 
     def _on_delayed_cancel_confirmed(self, future, attempt_id: str, goal_handle=None):
+        rec = self._attempts.get(attempt_id)
         try:
             res = future.result()
             return_code = getattr(res, 'return_code', 0)
             goals_canceling = getattr(res, 'goals_canceling', [])
             is_accepted = (return_code == 0 and len(goals_canceling) > 0)
             if not is_accepted:
+                if rec:
+                    rec.state = 'CANCEL_REJECTED'
                 self.get_logger().warn(f'[{attempt_id}] Server từ chối hủy goal thu hồi muộn (code={return_code}).')
                 self.publish_feedback('WARNING', 'REVOKED_GOAL_CANCEL_REJECTED', f'Goal cũ {attempt_id} từ chối hủy')
             else:
+                if rec:
+                    rec.state = 'CANCEL_ACCEPTED'
                 self.get_logger().info(f'[{attempt_id}] Server chấp nhận hủy goal thu hồi muộn (return_code={return_code}).')
         except Exception as e:
+            if rec:
+                rec.state = 'CANCEL_ERROR'
             self.get_logger().error(f'[{attempt_id}] Lỗi hủy goal thu hồi muộn: {e}')
 
     def _on_delayed_cancel_terminal_result(self, future, attempt_id: str, mission_id: str):
+        rec = self._get_or_create_attempt(attempt_id, mission_id)
         try:
             res = future.result()
             status = getattr(res, 'status', GoalStatus.STATUS_UNKNOWN)
@@ -975,12 +1061,12 @@ class NavCommandNode(Node):
         # 1. Chỉ giải phóng attempt khi có bằng chứng goal đã kết thúc rõ ràng
         is_terminal_confirmed = (status in (GoalStatus.STATUS_CANCELED, GoalStatus.STATUS_SUCCEEDED, GoalStatus.STATUS_ABORTED))
         if is_terminal_confirmed:
-            self._unresolved_attempts.discard(attempt_id)
+            self._confirm_attempt_terminal(attempt_id, status)
         else:
             self.get_logger().warn(
                 f'[{attempt_id}] Chưa xác minh được terminal result (status={status}). Giữ attempt trong unresolved_attempts.'
             )
-            self._unconfirmed_terminal = True
+            self._mark_attempt_unconfirmed(attempt_id, status)
 
         # 2. Xác minh mission_id VÀ attempt_id trước khi thay đổi chuyến hiện tại hoặc thực thi pending replace
         if mission_id != self._current_mission_id or attempt_id != self._current_goal_attempt_id:
@@ -1018,7 +1104,7 @@ class NavCommandNode(Node):
                 self.publish_state()
                 return
             else:
-                speech = 'Chưa xác nhận được trạng thái dừng của hệ thống điều hướng khi hủy chuyến.'
+                speech = 'Chưa xác nhận được chuyến đi cũ đã kết thúc.'
                 self.say(speech)
                 self.publish_feedback('FAILED', 'CANCEL_UNCONFIRMED_TERMINAL', speech)
                 self.state = MissionState.IDLE
@@ -1070,7 +1156,7 @@ class NavCommandNode(Node):
 
         # Trạng thái UNKNOWN hoặc exception khi không ở CANCELING
         self.get_logger().warn(f'[{attempt_id}] Goal thu hồi muộn kết thúc với trạng thái không xác định: {status}')
-        speech = 'Chưa xác nhận được trạng thái kết thúc của goal điều hướng.'
+        speech = 'Chưa xác nhận được chuyến đi cũ đã kết thúc.'
         self.say(speech)
         self.publish_feedback('FAILED', f'UNCONFIRMED_STATUS_{status}', speech)
         self.state = MissionState.IDLE
@@ -1083,10 +1169,24 @@ class NavCommandNode(Node):
         self._stop_cancel_terminal_timer(attempt_id)
 
         # Bỏ qua nếu không phải attempt hiện tại của mission hiện tại.
+        # Callback attempt cũ chỉ cập nhật bản ghi của đúng attempt, không đổi trạng thái chuyến hiện tại!
         # Tuyệt đối không xóa _unconfirmed_terminal của mission mới khi callback cũ về muộn!
         if attempt_id != self._current_goal_attempt_id or mission_id != self._current_mission_id:
             self.get_logger().warn(f'Bỏ qua goal result của attempt cũ: {attempt_id}')
+            try:
+                status = future.result().status
+            except Exception:
+                status = GoalStatus.STATUS_UNKNOWN
+            rec = self._attempts.get(attempt_id)
+            if rec:
+                rec.terminal_status = status
+                if status in (GoalStatus.STATUS_CANCELED, GoalStatus.STATUS_SUCCEEDED, GoalStatus.STATUS_ABORTED):
+                    rec.is_terminal_confirmed = True
+                    rec.state = 'TERMINAL_CONFIRMED'
+            self._unresolved_attempts.discard(attempt_id)
             return
+
+        rec = self._get_or_create_attempt(attempt_id, mission_id)
 
         try:
             status = future.result().status
@@ -1095,17 +1195,27 @@ class NavCommandNode(Node):
             status = GoalStatus.STATUS_UNKNOWN
 
         self.get_logger().info(f'[{attempt_id}] Goal kết thúc terminal với status: {status}')
-        self._active_goal_handle = None
 
         is_terminal_confirmed = (status in (GoalStatus.STATUS_CANCELED, GoalStatus.STATUS_SUCCEEDED, GoalStatus.STATUS_ABORTED))
         if is_terminal_confirmed:
-            self._unresolved_attempts.discard(attempt_id)
-            self._unconfirmed_terminal = False
+            self._confirm_attempt_terminal(attempt_id, status)
         else:
             self.get_logger().warn(
                 f'[{attempt_id}] Chưa xác minh được terminal result (status={status}). Giữ attempt trong unresolved_attempts.'
             )
-            self._unconfirmed_terminal = True
+            self._mark_attempt_unconfirmed(attempt_id, status)
+
+        self._active_goal_handle = None
+
+        if not is_terminal_confirmed:
+            speech = 'Chưa xác nhận được chuyến đi cũ đã kết thúc.'
+            self.say(speech)
+            self.publish_feedback('FAILED', 'CANCEL_UNCONFIRMED_TERMINAL', speech)
+            self.state = MissionState.IDLE
+            self._pending_replace_target = None
+            self._pending_replace_category = None
+            self.publish_state()
+            return
 
         # Phân biệt rõ trong CANCELING
         if self.state == MissionState.CANCELING:
@@ -1135,7 +1245,7 @@ class NavCommandNode(Node):
                 self.publish_state()
                 return
             else:
-                speech = 'Chưa xác nhận được trạng thái dừng của hệ thống điều hướng khi hủy chuyến.'
+                speech = 'Chưa xác nhận được chuyến đi cũ đã kết thúc.'
                 self.say(speech)
                 self.publish_feedback('FAILED', 'CANCEL_UNCONFIRMED_TERMINAL', speech)
                 self.state = MissionState.IDLE
@@ -1284,14 +1394,23 @@ class NavCommandNode(Node):
         self.publish_state()
 
     def handle_resume_request(self, req_id: str):
-        # Resume CHỈ được phép khi PAUSED hoàn tất (không còn active goal handle và không bị unconfirmed)
+        # 1. Resume CHỈ được phép khi không bị unconfirmed terminal
         if self._unconfirmed_terminal:
-            self.say('Hệ thống điều hướng chưa xác nhận trạng thái dừng của chuyến đi trước. Vui lòng chờ trong giây lát.')
-            self.publish_feedback('REJECTED', 'UNCONFIRMED_TERMINAL_PENDING')
+            speech = 'Chưa xác nhận được chuyến đi cũ đã kết thúc.'
+            self.say(speech)
+            self.publish_feedback('REJECTED', 'UNCONFIRMED_TERMINAL_PENDING', speech)
             return
 
+        # 2. Phải ở trạng thái PAUSED hoàn tất
         if self.state != MissionState.PAUSED or self._active_goal_handle is not None:
             self.say('Robot hiện không trong trạng thái tạm dừng hoàn tất.')
+            return
+
+        # 3. Không còn unresolved attempts nào khác
+        if self.has_unresolved_goals():
+            speech = 'Chưa xác nhận được chuyến đi cũ đã kết thúc.'
+            self.say(speech)
+            self.publish_feedback('REJECTED', 'UNRESOLVED_GOALS_PENDING', speech)
             return
 
         # TH1: Tạm dừng khi đang chọn đường bằng planner (RESOLVING)
@@ -1350,6 +1469,9 @@ class NavCommandNode(Node):
             self.publish_state()
             if self._current_goal_attempt_id:
                 self._cancelled_attempts.add(self._current_goal_attempt_id)
+                rec = self._attempts.get(self._current_goal_attempt_id)
+                if rec:
+                    rec.cancel_on_accept = True
             self.get_logger().info('Đã nhận lệnh hủy khi đang STARTING. Sẽ hủy ngay khi goal được chấp nhận.')
 
         elif self.state in (MissionState.ANNOUNCING, MissionState.RESOLVING, MissionState.PAUSED):
@@ -1359,19 +1481,46 @@ class NavCommandNode(Node):
             self._resolving_active = False
             self._cancel_planner_candidate_timer()
             self._paused_resolution = None
+            for att_id, rec in self._attempts.items():
+                if not rec.is_terminal_confirmed:
+                    if rec.goal_handle:
+                        try:
+                            cfut = rec.goal_handle.cancel_goal_async()
+                            cfut.add_done_callback(lambda f, a=att_id, gh=rec.goal_handle: self._on_delayed_cancel_confirmed(f, a, gh))
+                            rec.goal_handle.get_result_async().add_done_callback(
+                                lambda rf, a=att_id, m=rec.mission_id: self._on_delayed_cancel_terminal_result(rf, a, m)
+                            )
+                        except Exception:
+                            pass
+                    else:
+                        rec.cancel_on_accept = True
+                        self._cancelled_attempts.add(att_id)
             self._transition_to_cancelled()
 
         elif self.state == MissionState.CANCELING:
             self.say('Yêu cầu hủy đang được thực hiện.')
 
         else:
-            if len(self._unresolved_attempts) > 0 or self._unconfirmed_terminal:
-                self.get_logger().info('Khôi phục và xóa các attempt chưa xác minh theo lệnh hủy của người dùng.')
-                self._unresolved_attempts.clear()
-                self._unconfirmed_terminal = False
-                speech = 'Đã khôi phục trạng thái sẵn sàng cho hệ thống điều hướng.'
+            if self.has_unresolved_goals() or self._unconfirmed_terminal:
+                self.get_logger().warn('Nhận lệnh hủy ở IDLE khi còn attempt chưa xác minh. Thử hủy lại các goal cũ nếu còn khả năng.')
+                for att_id, rec in self._attempts.items():
+                    if not rec.is_terminal_confirmed:
+                        if rec.goal_handle is not None:
+                            try:
+                                cfut = rec.goal_handle.cancel_goal_async()
+                                cfut.add_done_callback(lambda f, a=att_id, gh=rec.goal_handle: self._on_delayed_cancel_confirmed(f, a, gh))
+                                rec.goal_handle.get_result_async().add_done_callback(
+                                    lambda rf, a=att_id, m=rec.mission_id: self._on_delayed_cancel_terminal_result(rf, a, m)
+                                )
+                            except Exception as e:
+                                self.get_logger().error(f'Lỗi khi gửi lại cancel cho attempt {att_id}: {e}')
+                        else:
+                            rec.cancel_on_accept = True
+                            self._cancelled_attempts.add(att_id)
+
+                speech = 'Chưa xác nhận được chuyến đi cũ đã kết thúc.'
                 self.say(speech)
-                self.publish_feedback('RECOVERED', 'UNRESOLVED_CLEARED', speech)
+                self.publish_feedback('REJECTED', 'UNCONFIRMED_TERMINAL_PENDING', speech)
                 self.publish_state()
             else:
                 self.say('Hiện không có chuyến đi nào đang hoạt động.')
@@ -1524,6 +1673,13 @@ class NavCommandNode(Node):
         self._pending_replace_target = None
         self._pending_replace_category = None
         self._pending_replace_req_id = None
+
+        if self.has_unresolved_goals() or self._unconfirmed_terminal:
+            self.get_logger().warn('Không thể thực thi replace: còn attempt chưa xác minh.')
+            speech = 'Chưa xác nhận được chuyến đi cũ đã kết thúc.'
+            self.say(speech)
+            self.publish_feedback('REJECTED', 'UNRESOLVED_GOALS_PENDING', speech)
+            return
 
         if category:
             cat_name = self.categories.get(category, {}).get('name', category)

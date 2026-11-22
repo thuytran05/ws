@@ -253,21 +253,23 @@ python3 src/airport_robot_voice/scripts/test_nlu.py -i
 ```
 *(Gõ thử: `dẫn tôi đến cổng a3`, `nhà vệ sinh ở đâu`, `đừng dẫn tôi đi đâu`, `hủy chuyến`, nhấn Ctrl+C để thoát).*
 
-#### 3. Chạy toàn bộ 90 kiểm thử pytest trong ROS 2 Jazzy:
-Để tránh tích tụ tài nguyên bộ nhớ của nhiều tiến trình action server trong một phiên test dài, khuyến nghị chạy theo 2 nhóm test độc lập:
+#### 3. Chạy toàn bộ 92 kiểm thử pytest trong ROS 2 Jazzy:
+Để tránh tích tụ tài nguyên bộ nhớ của nhiều tiến trình action server trong một phiên test dài và cô lập môi trường, khuyến nghị dùng `ROS_DOMAIN_ID=42` và chạy theo 2 nhóm test độc lập:
 
 ```bash
 # Thư mục: /home/ws
+export ROS_DOMAIN_ID=42
+
 # Nhóm 1: Kiểm thử Audio, NLU, Places Schema, và Planner Resolution (56 tests)
 python3 -m pytest src/airport_robot_voice/test/test_audio.py src/airport_robot_voice/test/test_nlu.py src/airport_robot_voice/test/test_places.py src/airport_robot_voice/test/test_planner_resolution.py -v
 
-# Nhóm 2: Kiểm thử Toàn diện Vòng đời ROS Lifecycle, Đổi đích & Hủy an toàn (34 tests)
+# Nhóm 2: Kiểm thử Toàn diện Vòng đời ROS Lifecycle, Gate bảo vệ, Multi-Attempt & Late Revocation (36 tests)
 python3 -m pytest src/airport_robot_voice/test/test_ros_lifecycle.py -v
 ```
 *Dấu hiệu thành công*:
 - Nhóm 1: `56 passed in ~9.6s` (13 tests audio, 28 tests NLU, 7 tests places schema, 8 tests planner resolution).
-- Nhóm 2: `34 passed in ~85s` (34 tests: vòng đời Nav2, 3-phase cancel/pause, late acceptance revocation, unresolved goals blocking, end-to-end voice text replacement, cancel pending replace, delayed cancel terminal results, heartbeat with sim time).
-- Toàn bộ: **90/90 passed 100%**.
+- Nhóm 2: `36 passed in ~12.6s` (36 tests: vòng đời Nav2, 3-phase cancel/pause, late acceptance revocation, unresolved goals gate blocking, end-to-end voice text replacement, cancel pending replace, delayed cancel terminal results, heartbeat with sim time, multi-attempt isolation, cancel acceptance vs rejection).
+- Toàn bộ: **92/92 passed 100%**.
 
 ---
 
@@ -547,15 +549,60 @@ Toàn bộ dữ liệu toạ độ và danh mục lưu tại `config/places.json
 | `Hệ thống điều hướng chưa sẵn sàng` | `nav_command_node` hoặc Nav2 chưa chạy | Kiểm tra node: `ros2 node list` xem có `/nav_command_node` chưa |
 | `piper: command not found` | Chưa có symlink trong PATH | Chạy `sudo ln -sf ~/.local/bin/piper /usr/local/bin/piper` |
 | `ALSA lib pcm.c: cannot open` | Container thiếu thiết bị hoặc quyền audio | Thêm user vào nhóm audio: `sudo usermod -aG audio $USER` hoặc dùng `tts_engine:=log` |
-| `Goal chưa xác nhận hoặc kẹt trạng thái sau ngắt kết nối` | Action server rớt kết nối hoặc trả STATUS_UNKNOWN khi hủy goal | Phát lệnh `hủy chuyến` khi ở IDLE: hệ thống sẽ dọn dẹp sạch `_unresolved_attempts`, reset cờ unconfirmed và đưa robot về trạng thái sẵn sàng (`RECOVERED UNRESOLVED_CLEARED`) |
+| `Goal chưa xác nhận hoặc Action Server mất kết nối` | Action server rớt kết nối hoặc trả STATUS_UNKNOWN khi hủy goal | Hệ thống tự động đóng Gate bảo vệ an toàn, giữ nguyên attempt và chặn mọi goal mới. Xem Quy trình cho Người vận hành tại Mục 8.2 bên dưới. |
 
-### 8.2 Dọn dẹp process khi kết thúc phiên
+### 8.2 Quy trình cho Người vận hành (Operator Procedure) khi Action Server sập hoặc không lấy lại được kết quả
+
+Khi Nav2 Action Server bị crash, rớt kết nối mạng hoặc không trả về kết quả terminal cho attempt cũ, `nav_command_node` sẽ **đóng Gate an toàn** (`has_unresolved_goals == True`). Mọi yêu cầu gửi goal mới qua lệnh thoại (`handle_navigate_request`, `resolve_category_and_start`, `handle_resume_request`, pending replace) đều bị chặn và robot sẽ thông báo: *"Chưa xác nhận được chuyến đi cũ đã kết thúc."*
+
+> [!CAUTION]
+> **Nguyên tắc an toàn**: Hệ thống **tuyệt đối không cho phép** bất kỳ câu lệnh thoại nào ép xóa trạng thái chưa xác minh ở `IDLE`. Chỉ người vận hành mới được phép can thiệp bằng quy trình chuẩn dưới đây.
+
+#### Quy trình 4 bước cho Người vận hành:
+1. **Bước 1 — Dừng có kiểm soát (Controlled / Emergency Stop)**:
+   Nếu robot vẫn còn chuyển động vật lý ngoài mong muốn hoặc Nav2 không phản hồi:
+   ```bash
+   # Phát lệnh cưỡng bức dừng vận tốc về 0:
+   ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}"
+   ```
+   *(Hoặc nhấn công tắc dừng khẩn cấp vật lý trên thân robot nếu đang ở hiện trường).*
+
+2. **Bước 2 — Kiểm tra và khôi phục Nav2 Lifecycle**:
+   Kiểm tra xem `bt_navigator` và các action server của Nav2 còn hoạt động hay không:
+   ```bash
+   ros2 lifecycle get /bt_navigator
+   ros2 action list | grep navigate_to_pose
+   ```
+   Nếu Nav2 bị lỗi hoặc crash, khởi động lại stack Nav2 (`ros2 launch linorobot2_navigation ...`).
+
+3. **Bước 3 — Khởi động lại Voice Command Node**:
+   Sau khi Nav2 đã được khôi phục hoặc dừng hẳn, người vận hành khởi động lại `nav_command_node`:
+   ```bash
+   # Dừng node voice cũ:
+   pkill -f nav_command_node
+   
+   # Khởi động lại node voice:
+   ros2 run airport_robot_voice nav_command_node
+   # (Hoặc khởi động lại qua voice_system.launch.py)
+   ```
+
+4. **Bước 4 — Xác minh phạm vi theo dõi sau khi Restart**:
+   - Khi node khởi động lại, một phiên làm việc mới hoàn toàn được tạo với `_session_start_ms` mới (dựa trên epoch timestamp ms).
+   - Máy trạng thái bắt đầu từ `IDLE` sạch, danh sách `_attempts` trống, cờ `_unconfirmed_terminal = False`.
+   - Node **không tự khôi phục** bất kỳ chuyến đi cũ nào từ RAM phiên trước, không phát sinh goal điều hướng ngoài ý muốn.
+   - Kiểm tra trạng thái sẵn sàng qua topic:
+     ```bash
+     ros2 topic echo /voice/nav_state --once --qos-durability transient_local
+     ```
+     *Dấu hiệu*: `mission_state: "IDLE"`, `has_unresolved_goals: false`, `node_online: true`. Hệ thống sẵn sàng nhận nhiệm vụ mới.
+
+### 8.3 Dọn dẹp process khi kết thúc phiên
 ```bash
 # Dừng tất cả các node của package đang chạy nền
 pkill -f airport_robot_voice
 ```
 
-### 8.3 Thiết lập lại toàn bộ từ đầu trên máy mới (Full Setup Script)
+### 8.4 Thiết lập lại toàn bộ từ đầu trên máy mới (Full Setup Script)
 Trên một máy mới đã clone repo vào `~/ws/src/airport_robot_voice` và đang trong container ROS 2 Jazzy:
 
 ```bash
@@ -588,16 +635,87 @@ python3 -m pytest src/airport_robot_voice/test/ -v
 
 ## 9. Bài thử nghiệm Micro và Loa thật (5 phút khi thức dậy)
 
-Bài thử nghiệm này giúp bạn kiểm tra toàn diện chất lượng thu âm tiếng Việt từ Micro thực tế và phát tiếng nói ra Loa ngoài trong vòng **5 phút**, bắt đầu bằng **chế độ Voice độc lập (`use_nav:=false`)** không phụ thuộc vào hệ thống điều hướng Nav2 hay Gazebo.
+Bài thử nghiệm này giúp bạn kiểm tra toàn diện chất lượng thu âm tiếng Việt từ Micro thực tế và phát tiếng nói ra Loa ngoài trong vòng **5 phút**, bắt đầu bằng **chế độ Voice độc lập (`use_nav:=false`)** trong không gian mạng ROS cô lập (`export ROS_DOMAIN_ID=42`), không phụ thuộc vào hệ thống điều hướng Nav2 hay Gazebo.
 
 ---
 
-### 9.1 Bố trí 3 Terminal trong VS Code (Chế độ Voice Độc lập)
+### 9.1 Kiểm tra thiết bị Âm thanh Động (SoundDevice Query)
 
-Mở 3 Terminal riêng biệt trong VS Code (nhấn `Ctrl + Shift + \`` để mở terminal mới):
+Trước khi khởi chạy, chạy script Python sau trong bất kỳ Terminal nào để kiểm tra danh sách thiết bị micro và loa thực tế trên máy của bạn:
+
+```bash
+python3 -c "
+import sounddevice as sd
+print('=== DANH SÁCH THIẾT BỊ ÂM THANH KHẢ DỤNG ===')
+devs = sd.query_devices()
+for idx, d in enumerate(devs):
+    in_ch = d.get('max_input_channels', 0)
+    out_ch = d.get('max_output_channels', 0)
+    kind = []
+    if in_ch > 0: kind.append(f'MIC ({in_ch} ch)')
+    if out_ch > 0: kind.append(f'SPEAKER ({out_ch} ch)')
+    print(f'[{idx:02d}] {d["name"]} -> {", ".join(kind)}')
+default_in, default_out = sd.default.device
+print(f'Thiết bị mặc định: Input={default_in}, Output={default_out}')
+"
+```
+*Lưu ý*: Mặc định node nhận diện giọng nói `stt_node` sẽ dùng `device:=-1` (thiết bị thu âm mặc định). Nếu muốn chọn đúng micro mong muốn, bạn chỉ cần truyền thêm tham số `-p device:=<index>` (ví dụ `-p device:=7`).
+
+---
+
+### 9.2 Thử nghiệm nhanh Thu âm và Nghe lại (WAV Check)
+
+Để xác nhận phần cứng micro và loa hoạt động chuẩn trước khi chạy node ROS:
+```bash
+# 1. Thu âm 3 giây câu nói của bạn:
+python3 -c "
+import sounddevice as sd
+import numpy as np
+import scipy.io.wavfile as wav
+print('Đang thu âm 3 giây... Hãy nói một câu vào micro!')
+fs = 16000
+rec = sd.rec(int(3 * fs), samplerate=fs, channels=1, dtype='int16')
+sd.wait()
+wav.write('/tmp/test_mic.wav', fs, rec)
+print('Thu âm xong: /tmp/test_mic.wav')
+"
+
+# 2. Nghe lại trực tiếp qua loa:
+python3 -c "
+import sounddevice as sd
+import scipy.io.wavfile as wav
+fs, data = wav.read('/tmp/test_mic.wav')
+print('Đang phát lại qua loa...')
+sd.play(data, fs)
+sd.wait()
+print('Phát xong!')
+"
+
+# 3. Thử nhận dạng offline bằng mô hình Vosk tiếng Việt từ file vừa thu:
+python3 -c "
+from vosk import Model, KaldiRecognizer
+import wave, json
+wf = wave.open('/tmp/test_mic.wav', 'rb')
+model = Model('/opt/vosk/vosk-model-small-vn-0.4')
+rec = KaldiRecognizer(model, wf.getframerate())
+while True:
+    data = wf.readframes(4000)
+    if len(data) == 0: break
+    rec.AcceptWaveform(data)
+res = json.loads(rec.FinalResult())
+print('Vosk nhận diện được:', repr(res.get('text', '')))
+"
+```
+
+---
+
+### 9.3 Bố trí 3 Terminal trong VS Code (Chế độ Voice Độc lập, ROS_DOMAIN_ID=42)
+
+Mở 3 Terminal riêng biệt trong VS Code (nhấn `Ctrl + Shift + \`` để mở terminal mới). Mỗi terminal chạy trong `ROS_DOMAIN_ID=42`:
 
 #### Terminal 1: Khởi động Phát âm thanh TTS ra Loa thật
 ```bash
+export ROS_DOMAIN_ID=42
 source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
 
 # Phát tiếng nói tự nhiên bằng Piper ONNX ra loa máy tính (hoặc thay bằng engine:=espeak):
@@ -607,6 +725,7 @@ ros2 run airport_robot_voice tts_node --ros-args -p engine:=piper
 
 #### Terminal 2: Khởi động Lõi Xử lý Ngôn ngữ Tự nhiên NLU
 ```bash
+export ROS_DOMAIN_ID=42
 source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
 
 # Chạy Intent Node ở chế độ độc lập (không cần Nav2):
@@ -616,15 +735,17 @@ ros2 run airport_robot_voice intent_node
 
 #### Terminal 3: Khởi động Nhận diện Giọng nói STT từ Micro thật
 ```bash
+export ROS_DOMAIN_ID=42
 source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
 
 # Chạy Vosk STT lắng nghe micro phần cứng (sử dụng model tiếng Việt offline):
 ros2 run airport_robot_voice stt_node --ros-args -p mode:=mic
 ```
-*(Nếu máy có nhiều card âm thanh, truyền thêm device:=-1 hoặc xem index qua sounddevice.query_devices()).*
+*(Mặc định dùng micro hệ thống. Nếu muốn chỉ định index cụ thể: thêm `-p device:=<index>`).*
 
 *(Tùy chọn) Terminal 4: Giám sát văn bản nhận diện thời gian thực*:
 ```bash
+export ROS_DOMAIN_ID=42
 source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
 ros2 topic echo /voice/text
 ```
@@ -654,13 +775,15 @@ Nếu muốn chạy lại bất kỳ lúc nào:
 cd /home/ws
 source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
 
-# 1. Toàn bộ 90 bài test pytest:
+# 1. Toàn bộ 92 bài test pytest (Cô lập ROS_DOMAIN_ID=42):
+export ROS_DOMAIN_ID=42
 python3 -m pytest src/airport_robot_voice/test/test_audio.py src/airport_robot_voice/test/test_nlu.py src/airport_robot_voice/test/test_places.py src/airport_robot_voice/test/test_planner_resolution.py -v
 python3 -m pytest src/airport_robot_voice/test/test_ros_lifecycle.py -v
 
-# 2. Toàn bộ 5 ca nghiệm thu tự động trên mô phỏng Gazebo Sim:
-bash src/airport_robot_voice/scripts/run_gazebo_voice_verification.sh
+# 2. Kiểm thử 61 câu tiếng Việt NLU:
+python3 src/airport_robot_voice/scripts/test_nlu.py
 
-# 3. Hai ca kiểm tra chuyên sâu (Đo chiều dài đường Nav2 & Hủy khi đang đổi đích):
-bash src/airport_robot_voice/scripts/run_specific_cases.sh
+# 3. Toàn bộ 3 ca nghiệm thu chuyên sâu trên mô phỏng Gazebo Sim + Nav2:
+# (Gồm: A3->A4->Hủy (v=0), A3 tới đích SUCCEEDED, Đo đường 2 Toilet & Chọn đúng điểm ngắn nhất)
+bash src/airport_robot_voice/scripts/run_evidence_verification.sh
 ```

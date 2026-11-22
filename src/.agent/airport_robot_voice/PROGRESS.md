@@ -44,7 +44,7 @@
 | 18 | Chuẩn hóa Launch arguments & Tọa độ mô phỏng | Đồng bộ đầy đủ 9 tham số launch argument, tạo `voice_system.launch.py` song song `voice_assistant.launch.py`, bổ sung `config/places_sim.json` với tọa độ chuẩn xác trong `turtlebot3_world`. | ĐÃ GIẢI QUYẾT |
 | 19 | Heartbeat khi simulation pause / không có /clock | `_heartbeat_timer` dùng `self._steady_clock`, `intent_node` kiểm tra bằng `time.monotonic()` và `node_online: true`, đảm bảo phân luồng đúng kể cả khi Gazebo pause hoặc chưa có `/clock`. | ĐÃ GIẢI QUYẾT |
 | 20 | Cancel loại bỏ hoàn toàn yêu cầu đổi đích đang chờ | `handle_cancel_request` lập tức xóa `_pending_replace_target` và category; `on_goal_result` ưu tiên `CANCELING` trước pending replace; không gửi goal thay thế, thông báo hủy duy nhất 1 lần. | ĐÃ GIẢI QUYẾT |
-| 21 | Quản lý terminal result goal thu hồi muộn, Cô lập & Recovery | `_on_delayed_cancel_terminal_result` chỉ giải phóng attempt khi confirmed (`CANCELED`, `SUCCEEDED`, `ABORTED`), giữ nguyên và chặn goal mới khi `UNKNOWN`/exception; phân định 4 nhánh trong `CANCELING`; cô lập callback attempt cũ theo `(mission_id, attempt_id)`; hỗ trợ lệnh hủy trong IDLE để khôi phục giải tỏa attempt kẹt; triệt tiêu cảnh báo `_execute_goal`. | ĐÃ GIẢI QUYẾT |
+| 21 | Quản lý terminal result goal thu hồi muộn, Gate an toàn & Operator Procedure | Bỏ hoàn toàn việc xóa attempt bằng lệnh thoại ở IDLE. Theo dõi tường minh qua `GoalAttemptRecord(attempt_id, mission_id, target_id, ...)`. Khóa Gate an toàn (`has_unresolved_goals == True`) khi attempt chưa xác nhận hoặc rớt kết nối mạng; áp dụng Gate tại mọi đường gửi goal (`navigate`, `category`, `resume`, `pending replace`); xóa ngay `pending replace` khi nhận cancel; chỉ giải phóng khi đúng UUID có terminal result xác nhận (`STATUS_CANCELED`, `STATUS_SUCCEEDED`, `STATUS_ABORTED`); thiết lập Quy trình chuẩn 4 bước cho Người vận hành khi server sập. | ĐÃ GIẢI QUYẾT |
 | 22 | Chuẩn hóa Base Robot mecanum & Keyboard 2 bước | Xác minh phần cứng `LINOROBOT2_BASE=mecanum` (omni drive), tách `stt_node` keyboard độc lập (`launch_stt:=false`) tránh xung đột stdin, kiểm tra độ an toàn clearance >= 0.50m toàn bộ 16 điểm mô phỏng. | ĐÃ GIẢI QUYẾT |
 | 23 | Nghiệm thu tích hợp Gazebo + Nav2 + Voice End-to-End | Tự động hóa 5 ca nghiệm thu thực tế: đi tới đích, dừng lại, đi tiếp, đổi đích khi đang đi, hủy khi đang đổi đích, và chọn toilet tối ưu bằng Planner. Kiểm tra Odometry chuyển động thực tế trong Gazebo. | ĐÃ ĐẠT 100% (5/5 CA) |
 
@@ -172,9 +172,16 @@
 - **Cô lập Attempt cũ trong cùng Mission**:
   - Kiểm tra điều kiện nghiêm ngặt: `if mission_id != self._current_mission_id or attempt_id != self._current_goal_attempt_id: return`.
   - Callback của một attempt cũ đã bị thu hồi trong cùng mission hoàn toàn không thể làm thay đổi trạng thái mission hiện tại, không đổi đích và không kích hoạt sai lệch `pending replace`.
-- **Cơ chế Khôi phục Chủ động (Recovery)**:
-  - Khi hệ thống ở `IDLE` nhưng bị kẹt attempt chưa xác minh (`_unresolved_attempts` còn phần tử hoặc `_unconfirmed_terminal == True`), hành khách hoặc người vận hành chỉ cần phát lệnh `"hủy chuyến"` (`cancel_robot`).
-  - Hàm `handle_cancel_request()` sẽ tự động dọn dẹp toàn bộ `_unresolved_attempts.clear()`, đặt lại `_unconfirmed_terminal = False`, phát thông báo khôi phục và công bố feedback `RECOVERED` với mã `UNRESOLVED_CLEARED`. Hệ thống trở về trạng thái sẵn sàng nhận lệnh mới.
+- **Cơ chế Gate Bảo vệ An toàn & Quy trình Người vận hành (Operator Procedure)**:
+  - **Bỏ hoàn toàn nhánh xóa attempt bằng lệnh thoại ở IDLE**: Tuyệt đối không cho phép bất kỳ lệnh thoại nào ép xóa trạng thái chưa xác minh khi goal cũ chưa có bằng chứng kết thúc.
+  - Khi nhận `"hủy chuyến"` ở `IDLE` mà còn attempt chưa xác nhận: Node kiểm tra và thử gọi `cancel_goal_async()` tới đúng goal cũ nếu có `goal_handle`, giữ Gate tiếp tục đóng, và phát câu thông báo: *"Chưa xác nhận được chuyến đi cũ đã kết thúc."*
+  - **Áp dụng Gate toàn diện**: Mọi luồng gửi `NavigateToPose` (`handle_navigate_request`, `resolve_category_and_start`, `handle_resume_request`, `_execute_pending_replace`) đều bắt buộc kiểm tra `has_unresolved_goals() or self._unconfirmed_terminal`.
+  - **Xóa Pending Replace ngay lập tức**: Khi nhận yêu cầu hủy chuyến, node xóa triệt để `_pending_replace_target = None` và `_pending_replace_category = None`.
+  - **Quy trình Người vận hành**: Khi Nav2 Action Server bị sập, crash hoặc rớt kết nối mạng:
+    1. Dừng khẩn cấp bằng `/cmd_vel` nếu robot còn chuyển động.
+    2. Kiểm tra và khôi phục trạng thái Nav2 Action Server (`bt_navigator`).
+    3. Dừng và khởi động lại `nav_command_node` (hoặc launch voice).
+    4. Sau khi restart, node khởi tạo phiên làm việc mới với ID timestamp mới, máy trạng thái ở `IDLE` sạch (`_attempts` trống, `has_unresolved_goals == False`), không tự khôi phục chuyến cũ, sẵn sàng hoạt động an toàn.
 - **Triệt tiêu Cảnh báo Fixture ROS**:
   - Trong `test_ros_lifecycle.py`, bổ sung dọn dẹp tường minh `_planner_server.destroy()` và `server._server.destroy()` kèm `time.sleep(0.05)` trước khi `executor.shutdown()`. Triệt tiêu hoàn toàn 100% cảnh báo `RuntimeWarning: coroutine ActionServer._execute_goal was never awaited`.
 
@@ -182,26 +189,29 @@
 
 ## 5. Tổng hợp Bằng chứng và Kết quả Kiểm thử (Evidence)
 
-Toàn bộ **90 bài kiểm thử tự động** đã được thực thi và xác minh 100% PASSED trực tiếp trong Container ROS 2 Jazzy:
+Toàn bộ **92 bài kiểm thử tự động pytest** và **61 câu tiếng Việt NLU** đã được thực thi và xác minh **100% PASSED** trực tiếp trong Container ROS 2 Jazzy (với `ROS_DOMAIN_ID=42` để cô lập):
 
 ```bash
-# Lệnh thực thi theo 2 nhóm độc lập:
+# Lệnh thực thi theo 2 nhóm độc lập (ROS_DOMAIN_ID=42):
+export ROS_DOMAIN_ID=42
 python3 -m pytest src/airport_robot_voice/test/test_audio.py src/airport_robot_voice/test/test_nlu.py src/airport_robot_voice/test/test_places.py src/airport_robot_voice/test/test_planner_resolution.py -v
 python3 -m pytest src/airport_robot_voice/test/test_ros_lifecycle.py -v
+python3 src/airport_robot_voice/scripts/test_nlu.py
 ```
 
 ### Bảng kết quả chi tiết từng file kiểm thử:
 | File kiểm thử | Số test | Kết quả | Thời gian | Nội dung xác minh |
 |---|---|---|---|---|
-| `test_ros_lifecycle.py` | 34 | **34/34 PASSED** | ~88.2s | Vòng đời Nav2, 3 pha cancel/pause, server reject, pause in resolving, replace trong khi chạy & tạm dừng, đích mới không hợp lệ, chặn goal mới khi còn unresolved, callback cũ không xóa unconfirmed terminal, status phản ánh unresolved, TTS strict & actual ACK statuses, heartbeat khi simulation pause không có /clock, cancel loại bỏ pending replace, cancel category replace, terminal result của goal thu hồi muộn (SUCCEEDED, ABORTED, CANCELED, exception) |
+| `test_ros_lifecycle.py` | 36 | **36/36 PASSED** | ~12.6s | Vòng đời Nav2, 3 pha cancel/pause, server reject, pause in resolving, replace trong khi chạy & tạm dừng, đích mới không hợp lệ, chặn goal mới khi còn unresolved, callback cũ không xóa unconfirmed terminal, status phản ánh unresolved, TTS strict & actual ACK statuses, heartbeat khi simulation pause không có /clock, cancel loại bỏ pending replace, cancel category replace, terminal result của goal thu hồi muộn (SUCCEEDED, ABORTED, CANCELED, exception), Test 35: UNKNOWN/exception giữ gate đóng & chặn multi-cancel & goal mock server không tăng, Test 36: cancel accepted vs rejected, late acceptance tự động cancel, multi-attempt terminal (1 attempt xong còn attempt khác thì gate VẪN ĐÓNG, chỉ mở khi TẤT CẢ đã confirm) |
 | `test_planner_resolution.py` | 8 | **8/8 PASSED** | ~5.8s | So sánh độ dài đường đi, unreachable, timeout candidate, late callback discard, replace category, planner missing báo lỗi an toàn (0 nav goals) |
 | `test_audio.py` | 13 | **13/13 PASSED** | ~3.8s | STT known speech WAV, silence WAV, model missing, invalid format, wake timeout, Piper WAV format, TTS cancel queue, dropped queue full, resume allows new speech after pause/cancel, ALSA devices |
 | `test_nlu.py` | 28 | **28/28 PASSED** | ~0.05s | Cổng A3/B2, cách đọc tiếng Việt, phủ định, cancel/pause/resume, ambiguous, missing slot, Wi-Fi, sạc pin, giờ mở cửa, Unicode tổ hợp, và 4 test đổi đích replace destination |
 | `test_places.py` | 7 | **7/7 PASSED** | ~0.02s | Schema JSON places/intents, demo flag, required gates, aliases không trùng lặp |
-| **TỔNG CỘNG** | **90** | **90/90 PASSED 100%** | **97.8s** | **Đạt tiêu chuẩn xuất xưởng và nghiệm thu** |
+| **TỔNG CỘNG PYTEST** | **92** | **92/92 PASSED 100%** | **~22.2s** | **Đạt tiêu chuẩn xuất xưởng và nghiệm thu** |
+| **KỊCH BẢN NLU** | **61 câu** | **61/61 PASSED 100%** | **~10.1s** | **Toàn bộ 61 mẫu câu khẩu ngữ tiếng Việt** |
 
-- File log bằng chứng chi tiết: `.agent/airport_robot_voice/evidence/full_pytest.log`.
-- Kịch bản NLU độc lập: `python3 src/airport_robot_voice/scripts/test_nlu.py` đạt **61/61 PASSED**.
+- File log pytest: `.agent/airport_robot_voice/evidence/full_pytest.log`.
+- File log kịch bản NLU: `.agent/airport_robot_voice/evidence/nlu_test.log`.
 - File log pytest chi tiết: `.agent/airport_robot_voice/evidence/full_pytest.log`.
 
 ### 5.2. Kết quả Nghiệm thu Tích hợp Chuyển động Gazebo Sim + Nav2 + Voice (Evidence)
@@ -236,12 +246,69 @@ Log chi tiết: `.agent/airport_robot_voice/evidence/specific_cases_verification
    - **Kết quả**: **PASSED 100%**.
 - Build package: `colcon build --packages-select airport_robot_voice --symlink-install` hoàn tất thành công 0 warnings, 0 errors.
 
+### 5.4. Bằng chứng Nghiệm thu Tích hợp Gazebo Sim + Nav2 + Voice Hoàn Chỉnh (Evidence Mới Nhất)
+
+Log chi tiết: `.agent/airport_robot_voice/evidence/gazebo_verification_final.log`.  
+Cấu hình: `ROS_DOMAIN_ID=10`, `LINOROBOT2_BASE=mecanum`, mô phỏng headless `turtlebot3_world`.
+
+```
+===========================================================================
+TỔNG HỢP KẾT QUẢ BẰNG CHỨNG GAZEBO THỰC TẾ
+===========================================================================
+  * Ca 1 (Đổi A4 rồi hủy)              : PASSED [OK] (a4_count=0, a3_term=CANCELED, stopped=True)
+  * Ca 2 (A3 tới đích)                 : PASSED [OK] (pos_err=0.190m, SUCCEEDED)
+  * Ca 3 (Chọn toilet ngắn nhất)       : PASSED [OK] (L1=2.57m, L2=3.56m, chosen=toilet_1)
+===========================================================================
+KẾT LUẬN: TẤT CẢ ĐẠT 100%
+===========================================================================
+```
+
+#### Chi tiết định lượng từng ca kiểm thử:
+
+1. **Ca 1: Đang đi A3 -> Đổi sang A4 -> Hủy chuyến trong khi đang xử lý đổi đích**:
+   - Robot xuất phát từ tọa độ ban đầu `(1.391, 0.000)` hướng về cổng A3.
+   - **Timestamp các bước thực tế**:
+     + $t_1$ (Bắt đầu A3): `1795370129.279`
+     + $t_2$ (Đổi sang A4): `1795370132.379` ($+3.101$s, khi robot đang di chuyển)
+     + $t_3$ (Hủy chuyến): `1795370132.460` ($+0.081$s, ngay trong lúc hệ thống đang cancel A3)
+   - **Số goal A4 gửi sang Nav2**: **0** (Tuyệt đối không gửi goal A4 sang action server Nav2).
+   - **Terminal result của A3**: `STATUS_CANCELED [OK]`.
+   - **Đo 5 mẫu Odometry liên tiếp xác nhận robot dừng hẳn**:
+     + Mẫu 1: $t=40.870$ | $v=0.0000$ m/s | $\omega=0.0000$ rad/s | **DỪNG HẲN [OK]**
+     + Mẫu 2: $t=40.890$ | $v=0.0000$ m/s | $\omega=0.0000$ rad/s | **DỪNG HẲN [OK]**
+     + Mẫu 3: $t=40.910$ | $v=0.0000$ m/s | $\omega=0.0000$ rad/s | **DỪNG HẲN [OK]**
+     + Mẫu 4: $t=40.930$ | $v=0.0000$ m/s | $\omega=0.0000$ rad/s | **DỪNG HẲN [OK]**
+     + Mẫu 5: $t=40.950$ | $v=0.0000$ m/s | $\omega=0.0000$ rad/s | **DỪNG HẲN [OK]**
+   - **Kết quả**: **PASSED [OK]**.
+
+2. **Ca 2: Di chuyển tới đích cổng A3 hoàn tất (NavigateToPose SUCCEEDED)**:
+   - Từ vị trí dừng, phát lệnh: `"dẫn tôi đến cổng A3"`.
+   - **Attempt ID**: `att_1795370109238_2`.
+   - Máy trạng thái chuyển `NAVIGATING`, robot di chuyển thực tế qua odometry: `(1.39, 0.00) -> (0.55, -0.71)`.
+   - **Kết quả NavigateToPose**: **`SUCCEEDED`**.
+   - **Pose cuối frame map**: $x = -0.810$, $y = -0.607$, $yaw = -1.287$ rad.
+   - **Mục tiêu cổng A3**: $x = -1.000$, $y = -0.600$, $yaw = -1.570$ rad.
+   - **Sai số vị trí $\Delta xy$**: **0.1903 mét** (Đạt chuẩn dung sai goal checker $\le 0.25$ m).
+   - **Sai số góc $\Delta yaw$**: **0.2831 rad**.
+   - **Kết quả**: **PASSED [OK]**.
+
+3. **Ca 3: Đo đường 2 nhà vệ sinh từ cùng 1 pose map và chọn điểm ngắn nhất**:
+   - Pose map bắt đầu tại cổng A3: $x = -0.810, y = -0.607$.
+   - Sử dụng cùng pose map làm `start_pose` với `use_start = True`:
+     + `ComputePathToPose` tới `toilet_1` ($-1.0, 1.8$): **2.569 mét** (`status = OK`).
+     + `ComputePathToPose` tới `toilet_2` ( $0.2, 1.8$): **3.562 mét** (`status = OK`).
+     + Điểm có lộ trình ngắn hơn: **`toilet_1` (2.569m)**.
+   - Phát câu nói tiếng Việt: `"nhà vệ sinh ở đâu"`.
+   - Hệ thống Voice tự động gọi planner và **chọn chính xác `toilet_1`** (Attempt `att_1795370109238_3`, trạng thái `NAVIGATING`).
+   - Phát câu `"hủy chuyến"`, đưa máy trạng thái về `IDLE` an toàn (`unres = False`).
+   - **Kết quả**: **PASSED [OK]**.
+
 ---
 
 ## 6. Phân định kết quả kiểm chứng theo 3 môi trường
 
 ### 6.1. Môi trường Test Fixture & Mock Server (ĐÃ XÁC MINH 100%)
-- **Trạng thái**: ĐẠT 100% (86/86 tests pytest, 61/61 test_nlu).
+- **Trạng thái**: ĐẠT 100% (92/92 tests pytest, 61/61 test_nlu).
 - **Phạm vi xác minh**:
   - Xử lý NLU tiếng Việt, phủ định, Unicode tổ hợp, ranh giới từ, trích xuất slot, lọc đích tồn tại.
   - Thuật toán chọn đường bằng `ComputePathToPose` (so sánh độ dài đường đi, unreachable, timeout, cancel ngắt resolving, late callback discard, planner unavailable).

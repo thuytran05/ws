@@ -1,0 +1,94 @@
+========================================================================
+KHỞI ĐỘNG THU THẬP BẰNG CHỨNG GAZEBO + NAV2 + AIRPORT ROBOT VOICE
+ROS_DOMAIN_ID=10 | BASE=mecanum
+========================================================================
+Dọn dẹp các tiến trình thử nghiệm...
+Đã dọn dẹp sạch sẽ toàn bộ tiến trình.
+[1/4] Khởi động Gazebo Sim (headless)...
+Chờ Gazebo và Bridge sẵn sàng...
+Gazebo /clock đã sẵn sàng sau 1s.
+[2/4] Khởi động Nav2 Navigation Stack...
+Khởi tạo Initial Pose và kích hoạt AMCL...
+AMCL đã nhận Initial Pose và publish /amcl_pose sau 1s.
+Kích hoạt Lifecycle Manager Navigation (STARTUP = 0)...
+Nav2 bt_navigator và planner_server đã chuyển sang trạng thái ACTIVE sau 1s.
+[3/4] Khởi động Airport Robot Voice System...
+Chờ Voice System sẵn sàng...
+Voice System sẵn sàng sau 2s.
+[4/4] Bắt đầu chạy kịch bản thu thập bằng chứng tự động...
+[INFO] [1795369049.016772611] [gazebo_evidence_collector]: Khởi tạo GazeboEvidenceCollector Node...
+[INFO] [1795369066.044794016] [gazebo_evidence_collector]: >>> [GUI VOICE]: dẫn tôi đến cổng A3
+[INFO] [1795369079.553636372] [gazebo_evidence_collector]: >>> [GUI VOICE]: đổi sang cổng A4
+[INFO] [1795369079.634148844] [gazebo_evidence_collector]: >>> [GUI VOICE]: hủy chuyến đi
+[INFO] [1795369083.635009806] [gazebo_evidence_collector]: >>> [GUI VOICE]: dẫn tôi đến cổng A3
+[INFO] [1795369156.871811115] [gazebo_evidence_collector]: >>> [GUI VOICE]: nhà vệ sinh ở đâu
+[INFO] [1795369164.878646782] [gazebo_evidence_collector]: >>> [GUI VOICE]: hủy chuyến
+===========================================================================
+BAT DAU THU THAP BANG CHUNG GAZEBO + NAV2 + AIRPORT ROBOT VOICE
+ROS_DOMAIN_ID=10 | BASE=mecanum
+===========================================================================
+CANH BAO: Chua co /amcl_pose, doi them...
+Robot Initial Pose: x=0.226, y=0.000
+
+===========================================================================
+CA 1: DANG DI A3 -> DOI A4 -> HUY TRONG KHI XU LY DOI DICH
+===========================================================================
+  [1.1] Robot dang di chuyen thuc te tren duong toi A3: x=0.226, y=0.000, speed=0.000 m/s
+  [1.2] Timestamps cac buoc:
+        - t1 (bat dau A3): 1795369066.044
+        - t2 (doi A4):     1795369079.553 (+13.509s)
+        - t3 (huy chuyen): 1795369079.634 (+0.081s)
+  [1.3] So goal A4 gui toi Nav2: 0 (Yeu cau: 0)
+  [1.4] Terminal result cua A3: UNKNOWN
+  [1.5] Đo 5 mau odometry lien tiep:
+        Mau 1: t=48.910000000 | v=0.0000 m/s | w=0.0000 rad/s | DUNG HAN [OK]
+        Mau 2: t=48.930000000 | v=0.0000 m/s | w=0.0000 rad/s | DUNG HAN [OK]
+        Mau 3: t=48.950000000 | v=0.0000 m/s | w=0.0000 rad/s | DUNG HAN [OK]
+        Mau 4: t=48.970000000 | v=0.0000 m/s | w=0.0000 rad/s | DUNG HAN [OK]
+        Mau 5: t=48.990000000 | v=0.0000 m/s | w=0.0000 rad/s | DUNG HAN [OK]
+  ==> CA 1 (Doi A4 roi huy): FAILED
+
+===========================================================================
+CA 2: DI CHUYEN TOI DICH CONG A3 (NAVIGATE_TO_POSE SUCCEEDED)
+===========================================================================
+  [2.1] Da nhan lenh va bat dau NAVIGATING toi cong A3 (Attempt=None)
+        ... Dang di chuyen, cu ly con lai: N/A, odom=(0.23, 0.00)
+        ... Dang di chuyen, cu ly con lai: N/A, odom=(0.23, 0.00)
+        ... Dang di chuyen, cu ly con lai: N/A, odom=(0.23, 0.00)
+        ... Dang di chuyen, cu ly con lai: N/A, odom=(0.23, 0.00)
+        ... Dang di chuyen, cu ly con lai: N/A, odom=(0.23, 0.00)
+        ... Dang di chuyen, cu ly con lai: N/A, odom=(0.23, 0.00)
+        ... Dang di chuyen, cu ly con lai: N/A, odom=(0.23, 0.00)
+        ... Dang di chuyen, cu ly con lai: N/A, odom=(0.23, 0.00)
+        ... Dang di chuyen, cu ly con lai: N/A, odom=(0.23, 0.00)
+        ... Dang di chuyen, cu ly con lai: N/A, odom=(0.23, 0.00)
+        ... Dang di chuyen, cu ly con lai: N/A, odom=(0.23, 0.00)
+  [2.2] Ket qua NavigateToPose: FAILED
+        - Attempt ID: None
+        - Pose cuoi frame map: x=0.226, y=0.000, yaw=0.000 rad
+        - Muc tieu A3: x=-1.000, y=-0.600, yaw=-1.570 rad
+        - Sai so vi tri xy: 1.3646 m (Dung sai: <= 0.25 m)
+        - Sai so goc yaw: 1.5700 rad (Dung sai: <= 0.25 rad)
+  ==> CA 2 (A3 toi dich): FAILED
+
+===========================================================================
+CA 3: DO DUONG 2 NHA VE SINH TU CUNG 1 POSE VA CHON DIEM NGAN NHAT
+===========================================================================
+  [3.1] Pose map bat dau: x=0.226, y=0.000
+  [3.2] ComputePathToPose toi toilet_1 (-1.0, 1.8): 0.000 m (status=OK)
+  [3.3] ComputePathToPose toi toilet_2 (0.2, 1.8): 0.000 m (status=OK)
+        --> Diem ngan hon: toilet_1
+  [3.4] Diem den thuc te lua chon: None
+  ==> CA 3 (Chon toilet ngan nhat): FAILED
+
+===========================================================================
+TONG HOP KET QUA BANG CHUNG GAZEBO
+===========================================================================
+  * Ca 1 (Doi A4 roi huy)              : FAILED [X] (a4_count=0, stopped=True)
+  * Ca 2 (A3 toi dich)                 : FAILED [X] (pos_err=1.365m, SUCCEEDED)
+  * Ca 3 (Chon toilet ngan nhat)       : FAILED [X] (L1=0.00m, L2=0.00m, chosen=None)
+===========================================================================
+KET LUAN: CO CA CHUA DAT
+===========================================================================
+Dọn dẹp các tiến trình thử nghiệm...
+Đã dọn dẹp sạch sẽ toàn bộ tiến trình.

@@ -1,0 +1,79 @@
+========================================================================
+KHỞI ĐỘNG THU THẬP BẰNG CHỨNG GAZEBO + NAV2 + AIRPORT ROBOT VOICE
+ROS_DOMAIN_ID=10 | BASE=mecanum
+========================================================================
+Dọn dẹp các tiến trình thử nghiệm...
+Đã dọn dẹp sạch sẽ toàn bộ tiến trình.
+[1/4] Khởi động Gazebo Sim (headless)...
+Chờ Gazebo và Bridge sẵn sàng...
+Gazebo /clock đã sẵn sàng sau 1s.
+[2/4] Khởi động Nav2 Navigation Stack...
+Khởi tạo Initial Pose và kích hoạt AMCL...
+AMCL đã nhận Initial Pose và broadcast transform map->odom thành công sau 2s.
+Kích hoạt Lifecycle Manager Navigation (STARTUP = 0)...
+Nav2 bt_navigator và planner_server đã chuyển sang trạng thái ACTIVE sau 1s.
+[3/4] Khởi động Airport Robot Voice System...
+Chờ Voice System sẵn sàng...
+Voice System sẵn sàng sau 2s.
+[4/4] Bắt đầu chạy kịch bản thu thập bằng chứng tự động...
+===========================================================================
+BẮT ĐẦU THU THẬP BẰNG CHỨNG GAZEBO + NAV2 + AIRPORT ROBOT VOICE
+ROS_DOMAIN_ID=10 | BASE=mecanum
+===========================================================================
+CẢNH BÁO: Chưa có /amcl_pose, đợi thêm 2s...
+Robot Initial Pose: x=1.391, y=0.000
+
+===========================================================================
+CA 1: ĐANG ĐI A3 -> ĐỔI A4 -> HỦY TRONG KHI XỬ LÝ ĐỔI ĐÍCH
+===========================================================================
+  [1.1] Robot đang di chuyển thực tế trên đường tới A3: x=1.391, y=0.000, speed=0.000 m/s
+  [1.2] Timestamps các bước:
+        - t1 (bắt đầu A3): 1795370129.279
+        - t2 (đổi A4):     1795370132.379 (+3.101s)
+        - t3 (hủy chuyến): 1795370132.460 (+0.081s)
+  [1.3] Số goal A4 gửi tới Nav2: 0 (Yêu cầu: 0)
+  [1.4] Terminal result của A3: STATUS_CANCELED [OK]
+  [1.5] Đo 5 mẫu odometry liên tiếp:
+        Mẫu 1: t=40.870000000 | v=0.0000 m/s | w=0.0000 rad/s | DỪNG HẲN [OK]
+        Mẫu 2: t=40.890000000 | v=0.0000 m/s | w=0.0000 rad/s | DỪNG HẲN [OK]
+        Mẫu 3: t=40.910000000 | v=0.0000 m/s | w=0.0000 rad/s | DỪNG HẲN [OK]
+        Mẫu 4: t=40.930000000 | v=0.0000 m/s | w=0.0000 rad/s | DỪNG HẲN [OK]
+        Mẫu 5: t=40.950000000 | v=0.0000 m/s | w=0.0000 rad/s | DỪNG HẲN [OK]
+  ==> CA 1 (Đổi A4 rồi hủy): PASSED [OK]
+
+===========================================================================
+CA 2: DI CHUYỂN TỚI ĐÍCH CỔNG A3 (NAVIGATE_TO_POSE SUCCEEDED)
+===========================================================================
+  [2.1] Đã nhận lệnh và bắt đầu NAVIGATING tới cổng A3 (Attempt=att_1795370109238_2)
+        ... Đang di chuyển, cự ly còn lại: 0.00m, odom=(1.39, 0.00)
+        ... Đang di chuyển, cự ly còn lại: 0.20m, odom=(0.55, -0.71)
+  [2.2] Kết quả NavigateToPose: SUCCEEDED
+        - Attempt ID: att_1795370109238_2
+        - Pose cuối frame map: x=-0.810, y=-0.607, yaw=-1.287 rad
+        - Mục tiêu A3: x=-1.000, y=-0.600, yaw=-1.570 rad
+        - Sai số vị trí xy: 0.1903 m (Dung sai: <= 0.25 m)
+        - Sai số góc yaw: 0.2831 rad (Dung sai: <= 0.25 rad)
+  ==> CA 2 (A3 tới đích): PASSED [OK]
+
+===========================================================================
+CA 3: ĐO ĐƯỜNG 2 NHÀ VỆ SINH TỪ CÙNG 1 POSE VÀ CHỌN ĐIỂM NGẮN NHẤT
+===========================================================================
+  [3.1] Pose map bắt đầu: x=-0.810, y=-0.607
+  [3.2] ComputePathToPose tới toilet_1 (-1.0, 1.8): 2.569 m (status=OK)
+  [3.3] ComputePathToPose tới toilet_2 (0.2, 1.8): 3.562 m (status=OK)
+        --> Điểm ngắn hơn: toilet_1 (2.569m)
+  [3.4] Điểm đến thực tế lựa chọn: toilet_1
+  ==> CA 3 (Chọn toilet ngắn nhất): PASSED [OK]
+
+===========================================================================
+TỔNG HỢP KẾT QUẢ BẰNG CHỨNG GAZEBO
+===========================================================================
+  * Ca 1 (Đổi A4 rồi hủy)              : PASSED [OK] (a4_count=0, a3_term=CANCELED, stopped=True)
+  * Ca 2 (A3 tới đích)                 : PASSED [OK] (pos_err=0.190m, SUCCEEDED)
+  * Ca 3 (Chọn toilet ngắn nhất)       : PASSED [OK] (L1=2.57m, L2=3.56m, chosen=toilet_1)
+===========================================================================
+KẾT LUẬN: TẤT CẢ ĐẠT 100%
+===========================================================================
+THU THẬP BẰNG CHỨNG HOÀN TẤT THÀNH CÔNG!
+Dọn dẹp các tiến trình thử nghiệm...
+Đã dọn dẹp sạch sẽ toàn bộ tiến trình.

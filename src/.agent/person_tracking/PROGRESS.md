@@ -3,17 +3,17 @@
 **Dự án:** Robot dẫn đường hành khách sân bay (ROS 2 Jazzy, Mecanum, Camera Astra sau)  
 **Phân hệ:** `person_tracking`  
 **File theo dõi duy nhất của phân hệ:** `.agent/person_tracking/PROGRESS.md`  
-**Khởi tạo:** 20/11/2026  
+**Cập nhật lần cuối:** 23/11/2026 — Phase 1 Complete  
 
 ---
 
 ## Bảng tổng quan trạng thái các giai đoạn (Phase Overview)
 
-| Giai đoạn | Tên giai đoạn | Trạng thái | Ngày cập nhật | Bằng chứng |
+| Giai đoạn | Tên giai đoạn | Trạng thái | Ngày cập nhật | Bằng chứng kỹ thuật |
 |---|---|---|---|---|
 | **Phase 0** | Khảo sát hiện trạng thực tế & Lập nền tài liệu AI | **PASS** | 20/11/2026 | `.agent/person_tracking/evidence/phase_0/audit_commands.log` |
-| **Phase 1** | Quy tắc, skill, thiết kế & Kế hoạch kiểm thử | **NOT_STARTED** | — | Chờ lệnh kích hoạt |
-| **Phase 2** | Source adapters, offline dataset & Test infrastructure | **NOT_STARTED** | — | — |
+| **Phase 1** | Quy tắc, skill, thiết kế & Kế hoạch kiểm thử | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_1/audit_addendum_commands.log` |
+| **Phase 2** | Source adapters, offline dataset & Test infrastructure | **NOT_STARTED** | — | Chờ lệnh kích hoạt từ chủ dự án |
 | **Phase 3** | Multi-person perception, pose & Tracking ID | **NOT_STARTED** | — | — |
 | **Phase 4** | Giơ tay, chọn khách gần nhất & Khóa phiên | **NOT_STARTED** | — | — |
 | **Phase 5** | RGB-D, depth & Hình học camera sau | **NOT_STARTED** | — | — |
@@ -29,63 +29,47 @@
 ## Chi tiết từng giai đoạn
 
 ### Phase 0 — Khảo sát hiện trạng thực tế & Lập nền tài liệu AI — [PASS]
-- **Ngày/giờ:** 20/11/2026 14:55:00+07:00
-- **Phạm vi file đã sửa / tạo mới (chỉ trong allowlist):**
-  - MỚI: `.agent/person_tracking/AUDIT.md`
-  - MỚI: `.agent/person_tracking/INVENTORY.md`
-  - MỚI: `.agent/person_tracking/RISKS.md`
-  - MỚI: `.agent/person_tracking/INTERFACES.md`
-  - MỚI: `.agent/person_tracking/PROGRESS.md`
-  - MỚI: `.agent/person_tracking/evidence/phase_0/audit_commands.log`
-  - NGUYÊN VẸN: Toàn bộ 12 file trong `person_tracking/` được giữ nguyên (chưa xóa, chưa refactor code).
-  - READ-ONLY: Các file voice, rules, Gazebo, Astra và Nav2 được giữ nguyên 100%.
-- **Bằng chứng:** `.agent/person_tracking/evidence/phase_0/audit_commands.log`
-- **Kiểm thử đã thực hiện:**
-  - 14 lệnh khảo sát thành công: kiểm tra git status, canonical paths, devcontainer mount, build directory, nvidia-smi GPU, model weights, package tracking, mã nguồn Astra, cấu hình Nav2 và mã nguồn Voice.
-  - Phân tách rõ các lệnh bị hạn chế trong sandbox (`docker ps`, `which ros2/colcon`, `ls /opt`).
-- **Không kiểm được (Hardware & Runtime blockers):**
-  - Không kiểm được live stream camera Astra thật (thiết bị không có tại chỗ).
-  - Không chạy lệnh ROS trực tiếp trên host do môi trường host là Ubuntu 22.04 (Humble) và sandbox cô lập; môi trường thực thi chuẩn là VS Code Dev Container (ROS 2 Jazzy, Ubuntu 24.04).
-- **Vấn đề / Rủi ro phát hiện:**
-  - Astra driver mặc định tắt depth registration (`depth_registration: false`), dẫn đến lệch pixel RGB và Depth nếu không cấu hình lại.
-  - Gazebo URDF mô phỏng camera hướng ra phía trước (`rpy="0 0 0"`), trong khi robot thật gắn camera hướng ra sau. Tuân thủ Rule A.4: tuyệt đối không sửa Gazebo, xử lý hình học chuẩn camera sau qua offline pipeline.
-  - Vị trí Velocity Guard: Phải nằm trước Collision Monitor (`Nav2 -> Smoother -> Guard -> Collision Monitor -> Base`).
-  - Colcon root thực sự là `/home/thuytran/ws` (trong container là `/home/ws`), thư mục `build/` và `install/` tại `src/` là do lệnh chạy nhầm trước đó của voice agent.
-- **Giao diện cần agent voice thực hiện:** Đã lập dự thảo `INTERFACES.md`, chờ gửi sang agent voice sau khi chủ dự án duyệt.
-- **Chốt Phase 0:** Đạt Gate 0 (Đã kiểm kê chi tiết, phân loại nguồn sự thật, lập đầy đủ 5 file tài liệu AI và evidence log, không sửa code ngoài allowlist).
-- **Phase tiếp theo, chỉ làm sau lệnh của chủ dự án:** Phase 1 — Quy tắc, skill, thiết kế & Kế hoạch kiểm thử.
+- **Ngày hoàn thành:** 20/11/2026 14:55:00+07:00
+- **Phụ lục đính chính (Audit Addendum):** 23/11/2026 trong [AUDIT_ADDENDUM.md](file:///home/thuytran/ws/src/.agent/person_tracking/AUDIT_ADDENDUM.md).
+- **Nội dung đính chính kỹ thuật:**
+  1. Phân loại độc lập 5 tầng GPU/runtime (Host physical GPU, GPU passthrough config, Container OS, Installed frameworks, Model inference status).
+  2. Xác nhận `person_tracker.py` kiểm tra đẳng thức 3 frame (`rgb == depth == info`), không hard-code `camera_color_optical_frame` trong `on_images`.
+  3. Xác nhận bộ lọc phân tán depth sử dụng Median Absolute Deviation (MAD), không phải IQR.
+  4. Đọc chi nhánh `setImageRegistrationMode` của Astra driver: phát hiện nguy cơ gán nhầm frame ID khi thiết bị không hỗ trợ registration.
+  5. Phân tích watchdog thụ động `command_timeout.py` của Gazebo và khẳng định sự cần thiết của cơ chế ép vận tốc 0 chủ động (Active Continuous Zeroing).
+- **Bằng chứng:** [.agent/person_tracking/evidence/phase_0/audit_commands.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_0/audit_commands.log).
 
 ---
 
-### Phase 1 — Quy tắc, skill, thiết kế & Kế hoạch kiểm thử — [NOT_STARTED]
-- Chỉ bắt đầu khi có lệnh từ chủ dự án.
+### Phase 1 — Quy tắc, skill, thiết kế & Kế hoạch kiểm thử — [PASS]
+- **Ngày/giờ hoàn thành:** 23/11/2026 00:18:00+07:00
+- **Baseline Git Commit:** `78ae0e51bdcbe4db4d536e96fa17a2d7ae8f9794`
+- **HEAD hiện tại:** `78ae0e51bdcbe4db4d536e96fa17a2d7ae8f9794` (working tree sạch, giữ nguyên mọi thay đổi).
+- **Phạm vi file đã sửa / tạo mới (100% trong allowlist):**
+  - MỚI: [.agent/person_tracking/AUDIT_ADDENDUM.md](file:///home/thuytran/ws/src/.agent/person_tracking/AUDIT_ADDENDUM.md)
+  - MỚI: [.agent/person_tracking/PROJECT_SPEC.md](file:///home/thuytran/ws/src/.agent/person_tracking/PROJECT_SPEC.md)
+  - MỚI: [.agent/person_tracking/TEST_PLAN.md](file:///home/thuytran/ws/src/.agent/person_tracking/TEST_PLAN.md)
+  - MỚI: [.agent/person_tracking/DECISIONS.md](file:///home/thuytran/ws/src/.agent/person_tracking/DECISIONS.md)
+  - MỚI: [.agent/person_tracking/VOICE_INTEGRATION_REQUEST.md](file:///home/thuytran/ws/src/.agent/person_tracking/VOICE_INTEGRATION_REQUEST.md)
+  - MỚI: [.agent/person_tracking/COMMANDS.md](file:///home/thuytran/ws/src/.agent/person_tracking/COMMANDS.md)
+  - MỚI: [.agent/person_tracking/evidence/phase_1/audit_addendum_commands.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_1/audit_addendum_commands.log)
+  - MỚI: [.agent/skills/ros2-person-tracking/SKILL.md](file:///home/thuytran/ws/src/.agent/skills/ros2-person-tracking/SKILL.md)
+  - CẬP NHẬT: [.agent/person_tracking/INVENTORY.md](file:///home/thuytran/ws/src/.agent/person_tracking/INVENTORY.md) (điều chỉnh lịch triển khai khớp WORKFLOW).
+  - CẬP NHẬT: [.agent/person_tracking/INTERFACES.md](file:///home/thuytran/ws/src/.agent/person_tracking/INTERFACES.md) (hoàn thiện schema, 4 loại định danh, clock domain).
+  - CẬP NHẬT: [.agent/person_tracking/PROGRESS.md](file:///home/thuytran/ws/src/.agent/person_tracking/PROGRESS.md).
+- **Mã nguồn ROS 2:** Giữ nguyên 100% các file trong `src/person_tracking/` (không sửa code, không đổi config, không đổi launch trong Phase 1).
+- **Bảo toàn phân hệ khác:** Không đụng chạm code Voice, tài liệu Voice, Gazebo, Astra driver, Nav2, robot description.
+- **Tiêu chí Nghiệm thu Gate 1 (Đạt):**
+  1. [x] Đầy đủ tài liệu đặc tả, hợp đồng, test plan, decisions và skill.
+  2. [x] Truy vết 100% các yêu cầu từ D01 đến D12.
+  3. [x] Không sửa mã nguồn Voice; đã tạo bản đề xuất `VOICE_INTEGRATION_REQUEST.md`.
+  4. [x] Phân quyền duy nhất: Chỉ `escort_tracking_manager` có quyền khóa và sinh `session_id`.
+  5. [x] Chuỗi vận tốc an toàn: Smoother -> Guard -> Collision Monitor -> Base.
+  6. [x] Phân tách rõ ràng giữa `linear.y` pass-through của Nav2 và hiệu chỉnh ngang tracking (mặc định tắt).
+  7. [x] Test matrix mở rộng lên 35 ca kiểm thử (T01–T35) bao phủ toàn bộ các trường hợp rủi ro.
+- **Phase tiếp theo, chỉ làm sau lệnh của chủ dự án:** Phase 2 — Source adapters, offline dataset & Test infrastructure.
+
+---
 
 ### Phase 2 — Source adapters, offline dataset & Test infrastructure — [NOT_STARTED]
-- Chỉ bắt đầu khi Phase 1 hoàn thành và được duyệt.
-
-### Phase 3 — Multi-person perception, pose & Tracking ID — [NOT_STARTED]
-- Chỉ bắt đầu khi Phase 2 hoàn thành và được duyệt.
-
-### Phase 4 — Giơ tay, chọn khách gần nhất & Khóa phiên — [NOT_STARTED]
-- Chỉ bắt đầu khi Phase 3 hoàn thành và được duyệt.
-
-### Phase 5 — RGB-D, depth & Hình học camera sau — [NOT_STARTED]
-- Chỉ bắt đầu khi Phase 4 hoàn thành và được duyệt.
-
-### Phase 6 — Session FSM, timeout & Giao tiếp voice — [NOT_STARTED]
-- Chỉ bắt đầu khi Phase 5 hoàn thành và được duyệt.
-
-### Phase 7 — Velocity guard, mecanum & Watchdog — [NOT_STARTED]
-- Chỉ bắt đầu khi Phase 6 hoàn thành và được duyệt.
-
-### Phase 8 — End-to-end ROS 2 integration (không sửa Gazebo) — [NOT_STARTED]
-- Chỉ bắt đầu khi Phase 7 hoàn thành và được duyệt.
-
-### Phase 9 — Giao tiếp song song với agent voice — [NOT_STARTED]
-- Chỉ bắt đầu khi Phase 8 hoàn thành và được duyệt.
-
-### Phase 10 — Validation hiệu năng & Độ bền (offline + sim) — [NOT_STARTED]
-- Chỉ bắt đầu khi Phase 9 hoàn thành và được duyệt.
-
-### Phase 11 — Robot thật + Astra thật, nghiệm thu bàn giao — [NOT_STARTED]
-- Chỉ thực hiện khi có camera Astra thật và robot thật tại hiện trường.
+- Chỉ bắt đầu khi có lệnh từ chủ dự án.

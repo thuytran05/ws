@@ -20,7 +20,7 @@ from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 from rclpy.action import ActionClient
 from std_msgs.msg import String
 from nav_msgs.msg import Odometry
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 from nav2_msgs.action import ComputePathToPose
 
 def compute_path_length(path_msg) -> float:
@@ -59,6 +59,9 @@ class SpecificCasesVerifier(Node):
         self.create_subscription(String, "/voice/feedback", self._on_feedback, 10)
         self.create_subscription(String, "/voice/nav_state", self._on_nav_state, transient_qos)
         self.create_subscription(Odometry, "/odom", self._on_odom, 10)
+        self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self._on_amcl_pose, 10)
+        self.latest_amcl_pose = None
+        self.odom_history = []
 
         self.pub_text = self.create_publisher(String, "/voice/text", 10)
         self._path_client = ActionClient(self, ComputePathToPose, "compute_path_to_pose")
@@ -114,15 +117,37 @@ class SpecificCasesVerifier(Node):
         except Exception:
             pass
 
+    def _on_amcl_pose(self, msg: PoseWithCovarianceStamped):
+        p = msg.pose.pose.position
+        q = msg.pose.pose.orientation
+        siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        yaw = math.atan2(siny_cosp, cosy_cosp)
+        self.latest_amcl_pose = {
+            "x": p.x, "y": p.y, "z": p.z,
+            "yaw": yaw,
+            "sec": msg.header.stamp.sec,
+            "nanosec": msg.header.stamp.nanosec,
+            "timestamp": time.time()
+        }
+
     def _on_odom(self, msg: Odometry):
         pos = msg.pose.pose.position
         vel = msg.twist.twist.linear
+        ang = msg.twist.twist.angular
+        sp = math.sqrt(vel.x*vel.x + vel.y*vel.y)
+        ang_sp = abs(ang.z)
         self.latest_odom = {
             "x": pos.x, "y": pos.y, "z": pos.z,
-            "vx": vel.x, "vy": vel.y,
-            "speed": math.sqrt(vel.x*vel.x + vel.y*vel.y),
+            "vx": vel.x, "vy": vel.y, "wz": ang.z,
+            "speed": sp, "ang_speed": ang_sp,
+            "sec": msg.header.stamp.sec,
+            "nanosec": msg.header.stamp.nanosec,
             "timestamp": time.time()
         }
+        self.odom_history.append(self.latest_odom)
+        if len(self.odom_history) > 100:
+            self.odom_history.pop(0)
 
     def send_voice_text(self, text: str):
         msg = String()
@@ -167,7 +192,7 @@ class SpecificCasesVerifier(Node):
                     stopped_start = None
         return False
 
-    def compute_direct_path_length(self, target_x: float, target_y: float) -> float:
+    def compute_direct_path_length(self, target_x: float, target_y: float, start_pose_msg=None) -> float:
         """Gọi trực tiếp action server ComputePathToPose để đo chiều dài đường đi."""
         if not self._path_client.wait_for_server(timeout_sec=5.0):
             self.get_logger().error("Action server compute_path_to_pose không sẵn sàng!")
@@ -179,7 +204,11 @@ class SpecificCasesVerifier(Node):
         goal.goal.pose.position.x = target_x
         goal.goal.pose.position.y = target_y
         goal.goal.pose.orientation.w = 1.0
-        goal.use_start = False
+        if start_pose_msg is not None:
+            goal.use_start = True
+            goal.start = start_pose_msg
+        else:
+            goal.use_start = False
 
         send_future = self._path_client.send_goal_async(goal)
         rclpy.spin_until_future_complete(self, send_future, timeout_sec=6.0)

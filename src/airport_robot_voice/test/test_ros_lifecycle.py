@@ -1384,7 +1384,7 @@ def test_delayed_cancel_terminal_result_statuses(ros_context):
         assert 'att_can_4' in node._unresolved_attempts
         assert node._unconfirmed_terminal is True
         assert any(fb['event'] == 'FAILED' and fb['status'] == 'CANCEL_UNCONFIRMED_TERMINAL' for fb in feedbacks)
-        assert any('Chưa xác nhận được trạng thái dừng' in s for s in spoken)
+        assert any('Chưa xác nhận được chuyến đi cũ đã kết thúc' in s for s in spoken)
 
         # Thử gửi goal mới khi còn goal chưa xác nhận -> PHẢI BỊ CHẶN
         feedbacks.clear()
@@ -1392,13 +1392,19 @@ def test_delayed_cancel_terminal_result_statuses(ros_context):
         assert any(fb['status'] == 'UNRESOLVED_GOALS_PENDING' for fb in feedbacks)
         assert node.state == MissionState.IDLE
 
-        # Khôi phục (Recovery): gửi lệnh cancel trong IDLE giải tỏa attempt kẹt
+        # Khi gửi lệnh cancel trong IDLE khi còn attempt chưa xác minh: GIỮ GATE ĐÓNG, BÁO NGẮN, KHÔNG XÓA ATTEMPT
         feedbacks.clear()
         spoken.clear()
         node.handle_cancel_request('req_clear_recovery')
+        assert len(node._unresolved_attempts) > 0
+        assert node._unconfirmed_terminal is True
+        assert any(fb['status'] == 'UNCONFIRMED_TERMINAL_PENDING' for fb in feedbacks)
+        assert any('Chưa xác nhận được chuyến đi cũ đã kết thúc' in s for s in spoken)
+
+        # Giải phóng khi nhận terminal xác nhận thực sự
+        node._on_delayed_cancel_terminal_result(MockFuture(status=GoalStatus.STATUS_CANCELED), 'att_can_4', 'mis_can_4')
         assert len(node._unresolved_attempts) == 0
         assert node._unconfirmed_terminal is False
-        assert any(fb['event'] == 'RECOVERED' and fb['status'] == 'UNRESOLVED_CLEARED' for fb in feedbacks)
 
         # 5. Callback của attempt cũ trong cùng mission không tác động attempt mới
         node._current_mission_id = 'mis_same'
@@ -1421,5 +1427,203 @@ def test_delayed_cancel_terminal_result_statuses(ros_context):
         assert node._current_goal_attempt_id == 'att_current_new'
         assert node._pending_replace_target == 'gate_a4'
         assert node._current_target_key == 'gate_a3'
+    finally:
+        node.destroy_node()
+
+
+def test_unconfirmed_attempts_multi_cancel_and_gate(ros_context):
+    """
+    Test 35: Kiểm tra UNKNOWN và exception, gửi lệnh hủy nhiều lần, chặn navigate/resume/replace:
+    - Khi có attempt gặp UNKNOWN hoặc exception: gate đóng.
+    - Gửi 'hủy chuyến' nhiều lần ở IDLE: luôn bị từ chối với thông báo ngắn, gate tiếp tục đóng.
+    - Thử gửi goal mới, resume, replace: đều bị chặn, số attempt chưa xác minh không đổi.
+    - Số goal thực sự gửi tới Nav2 không tăng.
+    """
+    node = NavCommandNode()
+    try:
+        class MockGoalHandle:
+            def __init__(self, accepted=True):
+                self.accepted = accepted
+                self.cancel_called = 0
+            def cancel_goal_async(self):
+                self.cancel_called += 1
+                class Fut:
+                    def add_done_callback(self, cb):
+                        pass
+                return Fut()
+            def get_result_async(self):
+                class Fut:
+                    def add_done_callback(self, cb):
+                        pass
+                return Fut()
+
+        spoken = []
+        node.say = lambda t, s=None, m=None: spoken.append(t)
+        feedbacks = []
+        node.publish_feedback = lambda ev, st, msg='': feedbacks.append({'event': ev, 'status': st, 'msg': msg})
+
+        # Giả lập mock nav_client
+        mock_goals_sent = []
+        node.nav_client.send_goal_async = lambda g, feedback_callback=None: mock_goals_sent.append(g)
+
+        # Tạo một attempt bị exception
+        rec = node._get_or_create_attempt('att_unk_1', 'mis_unk_1')
+        gh = MockGoalHandle(accepted=True)
+        rec.goal_handle = gh
+        node._mark_attempt_unconfirmed('att_unk_1', GoalStatus.STATUS_UNKNOWN)
+
+        assert node.has_unresolved_goals() is True
+        assert node._unconfirmed_terminal is True
+        assert len(node._unresolved_attempts) == 1
+
+        # Gửi 'hủy chuyến' lần 1
+        spoken.clear()
+        feedbacks.clear()
+        node.handle_cancel_request('req_cancel_1')
+        assert gh.cancel_called == 1
+        assert node.has_unresolved_goals() is True
+        assert any('Chưa xác nhận được chuyến đi cũ đã kết thúc' in s for s in spoken)
+        assert any(fb['status'] == 'UNCONFIRMED_TERMINAL_PENDING' for fb in feedbacks)
+
+        # Gửi 'hủy chuyến' lần 2
+        spoken.clear()
+        feedbacks.clear()
+        node.handle_cancel_request('req_cancel_2')
+        assert gh.cancel_called == 2
+        assert node.has_unresolved_goals() is True
+        assert any('Chưa xác nhận được chuyến đi cũ đã kết thúc' in s for s in spoken)
+
+        # Thử gửi goal mới (navigate) -> bị chặn
+        spoken.clear()
+        feedbacks.clear()
+        node.handle_navigate_request({'target_id': 'gate_a3', 'request_id': 'req_nav_blocked'})
+        assert len(mock_goals_sent) == 0
+        assert any('Chưa xác nhận được chuyến đi cũ đã kết thúc' in s for s in spoken)
+        assert any(fb['status'] == 'UNRESOLVED_GOALS_PENDING' for fb in feedbacks)
+
+        # Thử resume -> bị chặn
+        spoken.clear()
+        feedbacks.clear()
+        node.handle_resume_request('req_resume_blocked')
+        assert len(mock_goals_sent) == 0
+        assert any('Chưa xác nhận được chuyến đi cũ đã kết thúc' in s for s in spoken)
+        assert any(fb['status'] in ('UNCONFIRMED_TERMINAL_PENDING', 'UNRESOLVED_GOALS_PENDING') for fb in feedbacks)
+
+        # Thử replace -> bị chặn
+        spoken.clear()
+        feedbacks.clear()
+        node._pending_replace_target = 'gate_a4'
+        node._execute_pending_replace()
+        assert len(mock_goals_sent) == 0
+        assert any('Chưa xác nhận được chuyến đi cũ đã kết thúc' in s for s in spoken)
+        assert any(fb['status'] == 'UNRESOLVED_GOALS_PENDING' for fb in feedbacks)
+
+        # Mock server không nhận thêm goal nào
+        assert len(mock_goals_sent) == 0
+        assert len(node._unresolved_attempts) == 1
+
+        # Cuối cùng, terminal result CANCELED về
+        node._confirm_attempt_terminal('att_unk_1', GoalStatus.STATUS_CANCELED)
+        assert node.has_unresolved_goals() is False
+        assert node._unconfirmed_terminal is False
+        assert len(node._unresolved_attempts) == 0
+    finally:
+        node.destroy_node()
+
+
+def test_cancel_acceptance_rejection_and_multi_attempt_terminal(ros_context):
+    """
+    Test 36: Kiểm tra cancel accepted vs rejected, late acceptance, và multi-attempt terminal:
+    - Cancel accepted (return_code=0) chỉ là trung gian, gate vẫn đóng cho tới terminal result.
+    - Cancel rejected (return_code!=0): ghi nhận CANCEL_REJECTED, gate vẫn đóng.
+    - Acceptance muộn: tự động gửi cancel, gate vẫn đóng.
+    - Khi có 2 attempt cùng chưa xác minh: 1 cái terminal CANCELED nhưng cái kia chưa xong -> gate VẪN ĐÓNG.
+      Chỉ mở gate khi TẤT CẢ attempt đều đã confirm.
+    """
+    node = NavCommandNode()
+    try:
+        spoken = []
+        node.say = lambda t, s=None, m=None: spoken.append(t)
+        feedbacks = []
+        node.publish_feedback = lambda ev, st, msg='': feedbacks.append({'event': ev, 'status': st, 'msg': msg})
+
+        class MockCancelFuture:
+            def __init__(self, return_code=0, goals_canceling=1):
+                self.return_code = return_code
+                self.goals_canceling = [object()] if goals_canceling else []
+            def result(self):
+                return self
+
+        class MockTermFuture:
+            def __init__(self, status):
+                self.status = status
+            def result(self):
+                return self
+
+        # 1. Cancel accepted (return_code=0)
+        rec1 = node._get_or_create_attempt('att_c1', 'mis_c1')
+        node._on_delayed_cancel_confirmed(MockCancelFuture(return_code=0, goals_canceling=1), 'att_c1')
+        assert rec1.state == 'CANCEL_ACCEPTED'
+        assert rec1.is_terminal_confirmed is False
+        assert node.has_unresolved_goals() is True
+
+        # 2. Cancel rejected (return_code=1)
+        rec2 = node._get_or_create_attempt('att_c2', 'mis_c2')
+        node._on_delayed_cancel_confirmed(MockCancelFuture(return_code=1, goals_canceling=0), 'att_c2')
+        assert rec2.state == 'CANCEL_REJECTED'
+        assert rec2.is_terminal_confirmed is False
+        assert node.has_unresolved_goals() is True
+
+        # 3. Multi-attempt: att_c1 terminal CANCELED, nhưng att_c2 chưa terminal
+        node._on_delayed_cancel_terminal_result(MockTermFuture(GoalStatus.STATUS_CANCELED), 'att_c1', 'mis_c1')
+        assert rec1.is_terminal_confirmed is True
+        assert rec2.is_terminal_confirmed is False
+        # Gate VẪN ĐÓNG vì att_c2 chưa xác minh!
+        assert node.has_unresolved_goals() is True
+
+        # Thử gửi navigate -> vẫn bị chặn vì att_c2
+        feedbacks.clear()
+        node.handle_navigate_request({'target_id': 'gate_a3', 'request_id': 'req_blocked_by_c2'})
+        assert any(fb['status'] == 'UNRESOLVED_GOALS_PENDING' for fb in feedbacks)
+
+        # Bây giờ att_c2 cũng nhận terminal ABORTED
+        node._on_delayed_cancel_terminal_result(MockTermFuture(GoalStatus.STATUS_ABORTED), 'att_c2', 'mis_c2')
+        assert rec2.is_terminal_confirmed is True
+        # TẤT CẢ attempt đều đã confirm -> gate mở!
+        assert node.has_unresolved_goals() is False
+        assert node._unconfirmed_terminal is False
+
+        # 4. Late acceptance: attempt timeout trước đó, sau đó server accept muộn
+        rec3 = node._get_or_create_attempt('att_late', 'mis_late')
+        node._revoked_attempts.add('att_late')
+        cancel_called = []
+        class MockLateGoalHandle:
+            accepted = True
+            def cancel_goal_async(self):
+                cancel_called.append(True)
+                class F:
+                    def add_done_callback(self, cb):
+                        pass
+                return F()
+            def get_result_async(self):
+                class F:
+                    def add_done_callback(self, cb):
+                        pass
+                return F()
+
+        class MockRespFuture:
+            def result(self):
+                return MockLateGoalHandle()
+
+        node.on_goal_response(MockRespFuture(), 'att_late', 'mis_late')
+        assert len(cancel_called) == 1
+        assert rec3.state == 'CANCEL_REQUESTED'
+        assert rec3.is_terminal_confirmed is False
+        assert node.has_unresolved_goals() is True
+
+        # Khi terminal của late goal về
+        node._on_delayed_cancel_terminal_result(MockTermFuture(GoalStatus.STATUS_CANCELED), 'att_late', 'mis_late')
+        assert rec3.is_terminal_confirmed is True
+        assert node.has_unresolved_goals() is False
     finally:
         node.destroy_node()

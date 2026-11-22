@@ -1,0 +1,112 @@
+# PHASE 1 TARGETED AUDIT COMMAND LOG & RAW OUTPUTS
+Timestamp: 2026-11-23T00:12:00+07:00
+Baseline Commit: 78ae0e51bdcbe4db4d536e96fa17a2d7ae8f9794
+Current HEAD: 78ae0e51bdcbe4db4d536e96fa17a2d7ae8f9794 (clean working tree)
+Environment: Host Sandbox Ubuntu 22.04 LTS (Jammy) / Dev Container Target: ROS 2 Jazzy (Ubuntu 24.04 Noble)
+
+================================================================================
+1. GIT BASELINE & HEAD VERIFICATION
+================================================================================
+
+[CMD 01] git rev-parse HEAD && git status --short
+Exit Code: 0
+Output:
+78ae0e51bdcbe4db4d536e96fa17a2d7ae8f9794
+(Working tree clean)
+
+[CMD 02] git log -1 --stat
+Exit Code: 0
+Output:
+commit 78ae0e51bdcbe4db4d536e96fa17a2d7ae8f9794 (HEAD -> master, origin/master)
+Author: thuytran05 <chimcanhcut790@gmail.com>
+Date:   Fri Nov 20 16:56:35 2026 +0700
+    kiểm tra trc khi làm tracking và fix voice
+
+================================================================================
+2. RUNTIME & INTERPRETER DISAGGREGATION AUDIT
+================================================================================
+
+[CMD 03] which python3 && python3 --version && python3 -c "import sys; print(sys.executable, sys.path)"
+Exit Code: 0
+Output:
+/usr/bin/python3
+Python 3.10.12
+/usr/bin/python3 ['', '/home/thuytran/ros2_ws/install/turtlebot3_teleop/lib/python3.10/site-packages', ... '/usr/lib/python3/dist-packages']
+Finding: Sandbox host python is Python 3.10.12 (Ubuntu 22.04 LTS).
+
+[CMD 04] which nvcc 2>&1 || true; /home/thuytran/ws/.venv_yolo/bin/python3 -c "import torch; print(torch.__version__, torch.cuda.is_available())" 2>&1 || true
+Exit Code: 0
+Output:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+ModuleNotFoundError: No module named 'torch'
+
+[CMD 05] ls -la /home/thuytran/ws/.venv_yolo/bin/
+Exit Code: 0
+Output:
+total 104
+-rwxr-xr-x pip3.12
+-rwxr-xr-x python3.12 -> python3
+lrwxrwxrwx python3 -> /usr/bin/python3
+-rwxr-xr-x torchrun
+-rwxr-xr-x ultralytics
+-rwxr-xr-x yolo
+
+[CMD 06] ls -la /home/thuytran/ws/.venv_yolo/lib/ && ls -la /home/thuytran/ws/.venv_yolo/lib/python3.12/site-packages/
+Exit Code: 0
+Output:
+total 888 (in lib/python3.12/site-packages/):
+- torch-2.14.1.dist-info
+- torch
+- torchvision-0.29.1.dist-info
+- ultralytics-8.4.185.dist-info
+- ultralytics
+- opencv_python-4.11.0.86.dist-info
+- cv2
+- nvidia_cuda_runtime-13.0.96.dist-info
+- nvidia_cudnn_cu13-9.24.0.43.dist-info
+- cuda_toolkit-13.0.3.0.dist-info
+- lap-0.5.13.dist-info
+- triton-3.8.0.dist-info
+Finding: .venv_yolo was installed inside Dev Container using Python 3.12. All required PyTorch 2.14.1, CUDA 13 wheels, and Ultralytics 8.4 are present in python3.12/site-packages. Host python3 (3.10) cannot import them because of Python version mismatch on host symlink.
+
+================================================================================
+3. ASTRA CAMERA DRIVER DEPTH REGISTRATION AUDIT
+================================================================================
+
+[CMD 07] grep -rn -C 10 'setImageRegistrationMode' /home/thuytran/ws/src/ros2_astra_camera/astra_camera/src
+Exit Code: 0
+Output:
+/home/thuytran/ws/src/ros2_astra_camera/astra_camera/src/ob_camera_node.cpp:491:
+void OBCameraNode::setImageRegistrationMode(bool enable) {
+  if (!device_->isImageRegistrationModeSupported(openni::IMAGE_REGISTRATION_DEPTH_TO_COLOR)) {
+    RCLCPP_WARN_STREAM(logger_, "Current do not support " << magic_enum::enum_name(
+                                    openni::IMAGE_REGISTRATION_DEPTH_TO_COLOR));
+    return;
+  }
+  auto mode = enable ? openni::IMAGE_REGISTRATION_DEPTH_TO_COLOR : openni::IMAGE_REGISTRATION_OFF;
+  auto rc = device_->setImageRegistrationMode(mode);
+  if (rc != openni::STATUS_OK) {
+    RCLCPP_ERROR(logger_, "Enabling image registration mode failed: \n%s\n",
+                 openni::OpenNI::getExtendedError());
+  }
+}
+Finding: If hardware doesn't support registration or returns error, node continues running. Lines 529 and 551 set frame_id = depth_aligned_frame_id_ based purely on boolean parameter depth_registration_, NOT on hardware registration success.
+
+================================================================================
+4. GAZEBO COMMAND TIMEOUT WATCHDOG AUDIT
+================================================================================
+
+[CMD 08] read /home/thuytran/ws/src/linorobot2/linorobot2_gazebo/linorobot2_gazebo/command_timeout.py
+Exit Code: 0
+Output:
+Line 26: self.twist_publisher_ = self.create_publisher(Twist, 'cmd_vel', 10)
+Line 31: self.create_subscription(Twist, 'cmd_vel', self.twist_callback, 10)
+Line 42: if dt >= 2e+8 and not self.zero_cmd_sent_: (5Hz brake timer publishes 1 zero Twist on timeout > 200ms)
+Line 51: if msg.linear.x == 0 and msg.linear.y == 0 and msg.angular.z == 0: return
+
+[CMD 09] grep -rn -C 5 'command_timeout' /home/thuytran/ws/src/linorobot2/linorobot2_gazebo/launch/
+Exit Code: 0
+Output:
+Node command_timeout executed in linorobot2_gazebo/launch/gazebo.launch.py:161
+Finding: command_timeout subscribes to and publishes to cmd_vel directly. Does not intercept non-zero commands and does not protect against stray publishers or guard crashes. Active continuous zeroing by guard is strictly required.
