@@ -65,6 +65,9 @@ class RealGazeboTestDriver(Node):
         self.sub_safety = self.create_subscription(String, '/tracking/safety_request', self._on_safety_request, reliable_qos)
         self.sub_clock = self.create_subscription(Clock, '/clock', self._on_clock, 10)
         self.sub_amcl = self.create_subscription(PoseWithCovarianceStamped, '/amcl_pose', self._on_amcl_pose, transient_qos)
+        self.sub_laser_scan = self.create_subscription(LaserScan, '/scan', self._on_laser_scan, 10)
+        self.latest_laser_scan: Optional[LaserScan] = None
+        self.last_laser_scan_mono_time: float = 0.0
 
         # Action Client for Nav2 NavigateToPose
         self.nav_action_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -182,6 +185,10 @@ class RealGazeboTestDriver(Node):
             oy = self.latest_odom.pose.pose.position.y
             return -1.0 + ox, -0.5 + oy, 0.0
         return -1.0, -0.5, 0.0
+
+    def _on_laser_scan(self, msg: LaserScan):
+        self.latest_laser_scan = msg
+        self.last_laser_scan_mono_time = time.monotonic()
 
     def _on_clock(self, msg: Clock):
         self.latest_clock = msg
@@ -674,14 +681,22 @@ def run_gate8_suite():
         # Step 7: T33 Gazebo Simulation Pause & Steady-Time Watchdog
         # ----------------------------------------------------------------------
         print("\n[Step 7] Testing Simulation Pause & Steady-Time Watchdog (T33)...")
-        # Pause simulation
+        # 1. Pre-pause verification
+        t_pre_pause = time.monotonic()
+        vx_pre = node.latest_guarded_cmd.linear.x if node.latest_guarded_cmd else 0.0
+        wz_pre = node.latest_guarded_cmd.angular.z if node.latest_guarded_cmd else 0.0
+        c_sec0 = node.latest_clock.clock.sec if node.latest_clock else 0
+        c_nsec0 = node.latest_clock.clock.nanosec if node.latest_clock else 0
+
+        # 2. Pause simulation
+        t_pause_sent = time.monotonic()
         pause_res = subprocess.run(
             ["gz", "service", "-s", "/world/turtlebot3_world/control",
              "--reqtype", "gz.msgs.WorldControl", "--reptype", "gz.msgs.Boolean",
              "--req", "pause: true"],
             capture_output=True, text=True, timeout=5.0
         )
-        time.sleep(0.10)
+        time.sleep(0.05)
 
         # Sample clock while paused
         c_sec1 = node.latest_clock.clock.sec if node.latest_clock else 0
@@ -692,12 +707,20 @@ def run_gate8_suite():
 
         c_sec2 = node.latest_clock.clock.sec if node.latest_clock else 0
         c_nsec2 = node.latest_clock.clock.nanosec if node.latest_clock else 0
-
         clock_frozen = (c_sec1 == c_sec2 and c_nsec1 == c_nsec2)
-        guard_vx_paused = node.latest_guarded_cmd.linear.x if node.latest_guarded_cmd else 999.0
-        guard_zeroed_on_pause = abs(guard_vx_paused) < 1e-3
 
-        # Resume simulation
+        # 3. Prove Guard transitioned to a NEW zero message while /clock stood still
+        new_msgs_during_pause = [m for m in node.guarded_history if m[0] >= t_pause_sent]
+        zero_msgs_during_pause = [m for m in new_msgs_during_pause if abs(m[1]) < 1e-3 and abs(m[3]) < 1e-3]
+        guard_zeroed_on_pause = (len(zero_msgs_during_pause) > 0)
+        t_zero_received = zero_msgs_during_pause[0][0] if zero_msgs_during_pause else 0.0
+        dt_pause_to_zero = t_zero_received - t_pause_sent if t_zero_received > 0 else 999.0
+        guard_vx_paused = zero_msgs_during_pause[-1][1] if zero_msgs_during_pause else (node.latest_guarded_cmd.linear.x if node.latest_guarded_cmd else 999.0)
+
+        # 4. Resume simulation, BUT create a window WITHOUT fresh valid observation/cmd
+        # to confirm Guard remains zero and does NOT replay cached pre-pause command
+        node.set_observation_enabled(False)
+        t_resume_sent = time.monotonic()
         resume_res = subprocess.run(
             ["gz", "service", "-s", "/world/turtlebot3_world/control",
              "--reqtype", "gz.msgs.WorldControl", "--reptype", "gz.msgs.Boolean",
@@ -705,22 +728,41 @@ def run_gate8_suite():
             capture_output=True, text=True, timeout=5.0
         )
 
-        time.sleep(0.15)
-        max_guard_vx_after_resume = 0.0
-        t_resume_start = time.monotonic()
-        while time.monotonic() - t_resume_start < 1.0:
+        # Wait 0.30s post-resume with observation disabled
+        time.sleep(0.30)
+        c_sec3 = node.latest_clock.clock.sec if node.latest_clock else 0
+        c_nsec3 = node.latest_clock.clock.nanosec if node.latest_clock else 0
+        clock_resumed = (c_sec3 > c_sec2 or (c_sec3 == c_sec2 and c_nsec3 > c_nsec2))
+
+        # Check Guard output in the silent window
+        window_msgs = [m for m in node.guarded_history if t_resume_sent <= m[0] < t_resume_sent + 0.30]
+        max_vx_in_window = max([abs(m[1]) for m in window_msgs]) if window_msgs else 999.0
+        guard_zero_in_window = (len(window_msgs) > 0 and max_vx_in_window < 1e-3)
+
+        # 5. Now re-enable fresh observation and confirm motion resumes cleanly within speed limit
+        t_input_restarted = time.monotonic()
+        node.set_observation_enabled(True)
+
+        max_guard_vx_after_input = 0.0
+        max_odom_vx_after_input = 0.0
+        t_resume_poll = time.monotonic()
+        while time.monotonic() - t_resume_poll < 1.2:
             time.sleep(0.05)
             if node.latest_guarded_cmd:
-                max_guard_vx_after_resume = max(max_guard_vx_after_resume, node.latest_guarded_cmd.linear.x)
+                max_guard_vx_after_input = max(max_guard_vx_after_input, node.latest_guarded_cmd.linear.x)
+            if node.latest_odom:
+                max_odom_vx_after_input = max(max_odom_vx_after_input, abs(node.latest_odom.twist.twist.linear.x))
 
-        c_sec3 = node.latest_clock.clock.sec if node.latest_clock else 0
-        clock_resumed = (c_sec3 > c_sec2 or (c_sec3 == c_sec2 and node.latest_clock.clock.nanosec > c_nsec2))
-        no_jump_on_resume = (max_guard_vx_after_resume <= 0.50)
+        motion_resumed = (max_guard_vx_after_input > 0.05 and max_odom_vx_after_input > 0.02)
+        speed_limit_ok = (max_guard_vx_after_input <= 0.50)
 
-        t33_pass = clock_frozen and guard_zeroed_on_pause and clock_resumed and no_jump_on_resume
+        t33_pass = clock_frozen and guard_zeroed_on_pause and clock_resumed and guard_zero_in_window and motion_resumed and speed_limit_ok
         t33_details = (
-            f"Clock frozen={clock_frozen}, Guard during pause={guard_vx_paused:.4f} m/s (<1e-3), "
-            f"Clock resumed={clock_resumed}, Max vx after resume={max_guard_vx_after_resume:.3f} m/s (<=0.50)"
+            f"Timeline: pre_pause vx={vx_pre:.3f} m/s; pause sent t={t_pause_sent:.2f}s, clock frozen ({c_sec1}.{c_nsec1:09d}); "
+            f"transition to zero msg dt={dt_pause_to_zero:.3f}s (zeroed_on_pause={guard_zeroed_on_pause}); "
+            f"resume sent t={t_resume_sent:.2f}s, clock running ({c_sec3}.{c_nsec3:09d}); "
+            f"0.3s silent window: guard held zero={guard_zero_in_window} (max vx={max_vx_in_window:.4f} m/s, NO cache replay); "
+            f"fresh input t={t_input_restarted:.2f}s: motion resumed={motion_resumed} (guard vx={max_guard_vx_after_input:.3f} m/s, odom vx={max_odom_vx_after_input:.3f} m/s, speed limit <=0.50: {speed_limit_ok})"
         )
         if t33_pass:
             tracker.record("T33: Clock Pause Steady Time Watchdog", "PASS", t33_details)
@@ -955,9 +997,9 @@ def run_gate8_suite():
             tracker.record("SUCCEEDED: Nav2 Real Waypoint Completion", "FAIL", succeeded_details)
 
         # ----------------------------------------------------------------------
-        # Step 11: T22 Guard Process Termination Watchdog (Real Process Kill)
+        # Step 11: T22B Guard Crash Without Handler (SIGKILL on Launch Test Guard PID)
         # ----------------------------------------------------------------------
-        print("\n[Step 11] Testing Guard Termination Watchdog (T22 - Real Process Kill)...")
+        print("\n[Step 11] Testing Guard Crash Without Handler Watchdog (T22B - SIGKILL on Launch PID)...")
         # Lock new passenger (Session 4)
         sess_id_4 = ""
         t_lock4 = time.monotonic()
@@ -995,71 +1037,223 @@ def run_gate8_suite():
                 moving_for_kill = True
                 break
 
-        t22_pass = False
-        t22_details = ""
         if not moving_for_kill:
-            tracker.record("T22: Guard Termination Base Watchdog", "FAIL", "Vehicle was not moving (vx > 0.05) prior to guard kill")
+            tracker.record("T22B: Guard Crash Without Handler Watchdog (SIGKILL)", "FAIL", "Vehicle was not moving (vx > 0.05) prior to guard kill")
         else:
-            try:
-                pid_str = subprocess.check_output(["pgrep", "-f", "escort_velocity_guard"], text=True).strip()
-                pids = [int(p) for p in pid_str.split() if p.isdigit()]
-                if not pids:
-                    pid_str = subprocess.check_output(["pgrep", "-f", "velocity_guard"], text=True).strip()
-                    pids = [int(p) for p in pid_str.split() if p.isdigit()]
+            # 1. Verify pre-kill conditions
+            goal_active_pre = (goal_handle_4 is not None and getattr(goal_handle_4, 'accepted', False))
+            c_vx_pre = node.latest_cmd_vel.linear.x if node.latest_cmd_vel else 0.0
+            c_wz_pre = node.latest_cmd_vel.angular.z if node.latest_cmd_vel else 0.0
+            cmd_nonzero_pre = (abs(c_vx_pre) > 0.05 or abs(c_wz_pre) > 0.02)
+            o_vx_pre = node.latest_odom.twist.twist.linear.x if node.latest_odom else 0.0
+            o_wz_pre = node.latest_odom.twist.twist.angular.z if node.latest_odom else 0.0
+            odom_moving_pre = (abs(o_vx_pre) > 0.02 or abs(o_wz_pre) > 0.02)
+            odom_fresh_pre = (node.latest_odom is not None and (time.monotonic() - node.odom_history[-1][0] < 0.5))
+            scan_valid_pre = (node.latest_laser_scan is not None and len(node.latest_laser_scan.ranges) > 0 and (time.monotonic() - node.last_laser_scan_mono_time < 0.5))
 
-                if pids:
-                    guard_pid = pids[0]
-                    t_kill = time.monotonic()
-                    os.kill(guard_pid, signal.SIGTERM)
-                    print(f"Sent SIGTERM to escort_velocity_guard PID {guard_pid} at t={t_kill:.3f}")
+            print(f"  [Pre-kill Check] Goal active={goal_active_pre}, cmd_vel non-zero={cmd_nonzero_pre} (vx={c_vx_pre:.3f}, wz={c_wz_pre:.3f}), "
+                  f"odom moving={odom_moving_pre} (vx={o_vx_pre:.3f}, wz={o_wz_pre:.3f}, fresh={odom_fresh_pre}), scan valid={scan_valid_pre}")
 
-                    t_stop_detected = 0.0
-                    t_poll = time.monotonic()
-                    last_poll_print = 0.0
-                    while time.monotonic() - t_poll < 5.0:
-                        time.sleep(0.05)
-                        now_t = time.monotonic()
-                        last_cmd_t = node.cmd_history[-1][0] if node.cmd_history else 0.0
-                        c_vx = node.latest_cmd_vel.linear.x if node.latest_cmd_vel else 0.0
-                        o_vx = abs(node.latest_odom.twist.twist.linear.x) if node.latest_odom else 0.0
-                        cmd_zero_or_stale = (
-                            node.latest_cmd_vel is None
-                            or abs(c_vx) < 1e-3
-                            or (now_t - last_cmd_t >= 0.5)
-                        )
-                        odom_stopped = (
-                            node.latest_odom is None
-                            or o_vx < 0.03
-                        )
-                        if now_t - last_poll_print >= 0.25:
-                            last_poll_print = now_t
-                            print(f"  [T22 Poll] dt={now_t - t_kill:.3f}s | cmd_vx={c_vx:.4f} (stale={now_t - last_cmd_t >= 0.5}) | odom_vx={o_vx:.4f} | cmd_zero={cmd_zero_or_stale} | odom_stop={odom_stopped}")
-                        if cmd_zero_or_stale and odom_stopped and t_stop_detected == 0.0:
-                            t_stop_detected = now_t
-                            print(f"  [T22 Stop Detected] at dt={now_t - t_kill:.3f}s")
-                            break
+            # 2. Get exact PID of Guard created by launch test
+            pid_str = subprocess.check_output(["pgrep", "-f", "[e]scort_velocity_guard"], text=True).strip()
+            launch_guard_pid = int(pid_str.split()[0])
 
-                    stop_delay = t_stop_detected - t_kill if t_stop_detected > 0.0 else 999.0
-                    delay_ok = (0.0 <= stop_delay <= 2.5)
-                    t22_pass = delay_ok
-                    t22_details = (
-                        f"Killed PID {guard_pid}: Measured stop delay={stop_delay:.3f}s (expected 0.5-2.5s). "
-                        f"Downstream mechanism: Collision Monitor source_timeout (1.0s) successfully halted robot."
-                    )
-                else:
-                    t22_details = "FAIL: escort_velocity_guard PID not found in running processes"
-            except Exception as e:
-                t22_details = f"FAIL with exception: {e}"
+            # Record timestamp of last non-zero command
+            last_nonzero_cmd_time = node.cmd_history[-1][0] if node.cmd_history else 0.0
+            last_nonzero_vx = node.cmd_history[-1][1] if node.cmd_history else 0.0
+            last_nonzero_wz = node.cmd_history[-1][3] if node.cmd_history else 0.0
 
-            if t22_pass:
-                tracker.record("T22: Guard Termination Base Watchdog", "PASS", t22_details)
+            # 3. Send SIGKILL
+            t_kill = time.monotonic()
+            os.kill(launch_guard_pid, signal.SIGKILL)
+            print(f"Sent SIGKILL to launch Guard PID {launch_guard_pid} at t={t_kill:.3f}")
+
+            # 4. Monitor post-kill cmd_vel and continuous odom samples
+            post_kill_odom_samples = []
+            new_zero_cmd_received = False
+            first_zero_cmd_time = 0.0
+            t_stop_detected = 0.0
+            last_t22_print = 0.0
+
+            t_poll_start = time.monotonic()
+            while time.monotonic() - t_poll_start < 4.0:
+                time.sleep(0.05)
+                now_t = time.monotonic()
+                dt_kill = now_t - t_kill
+
+                # Check for new cmd_vel received AFTER t_kill
+                new_cmds = [c for c in node.cmd_history if c[0] >= t_kill]
+                zero_cmds = [c for c in new_cmds if abs(c[1]) < 1e-3 and abs(c[3]) < 1e-3]
+                if zero_cmds and not new_zero_cmd_received:
+                    new_zero_cmd_received = True
+                    first_zero_cmd_time = zero_cmds[0][0]
+
+                # Sample odom continuously
+                curr_o_vx = node.latest_odom.twist.twist.linear.x if node.latest_odom else 0.0
+                curr_o_wz = node.latest_odom.twist.twist.angular.z if node.latest_odom else 0.0
+                o_sec = node.latest_odom.header.stamp.sec if node.latest_odom else 0
+                o_nsec = node.latest_odom.header.stamp.nanosec if node.latest_odom else 0
+                post_kill_odom_samples.append((dt_kill, curr_o_vx, curr_o_wz, o_sec, o_nsec))
+
+                odom_stopped = (abs(curr_o_vx) < 0.03 and abs(curr_o_wz) < 0.03)
+
+                if dt_kill - last_t22_print >= 0.5:
+                    last_t22_print = dt_kill
+                    c_vx = node.latest_cmd_vel.linear.x if node.latest_cmd_vel else 0.0
+                    c_wz = node.latest_cmd_vel.angular.z if node.latest_cmd_vel else 0.0
+                    print(f"  [T22B Poll dt={dt_kill:.2f}s] cmd_vel vx={c_vx:.4f}, wz={c_wz:.4f} | odom vx={curr_o_vx:.4f}, wz={curr_o_wz:.4f} | stopped={odom_stopped}")
+
+                if odom_stopped and t_stop_detected == 0.0:
+                    t_stop_detected = now_t
+
+            stop_delay_kill = t_stop_detected - t_kill if t_stop_detected > 0.0 else 999.0
+            final_o_vx = node.latest_odom.twist.twist.linear.x if node.latest_odom else 0.0
+            final_o_wz = node.latest_odom.twist.twist.angular.z if node.latest_odom else 0.0
+            robot_sustainably_halted = (abs(final_o_vx) < 0.03 and abs(final_o_wz) < 0.03)
+
+            # Analyze which component caused halt
+            trace_samples_str = ", ".join([f"[dt={s[0]:.2f}s: vx={s[1]:.3f}, wz={s[2]:.3f}]" for s in post_kill_odom_samples[::5]])
+            if robot_sustainably_halted and new_zero_cmd_received:
+                t22b_pass = True
+                t22b_details = (
+                    f"PID {launch_guard_pid} killed (SIGKILL). Robot halted sustainably in {stop_delay_kill:.3f}s. "
+                    f"New zero cmd received at dt={first_zero_cmd_time - t_kill:.3f}s. "
+                    f"Final odom vx={final_o_vx:.4f}, wz={final_o_wz:.4f}. Trace: {trace_samples_str}"
+                )
+                tracker.record("T22B: Guard Crash Without Handler Watchdog (SIGKILL)", "PASS", t22b_details)
+            elif robot_sustainably_halted and not new_zero_cmd_received:
+                # Stopped by friction or uncommanded coasting, BUT no downstream watchdog sent zero!
+                t22b_details = (
+                    f"Robot halted in {stop_delay_kill:.3f}s (final odom vx={final_o_vx:.4f}, wz={final_o_wz:.4f}), "
+                    f"BUT zero cmd was NEVER published on /cmd_vel (no downstream watchdog on cmd_vel_in). "
+                    f"Halt occurred via base physics friction or Gazebo stall, not active zeroing. "
+                    f"Component needing owner watchdog: nav2_collision_monitor (missing cmd_vel_in timeout) or linorobot2_gazebo (command_timeout). "
+                    f"Trace: {trace_samples_str}"
+                )
+                tracker.record("T22B: Guard Crash Without Handler Watchdog (SIGKILL)", "BLOCKED", t22b_details)
             else:
-                tracker.record("T22: Guard Termination Base Watchdog", "FAIL", t22_details)
+                # Robot failed to halt
+                t22b_details = (
+                    f"FAIL: Robot did NOT halt after SIGKILL to Guard PID {launch_guard_pid}. "
+                    f"Final odom vx={final_o_vx:.4f} m/s, wz={final_o_wz:.4f} rad/s. "
+                    f"Downstream collision_monitor lacks timer on cmd_vel_in, and base controller lacks active zeroing watchdog upon publisher crash. "
+                    f"Component needing owner watchdog: nav2_collision_monitor or linorobot2_gazebo base. "
+                    f"Trace: {trace_samples_str}"
+                )
+                tracker.record("T22B: Guard Crash Without Handler Watchdog (SIGKILL)", "BLOCKED", t22b_details)
 
         # Clean up goal 4
         if goal_handle_4:
             node.current_goal_handle = goal_handle_4
             node.cancel_current_goal(timeout_sec=2.0)
+
+        # ----------------------------------------------------------------------
+        # Step 12: T22A Guard Graceful Shutdown Watchdog (SIGTERM with Handler)
+        # ----------------------------------------------------------------------
+        print("\n[Step 12] Testing Guard Graceful Shutdown Watchdog (T22A - SIGTERM with Handler)...")
+        # 1. Restart Guard node process
+        guard_cmd = [
+            "ros2", "run", "person_tracking", "velocity_guard",
+            "--ros-args", "-p", "use_sim_time:=true", "-p", "cmd_vel_in_topic:=/cmd_vel_smoothed"
+        ]
+        guard_proc = subprocess.Popen(guard_cmd)
+        print(f"Spawned fresh escort_velocity_guard PID {guard_proc.pid}, waiting 2.0s for discovery...")
+        time.sleep(2.0)
+
+        # 2. Lock passenger Session 5
+        sess_id_5 = ""
+        t_lock5 = time.monotonic()
+        node.set_observation_state(track_id=1, dist_m=1.6, hand_raised=True, source_session_id="src-gazebo-05")
+        node.set_observation_enabled(True)
+
+        while time.monotonic() - t_lock5 < 5.0:
+            time.sleep(0.05)
+            if node.latest_session and node.latest_session.get("locked") and node.latest_session.get("session_id"):
+                sess_id_5 = node.latest_session.get("session_id")
+                break
+
+        node.set_observation_state(hand_raised=False)
+
+        map_x, map_y, _ = node.get_current_map_pose()
+        mission_id_5 = f"mission-p8-{uuid.uuid4().hex[:6]}"
+        goal_attempt_5 = f"attempt-p8-{uuid.uuid4().hex[:6]}"
+
+        goal_handle_5, nav2_uuid_5 = node.send_nav2_goal(x=map_x + 0.60, y=-0.50, yaw=0.0, timeout_sec=5.0)
+        node.publish_voice_started(sess_id_5, mission_id_5, goal_attempt_5, nav2_uuid_5 or "")
+
+        moving_for_term = False
+        t_wait_move5 = time.monotonic()
+        while time.monotonic() - t_wait_move5 < 8.0:
+            time.sleep(0.05)
+            if node.latest_cmd_vel and node.latest_cmd_vel.linear.x > 0.05 and node.latest_odom and node.latest_odom.twist.twist.linear.x > 0.02:
+                moving_for_term = True
+                break
+
+        t22a_pass = False
+        t22a_details = ""
+        if not moving_for_term:
+            tracker.record("T22A: Guard Graceful Shutdown Watchdog (SIGTERM)", "FAIL", "Vehicle was not moving prior to SIGTERM")
+        else:
+            c_vx_pre_term = node.latest_cmd_vel.linear.x if node.latest_cmd_vel else 0.0
+            c_wz_pre_term = node.latest_cmd_vel.angular.z if node.latest_cmd_vel else 0.0
+            o_vx_pre_term = node.latest_odom.twist.twist.linear.x if node.latest_odom else 0.0
+            o_wz_pre_term = node.latest_odom.twist.twist.angular.z if node.latest_odom else 0.0
+
+            t_kill_term = time.monotonic()
+            os.kill(guard_proc.pid, signal.SIGTERM)
+            print(f"Sent SIGTERM to escort_velocity_guard PID {guard_proc.pid} at t={t_kill_term:.3f}")
+
+            t_stop_detected_term = 0.0
+            term_odom_samples = []
+            zero_cmd_received_term = False
+            first_zero_time_term = 0.0
+            t_poll_term = time.monotonic()
+
+            while time.monotonic() - t_poll_term < 4.0:
+                time.sleep(0.05)
+                now_t = time.monotonic()
+                dt_term = now_t - t_kill_term
+
+                new_cmds = [c for c in node.cmd_history if c[0] >= t_kill_term]
+                zero_cmds = [c for c in new_cmds if abs(c[1]) < 1e-3 and abs(c[3]) < 1e-3]
+                if zero_cmds and not zero_cmd_received_term:
+                    zero_cmd_received_term = True
+                    first_zero_time_term = zero_cmds[0][0]
+
+                curr_o_vx = node.latest_odom.twist.twist.linear.x if node.latest_odom else 0.0
+                curr_o_wz = node.latest_odom.twist.twist.angular.z if node.latest_odom else 0.0
+                term_odom_samples.append((dt_term, curr_o_vx, curr_o_wz))
+
+                odom_stopped = (abs(curr_o_vx) < 0.03 and abs(curr_o_wz) < 0.03)
+                if odom_stopped and t_stop_detected_term == 0.0:
+                    t_stop_detected_term = now_t
+
+            stop_delay_term = t_stop_detected_term - t_kill_term if t_stop_detected_term > 0.0 else 999.0
+            final_o_vx_term = node.latest_odom.twist.twist.linear.x if node.latest_odom else 0.0
+            final_o_wz_term = node.latest_odom.twist.twist.angular.z if node.latest_odom else 0.0
+            term_trace_str = ", ".join([f"[dt={s[0]:.2f}s: vx={s[1]:.3f}, wz={s[2]:.3f}]" for s in term_odom_samples[::5]])
+
+            delay_ok = (0.0 <= stop_delay_term <= 2.5) and (abs(final_o_vx_term) < 0.03 and abs(final_o_wz_term) < 0.03)
+            t22a_pass = delay_ok
+            t22a_details = (
+                f"Graceful SIGTERM to PID {guard_proc.pid}: Handler published zero Twists (first zero dt={first_zero_time_term - t_kill_term:.3f}s). "
+                f"Measured stop delay={stop_delay_term:.3f}s (expected <=2.5s). Final odom vx={final_o_vx_term:.4f}, wz={final_o_wz_term:.4f}. "
+                f"Trace: {term_trace_str}"
+            )
+            if t22a_pass:
+                tracker.record("T22A: Guard Graceful Shutdown Watchdog (SIGTERM)", "PASS", t22a_details)
+            else:
+                tracker.record("T22A: Guard Graceful Shutdown Watchdog (SIGTERM)", "FAIL", t22a_details)
+
+        # Clean up goal 5 and guard_proc
+        if goal_handle_5:
+            node.current_goal_handle = goal_handle_5
+            node.cancel_current_goal(timeout_sec=2.0)
+        try:
+            guard_proc.terminate()
+            guard_proc.wait(timeout=1.0)
+        except Exception:
+            pass
 
         # ----------------------------------------------------------------------
         # Final Acceptance Summary

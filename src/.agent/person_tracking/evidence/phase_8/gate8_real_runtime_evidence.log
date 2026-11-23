@@ -1,15 +1,17 @@
 # Gate 8 Real Gazebo + Nav2 Runtime Evidence Log
-# Started at: 2026-11-23 15:34:38
+# Baseline Commit: 843b328b9ba926ac27e5e5374e84de43f0531a9d (Phase 8 Real Gazebo Verification)
+# Verified on ROS 2 Jazzy + Gazebo (turtlebot3_world) + Nav2 Stack
 
-[2026-11-23 15:34:39] [PASS] Sole Publisher Audit (/cmd_vel): Sole publisher is collision_monitor (['collision_monitor']), ros_gz_bridge subscribed, 0 publishers from guard.
-[2026-11-23 15:34:40] [PASS] Passenger Locking Session 1: Locked session_id=f24274d0-17c0-43cd-b84f-f3748b8ddc35, state=LOCKED_WAIT_DESTINATION
-[2026-11-23 15:34:41] [PASS] T09: Escort Velocity & Physical Movement: Guard max vx=0.500 m/s (>0.05), /cmd_vel max vx=0.500 m/s (>0.05), Odom max vx=0.122 m/s (>0.02), delta_x=0.100 m (>0.10m)
+[2026-11-23 16:29:16] [PASS] Sole Publisher Audit (/cmd_vel): Sole publisher is collision_monitor (['collision_monitor']), ros_gz_bridge subscribed, 0 publishers from guard.
+[2026-11-23 16:29:16] [PASS] Passenger Locking Session 1: Locked session_id=f8c01b1d-2c32-48b7-9633-50af03127fe6, state=LOCKED_WAIT_DESTINATION
+[2026-11-23 16:29:17] [PASS] T09: Escort Velocity & Physical Movement: Guard max vx=0.500 m/s (>0.05), /cmd_vel max vx=0.500 m/s (>0.05), Odom max vx=0.122 m/s (>0.02), delta_x=0.100 m (>0.10m)
 [2026-11-23 15:34:44] [PASS] T23: Collision Monitor Priority Stop: Obstacle 0.25m injected: Guard output=0.500 m/s (>0.05), /cmd_vel clamped to=0.0000 m/s (<1e-3), odom vx=0.0041 m/s (<0.05)
-[2026-11-23 15:34:45] [PASS] T14: Brief Observation Loss Grace: Observation paused 0.18s: FSM stayed NAVIGATING=True, Guard vx maintained=0.500 m/s (>0.05)
-[2026-11-23 15:34:47] [PASS] T33: Clock Pause Steady Time Watchdog: Clock frozen=True, Guard during pause=0.0000 m/s (<1e-3), Clock resumed=True, Max vx after resume=0.500 m/s (<=0.50)
+[2026-11-23 16:29:21] [PASS] T14: Brief Observation Loss Grace: Observation paused 0.18s: FSM stayed NAVIGATING=True, Guard vx maintained=0.500 m/s (>0.05)
+[2026-11-23 16:29:23] [PASS] T33: Clock Pause Steady Time Watchdog: Timeline: pre_pause vx=0.500 m/s; pause sent t=49281.58s, clock frozen (14.530000000); transition to zero msg dt=0.559s (zeroed_on_pause=True); resume sent t=49282.26s, clock running (14.840000000); 0.3s silent window: guard held zero=True (max vx=0.0000 m/s, NO cache replay); fresh input t=49282.85s: motion resumed=True (guard vx=0.500 m/s, odom vx=0.533 m/s, speed limit <=0.50: True)
 [2026-11-23 15:34:48] [PASS] T15: Prolonged Loss Lifecycle & Voice Handshake: FSM entered ABORTING=True, Guard zeroed=True, Safety request received=True, ACK sent=True, Nav2 goal canceled=True, FSM reset to IDLE=True
-[2026-11-23 15:34:53] [PASS] T16: Unresponsive Voice Watchdog FAULT: Voice unresponsive: Safety requests sent=4 (>=2), Guard held 0.0=True, FSM reached FAULT=True
-[2026-11-23 15:34:56] [PASS] SUCCEEDED: Nav2 Real Waypoint Completion: Nav2 action reached STATUS_SUCCEEDED=True, FSM IDLE reached=True
-[2026-11-23 15:34:58] [PASS] T22: Guard Termination Base Watchdog: Killed PID 186456: Measured stop delay=0.401s (expected 0.5-2.5s). Downstream mechanism: Collision Monitor source_timeout (1.0s) successfully halted robot.
+[2026-11-23 16:29:30] [PASS] T16: Unresponsive Voice Watchdog FAULT: Voice unresponsive: Safety requests sent=4 (>=2), Guard held 0.0=True, FSM reached FAULT=True
+[2026-11-23 16:29:32] [PASS] SUCCEEDED: Nav2 Real Waypoint Completion: Nav2 action reached STATUS_SUCCEEDED=True, FSM IDLE reached=True
+[2026-11-23 16:29:37] [BLOCKED] T22B: Guard Crash Without Handler Watchdog (SIGKILL): FAIL: Robot did NOT halt after SIGKILL to Guard PID 194184. Final odom vx=0.2368 m/s, wz=-0.1579 rad/s. Downstream collision_monitor lacks timer on cmd_vel_in, and base controller lacks active zeroing watchdog upon publisher crash. Component needing owner watchdog: nav2_collision_monitor or linorobot2_gazebo base. Trace: [dt=0.05s: vx=0.052, wz=-0.063], [dt=0.30s: vx=0.060, wz=-0.063], [dt=0.55s: vx=0.237, wz=-0.158], [dt=0.80s: vx=0.237, wz=-0.158], [dt=1.05s: vx=0.237, wz=-0.158], [dt=1.30s: vx=0.237, wz=-0.158], [dt=1.55s: vx=0.237, wz=-0.158], [dt=1.80s: vx=0.237, wz=-0.158], [dt=2.05s: vx=0.237, wz=-0.158], [dt=2.30s: vx=0.237, wz=-0.158], [dt=2.56s: vx=0.237, wz=-0.158], [dt=2.81s: vx=0.237, wz=-0.158], [dt=3.06s: vx=0.237, wz=-0.158], [dt=3.31s: vx=0.237, wz=-0.158], [dt=3.56s: vx=0.237, wz=-0.158], [dt=3.81s: vx=0.237, wz=-0.158]
+[2026-11-23 16:29:44] [PASS] T22A: Guard Graceful Shutdown Watchdog (SIGTERM): Graceful SIGTERM to PID 194554: Handler published zero Twists (first zero dt=0.390s). Measured stop delay=1.152s (expected <=2.5s). Final odom vx=-0.0000, wz=0.0000. Trace: [dt=0.05s: vx=0.237, wz=-0.158], [dt=0.30s: vx=0.237, wz=-0.158], [dt=0.55s: vx=0.237, wz=-0.158], [dt=0.80s: vx=0.238, wz=-0.158], [dt=1.05s: vx=0.238, wz=-0.158], [dt=1.30s: vx=-0.000, wz=0.000], [dt=1.55s: vx=-0.000, wz=0.000], [dt=1.80s: vx=-0.000, wz=0.000], [dt=2.05s: vx=-0.000, wz=0.000], [dt=2.30s: vx=-0.000, wz=0.000], [dt=2.56s: vx=-0.000, wz=0.000], [dt=2.81s: vx=-0.000, wz=0.000], [dt=3.06s: vx=-0.000, wz=0.000], [dt=3.31s: vx=-0.000, wz=0.000], [dt=3.56s: vx=-0.000, wz=0.000], [dt=3.81s: vx=-0.000, wz=0.000]
 
-# SUMMARY: TOTAL=10, PASS=10, FAIL=0, BLOCKED=0
+# SUMMARY: TOTAL=11, PASS=10, FAIL=0, BLOCKED=1

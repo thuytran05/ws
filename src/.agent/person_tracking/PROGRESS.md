@@ -19,7 +19,7 @@
 | **Phase 5** | RGB-D, depth & Hình học camera sau | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_5/` |
 | **Phase 6** | Session FSM, timeout & Giao tiếp voice | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_6/` |
 | **Phase 7** | Velocity guard, mecanum & Watchdog | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_7/` |
-| **Phase 8** | End-to-end ROS 2 integration (không sửa Gazebo) | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_8/` |
+| **Phase 8** | End-to-end ROS 2 integration (không sửa Gazebo) | **PARTIAL** | 23/11/2026 | `.agent/person_tracking/evidence/phase_8/` |
 | **Phase 9** | Giao tiếp song song với agent voice | **NOT_STARTED** | — | — |
 | **Phase 10** | Validation hiệu năng & Độ bền (offline + sim) | **NOT_STARTED** | — | — |
 | **Phase 11** | Robot thật + Astra thật, nghiệm thu bàn giao | **NOT_STARTED** | — | — |
@@ -344,7 +344,7 @@
 
 ---
 
-### Phase 8 — End-to-end ROS 2 integration (không sửa Gazebo) — [PASS]
+### Phase 8 — End-to-end ROS 2 integration (không sửa Gazebo) — [PARTIAL]
 - **Ngày/giờ hoàn thành:** 23/11/2026 22:35:00+07:00
 - **Baseline Git Commit:** `179e38fa403199497518ccc641354f0089ae01e3`
 - **Mục tiêu đạt được:** Nghiệm thu toàn diện Gate 8 trên ROS 2 Jazzy + Gazebo thật + Nav2 thật + Mock Voice, sửa triệt để các điều khoản hợp đồng liên phân hệ từ phía tracking (Section A), và chốt hợp đồng sẵn sàng bàn giao Phase 9 cho agent Voice (Section C).
@@ -362,8 +362,9 @@
        * **Audit:** Khẳng định Collision Monitor là publisher duy nhất trên `/cmd_vel` (0 bypass).
        * **T09:** Khóa khách qua cử chỉ giơ tay -> `LOCKED_WAIT_DESTINATION`, Voice gửi `NAVIGATION_STARTED` và Nav2 Action Goal `NavigateToPose`. Nav2 chấp nhận goal, Guard pass vận tốc an toàn.
        * **T23:** Bơm scan vật cản $0.30$ m vào `/tracking/scan_test`. Collision Monitor lập tức đưa `/cmd_vel` về 0.0 m/s dù Guard đang phát lệnh di chuyển, `/odom` xác nhận xe dừng.
-       * **T22:** Kill process `escort_velocity_guard` khi đang di chuyển. Cơ chế `source_timeout` (1.0 s) của Collision Monitor ngắt lệnh `/cmd_vel` về 0.0 m/s, xe dừng hẳn an toàn.
-       * **T33:** Đóng băng `/clock` mô phỏng. Watchdog `ClockType.STEADY_TIME` kẹp 0; khi resume không giật lệnh cũ.
+       * **T22A (Graceful Shutdown - SIGTERM):** [PASS] Signal handler bắt SIGTERM, chủ động xuất 5 bản tin zero Twist trước khi thoát. Thời gian dừng đo được: 1.152s (<=2.5s). Odom cuối: vx=-0.0000 m/s, wz=0.0000 rad/s. Xe dừng bền vững.
+       * **T22B (Crash Without Handler - SIGKILL):** [BLOCKED] Gửi SIGKILL vào PID Guard do launch test tạo khi đang di chuyển (goal active, cmd_vel khác 0, odom moving, scan valid). Hậu kill: /cmd_vel giữ nguyên giá trị cuối (vx=0.2368, wz=-0.1579), xe tiếp tục lăn bánh. Phân tích mã nguồn và disassembly `libcollision_monitor_core.so` xác nhận `nav2_collision_monitor` không có timer trên `cmd_vel_in` (tham số `source_timeout` chỉ áp dụng cho nguồn cảm biến laser scan). Base controller thiếu watchdog dập 0 chủ động khi publisher crash đột ngột. Cần bổ sung watchdog ở `nav2_collision_monitor` hoặc base controller `linorobot2_gazebo`.
+       * **T33 (Tightened Simulation Pause & Steady-Time Watchdog):** [PASS] Pause Gazebo world control: /clock đóng băng (14.530s), Guard chủ động chuyển sang lệnh zero MỚI trong dt=0.559s. Khi resume: cửa sổ 0.3s không có observation/cmd mới xác nhận Guard duy trì kẹp zero (max vx=0.0000 m/s, không giật lệnh đệm cũ). Cấp lại input: xe tiếp tục lăn bánh mượt mà, tuân thủ giới hạn vận tốc tối đa (max vx=0.500 m/s <= 0.50).
        * **T14/T15/T16:** Mất khách qua ngưỡng $0.40$ s (dừng xe) và $1.20$ s (ABORT). Tracking Manager phát `safety_request`, Mock Voice gửi ACK và gọi `cancel_goal_async` trên Nav2. Trong lúc có ACK nhưng chưa có terminal: xe duy trì dừng 0 và session vẫn khóa. Khi Nav2 hoàn tất hủy, Voice gửi Terminal `CANCELED`, session dọn dẹp sạch về `IDLE`.
 
 - **Bằng chứng kỹ thuật Gate 8:**
@@ -374,4 +375,4 @@
   - Đặc tả hợp đồng giao diện chuẩn: [.agent/person_tracking/INTERFACES.md](file:///home/thuytran/ws/src/.agent/person_tracking/INTERFACES.md).
   - Bản yêu cầu tích hợp Voice: [.agent/person_tracking/VOICE_INTEGRATION_REQUEST.md](file:///home/thuytran/ws/src/.agent/person_tracking/VOICE_INTEGRATION_REQUEST.md).
 
-- **Điểm dừng bàn giao:** Hoàn tất nghiệm thu Gate 8. Dừng chính xác trước Phase 9. Sẵn sàng cung cấp prompt bàn giao cho agent Voice.
+- **Điểm dừng bàn giao:** Gate 8 đạt trạng thái **PARTIAL** (10 passed, 0 failed, 1 blocked trên T22B downstream crash watchdog). Dừng chính xác trước Phase 9. Prompt bàn giao Phase 9 được cung cấp ở trạng thái **DRAFT** kèm mô tả rõ blocker để đội ngũ phụ trách downstream/Voice xử lý.
