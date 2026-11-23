@@ -14,7 +14,7 @@
 | **Phase 0** | Khảo sát hiện trạng thực tế & Lập nền tài liệu AI | **PASS** | 20/11/2026 | `.agent/person_tracking/evidence/phase_0/audit_commands.log` |
 | **Phase 1** | Quy tắc, skill, thiết kế & Kế hoạch kiểm thử | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_1/audit_addendum_commands.log` |
 | **Phase 2** | Source adapters, offline dataset & Test infrastructure | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_2/` |
-| **Phase 3** | Multi-person perception, pose & Tracking ID | **NOT_STARTED** | — | — |
+| **Phase 3** | Multi-person perception, pose & Tracking ID | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_3/` |
 | **Phase 4** | Giơ tay, chọn khách gần nhất & Khóa phiên | **NOT_STARTED** | — | — |
 | **Phase 5** | RGB-D, depth & Hình học camera sau | **NOT_STARTED** | — | — |
 | **Phase 6** | Session FSM, timeout & Giao tiếp voice | **NOT_STARTED** | — | — |
@@ -85,13 +85,13 @@
   - MỚI: `src/person_tracking/person_tracking/perception_source_node.py` (ROS 2 perception source node; KHÔNG publish /cmd_vel).
   - MỚI: `src/person_tracking/launch/offline_replay.launch.py` (Khởi chạy pipeline offline, tách biệt khỏi launch cũ).
   - MỚI: `src/person_tracking/fixtures/generate_fixtures.py` và bộ fixture (`synthetic_empty.npz`, `synthetic_person_1.npz`, `synthetic_corrupted_depth.npz`, `synthetic_video.mp4`, `metadata.json`, `sample_fixture_bag/`).
-  - MỚI: `src/person_tracking/test/test_source_adapters.py` (11 unit tests).
+  - MỚI: `src/person_tracking/test/test_source_adapters.py` (15 unit tests (bổ sung sync slop, out-of-order, missing info, TopicSynchronizer)).
   - MỚI: `src/person_tracking/test/test_perception_source_smoke.py` (1 smoke test tích hợp).
   - CẬP NHẬT: `src/person_tracking/setup.py` & `package.xml` (Đăng ký entrypoint `perception_source`, cài đặt `fixtures/*`).
   - CẬP NHẬT TÀI LIỆU: `TEST_PLAN.md` (tách T01A và T01B), `COMMANDS_TRACKING.md` (lệnh build, test, replay và rosbag đã kiểm chứng).
 
 - **Kết quả kiểm thử kỹ thuật (100% PASS):**
-  1. **Unit & Smoke Tests:** 12/12 passed trong 0.69s trên Python 3.12 (ROS 2 Jazzy).
+  1. **Unit & Smoke Tests:** 16/16 passed trong 0.69s trên Python 3.12 (ROS 2 Jazzy).
      - Bằng chứng: [.agent/person_tracking/evidence/phase_2/pytest_results.txt](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_2/pytest_results.txt).
   2. **ROS 2 Launch Smoke Test:** 3/3 kịch bản launch thành công với tần số 15.0 FPS:
      - Kịch bản Synthetic Person: Nhận đủ RGB, Depth 16UC1, CameraInfo, trạng thái `VALID_RGBD`.
@@ -109,3 +109,39 @@
   - `Topic /cmd_vel`: **Publisher count: 0** từ `person_tracking` trong mọi kịch bản.
   - Phân hệ Voice giữ quyền sở hữu duy nhất `NavigateToPose`. Phase 2 chỉ xử lý dữ liệu đầu vào.
   - Build cô lập 100% trong `build_tracking/`, `install_tracking/`, `log_tracking/`, không đè lên build của Voice.
+
+---
+
+### Phase 3 — Multi-person perception, pose & Tracking ID — [PASS]
+- **Ngày/giờ hoàn thành:** 23/11/2026 13:50:00+07:00
+- **Baseline Git Commit:** `23b319b9aaaf2a3255d45f058d58d78557693c31`
+- **Môi trường & Phần cứng:**
+  - Container OS: Ubuntu 24.04 (Noble LTS), Python 3.12.3, ROS 2 Jazzy.
+  - Framework: PyTorch `2.14.1+cu130`, Ultralytics `8.4.185`.
+  - Hardware: NVIDIA RTX A3000 Laptop GPU (6.08 GB VRAM), CUDA active.
+  - Model Checkpoint: `/home/ws/yolo26n-pose.pt` (task: `pose`, 17 keypoints).
+- **Đo lường Hiệu năng Thực tế (Benchmark 640x480):**
+  - **GPU (CUDA:0):** Độ trễ trung bình **5.61 ms/frame** $ightarrow$ Thông lượng **178.3 FPS**.
+  - **CPU (Fallback):** Độ trễ trung bình **23.26 ms/frame** $ightarrow$ Thông lượng **43.0 FPS**.
+  - Bằng chứng: [.agent/person_tracking/evidence/phase_3/benchmark_gpu_cpu.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_3/benchmark_gpu_cpu.log).
+
+- **Phạm vi file đã triển khai (100% trong allowlist):**
+  - MỚI: `src/person_tracking/person_tracking/multi_person_tracker.py` (MultiPersonTracker, PersonDetection, MultiPersonObservation, đo MAD depth, phát hiện mơ hồ IoU > 0.35, cảnh báo sát mép ảnh, vẽ debug overlay).
+  - MỚI: `src/person_tracking/person_tracking/person_detector_node.py` (ROS 2 perception node nhận RGB/Depth/Info, phát `/tracking/observation` và `/tracking/debug_image`, reset tracker khi loop).
+  - MỚI: `src/person_tracking/launch/perception_pipeline.launch.py` (Launch pipeline Source + Detector).
+  - MỚI: `src/person_tracking/test/test_multi_person_tracker.py` (7 tests: init, empty, reset, ambiguity, edge, overlay, benchmark).
+  - MỚI: `src/person_tracking/test/test_person_detector_smoke.py` (1 integration smoke test).
+  - CẬP NHẬT: `src/person_tracking/setup.py` (đăng ký console script `person_detector`).
+  - CẬP NHẬT: [.agent/person_tracking/TEST_PLAN.md](file:///home/thuytran/ws/src/.agent/person_tracking/TEST_PLAN.md) (T06 và T27).
+
+- **Kết quả kiểm thử tự động hóa (100% PASS):**
+  - Toàn bộ **24/24 tests** trong `person_tracking/test/` đều đạt trong 6.32s.
+  - Bằng chứng: [.agent/person_tracking/evidence/phase_3/pytest_results.txt](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_3/pytest_results.txt).
+  - Kiểm thử Launch Pipeline `perception_pipeline.launch.py`: nhận 44 observations, 5 debug images, độ trễ 18.98 ms trên GPU, thoát sạch sẽ.
+  - Bằng chứng: [.agent/person_tracking/evidence/phase_3/launch_smoke_test.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_3/launch_smoke_test.log).
+
+- **Phần còn thiếu / Chờ người dùng nghiệm thu:**
+  - Do workspace hiện chưa có video ghi lại người thật di chuyển (chỉ có video tổng hợp `synthetic_video.mp4`), bài test nghiệm thu hình ảnh người thật cắt ngang (`T06`) được đánh dấu `PARTIAL / CODE_READY` chờ cung cấp video từ người dùng.
+- **Biên giới an toàn & Phân hệ:**
+  - Topic `/cmd_vel`: **Publisher count: 0** trong toàn bộ runtime Phase 3.
+  - Không triển khai logic chọn khách, giơ tay, FSM hay điều khiển vận tốc. Dừng trước Phase 4.

@@ -1,0 +1,16 @@
+============================================================
+STARTING PERCEPTION PIPELINE LAUNCH TEST (Phase 3)
+============================================================
+Results for perception_pipeline.launch.py:
+  Observation messages received: 44
+  Debug Image messages received: 5
+  Last Observation schema_version: 1.0
+  Last Observation device: cuda:0
+  Last Observation processing_time_ms: 18.98 ms
+  Last Observation data_quality: RGB_ONLY
+  Last Observation persons detected: 0
+  Last Debug Image metadata: {'width': 640, 'height': 480, 'encoding': 'bgr8', 'frame_id': 'camera_color_optical_frame'}
+  Topic info /cmd_vel:
+
+  SAFETY AUDIT: PASSED (Zero cmd_vel publishers)
+PERCEPTION PIPELINE TERMINATED CLEANLY.

@@ -1,0 +1,234 @@
+#!/usr/bin/env python3
+"""ROS 2 node that runs multi-person pose estimation and tracking.
+
+Phase 3 Perception Node:
+- Subscribes to RGB, Depth, CameraInfo topics.
+- Synchronizes frames via TopicSynchronizer.
+- Runs MultiPersonTracker (YOLO Pose + ByteTrack).
+- Publishes /tracking/observation (JSON string) and /tracking/debug_image (Image).
+- Listens to /tracking/source_status to reset tracker on loop/source changes.
+- STRICTLY ZERO motion output: Does NOT publish /cmd_vel or call Nav2 actions.
+"""
+
+import json
+import os
+import sys
+import time
+
+from cv_bridge import CvBridge
+import numpy as np
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+from sensor_msgs.msg import CameraInfo, Image
+from std_msgs.msg import String
+
+# Inject .venv_yolo site-packages if available in Dev Container
+_venv_site = '/home/ws/.venv_yolo/lib/python3.12/site-packages'
+if os.path.isdir(_venv_site) and _venv_site not in sys.path:
+    sys.path.insert(0, _venv_site)
+
+from person_tracking.multi_person_tracker import MultiPersonTracker, MultiPersonObservation
+from person_tracking.source_adapters import LiveAstraAdapter, TopicSynchronizer
+
+
+class PersonDetectorNode(Node):
+    """Perception node for multi-person pose extraction and tracking."""
+
+    def __init__(self):
+        super().__init__('person_detector_node')
+
+        # Declare parameters
+        self.declare_parameter('model_path', '/home/ws/yolo26n-pose.pt')
+        self.declare_parameter('device', 'cuda:0')
+        self.declare_parameter('conf_threshold', 0.25)
+        self.declare_parameter('iou_threshold', 0.45)
+        self.declare_parameter('sync_slop_sec', 0.06)
+        self.declare_parameter('publish_debug_image', True)
+        self.declare_parameter('rgb_topic', '/camera/color/image_raw')
+        self.declare_parameter('depth_topic', '/camera/depth/image_raw')
+        self.declare_parameter('info_topic', '/camera/color/camera_info')
+        self.declare_parameter('status_topic', '/tracking/source_status')
+        self.declare_parameter('observation_topic', '/tracking/observation')
+        self.declare_parameter('debug_image_topic', '/tracking/debug_image')
+
+        model_path = str(self.get_parameter('model_path').value)
+        device = str(self.get_parameter('device').value)
+        conf_thresh = float(self.get_parameter('conf_threshold').value)
+        iou_thresh = float(self.get_parameter('iou_threshold').value)
+        sync_slop = float(self.get_parameter('sync_slop_sec').value)
+        self.publish_debug_image = bool(self.get_parameter('publish_debug_image').value)
+
+        # Initialize CV Bridge
+        self.bridge = CvBridge()
+
+        # Initialize Adapter and Synchronizer
+        self.adapter = LiveAstraAdapter(sync_slop_sec=sync_slop, require_hardware_alignment_proof=True)
+        self.synchronizer = TopicSynchronizer(adapter=self.adapter)
+
+        # Initialize MultiPersonTracker
+        try:
+            self.tracker = MultiPersonTracker(
+                model_path=model_path,
+                device=device,
+                conf_threshold=conf_thresh,
+                iou_threshold=iou_thresh,
+            )
+            self.get_logger().info(
+                f"MultiPersonTracker loaded model '{model_path}' on device '{self.tracker.device}'."
+            )
+        except Exception as exc:
+            self.get_logger().error(f"Failed to initialize MultiPersonTracker: {exc}")
+            raise
+
+        # Setup publishers
+        sensor_qos = qos_profile_sensor_data
+        reliable_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
+
+        obs_topic_name = str(self.get_parameter('observation_topic').value)
+        self.obs_pub = self.create_publisher(String, obs_topic_name, reliable_qos)
+
+        if self.publish_debug_image:
+            debug_topic_name = str(self.get_parameter('debug_image_topic').value)
+            self.debug_pub = self.create_publisher(Image, debug_topic_name, sensor_qos)
+        else:
+            self.debug_pub = None
+
+        # Setup subscribers
+        rgb_topic = str(self.get_parameter('rgb_topic').value)
+        depth_topic = str(self.get_parameter('depth_topic').value)
+        info_topic = str(self.get_parameter('info_topic').value)
+        status_topic = str(self.get_parameter('status_topic').value)
+
+        self.sub_rgb = self.create_subscription(Image, rgb_topic, self._on_rgb, sensor_qos)
+        self.sub_depth = self.create_subscription(Image, depth_topic, self._on_depth, sensor_qos)
+        self.sub_info = self.create_subscription(CameraInfo, info_topic, self._on_info, sensor_qos)
+        self.sub_status = self.create_subscription(String, status_topic, self._on_status, reliable_qos)
+
+        self.last_frame_count = 0
+        self.processed_frames = 0
+        self.get_logger().info("PersonDetectorNode initialized and listening for perception streams.")
+
+    def _on_status(self, msg: String):
+        try:
+            status_data = json.loads(msg.data)
+            # Detect loop or source restart when frame_count resets
+            fc = status_data.get('frame_count', 0)
+            if fc < self.last_frame_count:
+                self.get_logger().info("Source loop/reset detected. Resetting ByteTrack tracker state.")
+                self.tracker.reset()
+                self.adapter.reset()
+            self.last_frame_count = fc
+        except Exception:
+            pass
+
+    def _on_info(self, msg: CameraInfo):
+        self.synchronizer.set_camera_info(msg)
+
+    def _on_depth(self, msg: Image):
+        try:
+            depth_np = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+            stamp = (msg.header.stamp.sec, msg.header.stamp.nanosec)
+            self.synchronizer.add_depth(
+                depth_img=depth_np,
+                stamp=stamp,
+                frame_id=msg.header.frame_id,
+                encoding=msg.encoding,
+            )
+        except Exception as exc:
+            self.get_logger().warn(f"Error decoding depth message: {exc}")
+
+    def _on_rgb(self, msg: Image):
+        try:
+            rgb_np = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+        except Exception as exc:
+            self.get_logger().error(f"Error decoding RGB message: {exc}")
+            return
+
+        now_sec = self.get_clock().now().nanoseconds * 1e-9
+        stamp = (msg.header.stamp.sec, msg.header.stamp.nanosec)
+
+        # Synchronize and normalize observation frame
+        obs_frame = self.synchronizer.process_rgb(
+            rgb_img=rgb_np,
+            stamp=stamp,
+            frame_id=msg.header.frame_id,
+            current_time_sec=now_sec,
+        )
+
+        if obs_frame.data_quality == 'STALE':
+            self.get_logger().warn(f"Dropped stale frame: {obs_frame.error_reason}")
+            return
+
+        # Run multi-person detection and tracking
+        try:
+            multi_obs = self.tracker.process_frame(obs_frame)
+            self.processed_frames += 1
+        except Exception as exc:
+            self.get_logger().error(f"Error running tracker inference: {exc}")
+            return
+
+        # Publish observation payload
+        self._publish_observation(multi_obs)
+
+        # Publish debug overlay if enabled
+        if self.publish_debug_image and self.debug_pub is not None:
+            self._publish_debug_image(rgb_np, multi_obs, msg.header)
+
+    def _publish_observation(self, obs: MultiPersonObservation):
+        payload = {
+            "schema_version": "1.0",
+            "stamp": {"sec": obs.stamp_sec, "nanosec": obs.stamp_nanosec},
+            "receive_monotonic": obs.receive_monotonic,
+            "frame_id": obs.frame_id,
+            "source_mode": obs.source_mode,
+            "data_quality": obs.data_quality,
+            "processing_time_ms": obs.processing_time_ms,
+            "device": obs.device,
+            "active_track_ids": obs.active_track_ids,
+            "lost_track_ids": obs.lost_track_ids,
+            "persons": [
+                {
+                    "bbox": p.bbox,
+                    "confidence": p.confidence,
+                    "track_id": p.track_id,
+                    "is_confirmed": p.is_confirmed,
+                    "is_ambiguous": p.is_ambiguous,
+                    "torso_depth_m": p.torso_depth_m,
+                    "depth_valid": p.depth_valid,
+                    "center_offset_x_norm": p.center_offset_x_norm,
+                    "near_edge": p.near_edge,
+                    "keypoints": p.keypoints,
+                }
+                for p in obs.persons
+            ],
+        }
+        msg = String(data=json.dumps(payload))
+        self.obs_pub.publish(msg)
+
+    def _publish_debug_image(self, bgr_img: np.ndarray, obs: MultiPersonObservation, header):
+        try:
+            debug_img = self.tracker.draw_debug_overlay(bgr_img, obs)
+            debug_msg = self.bridge.cv2_to_imgmsg(debug_img, encoding='bgr8')
+            debug_msg.header = header
+            self.debug_pub.publish(debug_msg)
+        except Exception as exc:
+            self.get_logger().warn(f"Error publishing debug image: {exc}")
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    try:
+        node = PersonDetectorNode()
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    except Exception as exc:
+        print(f"Unhandled exception in PersonDetectorNode: {exc}", file=sys.stderr)
+    finally:
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

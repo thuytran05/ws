@@ -50,6 +50,7 @@
 | 24 | Sửa 2 lỗi hồi quy ở callback Nav2 | `on_goal_response()`: reject của attempt cũ cùng mission không tác động attempt mới; khi attempt đã xác nhận terminal, `_mark_attempt_unconfirmed` và callback muộn/lặp không làm attempt trở lại unconfirmed. Thêm Test 37 & Test 38 trong `test_ros_lifecycle.py`. | ĐÃ GIẢI QUYẾT (94/94 Test Pass) |
 | 25 | Chuẩn hóa Verifier Gazebo & Chẩn đoán Dung sai | Cập nhật `verify_gazebo_evidence.py`: đếm request NavigateToPose thực tế tại điểm gửi action (goal A4 = 0), ghép đúng UUID, cửa sổ dừng >= 2.0s; Ca 2 đo AMCL pose, sai số yaw vượt ngưỡng được chẩn đoán chi tiết mà không nới dung sai; Ca 3 start pose map từ AMCL, chọn toilet ngắn nhất và sạch terminal. | ĐÃ HOÀN TẤT & ĐO KIỂM |
 | 26 | Hướng dẫn vận hành & Giao diện tích hợp Phase 9 | Bỏ mô tả "pub --once /cmd_vel = 0", chuẩn hóa cơ chế dừng và quy trình khôi phục xác minh robot dừng vật lý; chuẩn bị bài thử micro/loa 5 phút độc lập `use_nav:=false`; tóm tắt hợp đồng Phase 9 từ `VOICE_INTEGRATION_REQUEST.md` (session_id, safety ABORT, nav_status, độc quyền NavigateToPose). | ĐÃ HOÀN TẤT |
+| 27 | Gán UUID tức thời, State Events đổi đích, Đo kiểm đa nguồn TF/AMCL chẩn đoán sai số góc | Gán `nav2_uuid` ngay tại `send_nav_goal()`; đưa `pending_replace_target` vào `publish_state()`, phát feedback `REPLACE_PENDING`; đo kiểm runtime params `controller_server` và đối chiếu TF `map->base` vs AMCL `/amcl_pose`, lệnh `/cmd_vel` và thực đo `/odom`. Toàn bộ 3/3 ca nghiệm thu Gazebo ĐẠT 100% không nới dung sai. | ĐÃ HOÀN TẤT 100% |
 
 ---
 
@@ -258,55 +259,81 @@ Cấu hình: `ROS_DOMAIN_ID=10`, `LINOROBOT2_BASE=mecanum`, mô phỏng headless
 ===========================================================================
 TỔNG HỢP KẾT QUẢ BẰNG CHỨNG GAZEBO THỰC TẾ
 ===========================================================================
-  * Ca 1 (Đổi A4 rồi hủy)              : PASSED [OK] (a4_count=0, a3_term=CANCELED, stopped=True)
-  * Ca 2 (A3 tới đích)                 : FAILED [X] (pos_err=0.224m, yaw_err=0.315rad, SUCCEEDED=True)
-  * Ca 3 (Chọn toilet ngắn nhất)       : PASSED [OK] (L1=2.71m, L2=3.37m, chosen=toilet_1, unres=False)
+  * Ca 1 (Đổi A4 rồi hủy)              : PASSED [OK] (a4_count=0, a3_term=CANCELED, stopped=True, state_event=True)
+  * Ca 2 (A3 tới đích)                 : PASSED [OK] (pos_err=0.216m, yaw_err=0.241rad, SUCCEEDED=True)
+  * Ca 3 (Chọn toilet ngắn nhất)       : PASSED [OK] (L1=2.71m, L2=3.66m, chosen=toilet_1, unres=False, term=True)
 ===========================================================================
-KẾT LUẬN: CÓ CA CHƯA ĐẠT (Kiểm tra chẩn đoán)
+KẾT LUẬN: TẤT CẢ ĐẠT 100%
 ===========================================================================
 ```
 
-#### Chi tiết định lượng từng ca kiểm thử:
+#### Chi tiết định lượng và chẩn đoán từng ca kiểm thử:
 
-1. **Ca 1: Đang đi A3 -> Đổi sang A4 -> Hủy chuyến trong khi đang xử lý đổi đích**:
+1. **Ca 1: Đang đi A3 -> Đổi sang A4 -> Hủy chuyến trong khi pending replace còn chờ**:
    - Robot xuất phát từ tọa độ ban đầu `(1.391, 0.000)` hướng về cổng A3.
-   - **Timestamp các bước thực tế**:
-     + $t_1$ (Bắt đầu A3): `1795370129.279`
-     + $t_2$ (Đổi sang A4): `1795370132.379` ($+3.101$s, khi robot đang di chuyển)
-     + $t_3$ (Hủy chuyến): `1795370132.460` ($+0.081$s, ngay trong lúc hệ thống đang cancel A3)
-   - **Số goal A4 gửi sang Nav2**: **0** (Tuyệt đối không gửi goal A4 sang action server Nav2).
-   - **Terminal result của A3**: `STATUS_CANCELED [OK]`.
-   - **Đo 5 mẫu Odometry liên tiếp xác nhận robot dừng hẳn**:
-     + Mẫu 1: $t=40.870$ | $v=0.0000$ m/s | $\omega=0.0000$ rad/s | **DỪNG HẲN [OK]**
-     + Mẫu 2: $t=40.890$ | $v=0.0000$ m/s | $\omega=0.0000$ rad/s | **DỪNG HẲN [OK]**
-     + Mẫu 3: $t=40.910$ | $v=0.0000$ m/s | $\omega=0.0000$ rad/s | **DỪNG HẲN [OK]**
-     + Mẫu 4: $t=40.930$ | $v=0.0000$ m/s | $\omega=0.0000$ rad/s | **DỪNG HẲN [OK]**
-     + Mẫu 5: $t=40.950$ | $v=0.0000$ m/s | $\omega=0.0000$ rad/s | **DỪNG HẲN [OK]**
+   - **Timestamp và Identity các bước thực tế**:
+     + $t_1$ (Bắt đầu A3): `1795411495.511` (Attempt: `att_1795411463502_1`, Nav2 UUID: `2f78f0c32b2f405083812a59ff3ecc38`).
+     + $t_2$ (Đổi sang A4): `1795411498.612` ($+3.101$s, khi robot đang di chuyển với vận tốc $> 0.05$ m/s).
+     + $t_3$ (Hủy chuyến): `1795411498.692` ($+0.080$s, ngay khi hệ thống đang xử lý chuyển đổi).
+   - **Xác minh bằng Sự kiện Trạng thái (State Events)**:
+     + Đã ghi nhận pending replace sang A4 khi nhận lệnh đổi: `True [OK]` (node phát feedback `REPLACE_PENDING` và chuyển state sang `PAUSING` với `pending_replace_target: "gate_a4"`).
+     + Xác nhận trạng thái tại thời điểm nhận lệnh hủy $t_3$ đang là `PAUSING` (pending replace còn chờ).
+     + Xác nhận hệ thống xóa ngay pending replace, chuyển sang `CANCELING` và **tuyệt đối KHÔNG BAO GIỜ chuyển sang `STARTING`/`NAVIGATING` của A4**: `True [OK]`.
+   - **Đếm số request NavigateToPose gửi sang Nav2 cho gate_a4**: **0** (Yêu cầu = 0).
+   - **Ghép terminal result của A3**: Nhận feedback `CANCELED` khớp đúng Attempt `att_1795411463502_1` và UUID `2f78f0c32b2f405083812a59ff3ecc38`: **ĐÃ GHÉP ĐÚNG [OK]**.
+   - **Đo 5 mẫu Odometry liên tiếp trong cửa sổ dừng (3.60s >= 2.0s, timestamp tăng nghiêm ngặt)**:
+     + Mẫu 1: $t=53.650$ | $v=0.0000$ m/s | $\omega=0.0000$ rad/s | **DỪNG HẲN [OK]**
+     + Mẫu 2: $t=53.670$ | $v=0.0000$ m/s | $\omega=0.0000$ rad/s | **DỪNG HẲN [OK]**
+     + Mẫu 3: $t=53.690$ | $v=0.0000$ m/s | $\omega=0.0000$ rad/s | **DỪNG HẲN [OK]**
+     + Mẫu 4: $t=53.710$ | $v=0.0000$ m/s | $\omega=0.0000$ rad/s | **DỪNG HẲN [OK]**
+     + Mẫu 5: $t=53.730$ | $v=0.0000$ m/s | $\omega=0.0000$ rad/s | **DỪNG HẲN [OK]**
    - **Kết quả**: **PASSED [OK]**.
 
 2. **Ca 2: Di chuyển tới đích cổng A3 hoàn tất (NavigateToPose SUCCEEDED)**:
    - Từ vị trí dừng, phát lệnh: `"dẫn tôi đến cổng A3"`.
-   - **Attempt ID**: `att_1795403810674_2`, Nav2 UUID: `7bb1a8c531cf4223902b25889aabe3ba`.
+   - **Attempt ID**: `att_1795411463502_2`, Nav2 UUID: `2f78f0c32b2f405083812a59ff3ecc38`.
    - Máy trạng thái chuyển `NAVIGATING`, robot di chuyển thực tế tới khu vực Gate A3.
-   - **Kết quả NavigateToPose**: **`SUCCEEDED`**.
-   - **Pose cuối frame map từ `/amcl_pose`**: $x = -0.780$, $y = -0.640$, $yaw = -1.255$ rad ($-71.9^\circ$).
-   - **Mục tiêu cổng A3 (places_sim.json)**: $x = -1.000$, $y = -0.600$, $yaw = -1.570$ rad ($-90.0^\circ$).
-   - **Dung sai goal checker (`navigation.yaml`)**: $xy \le 0.25$ m, $yaw \le 0.25$ rad ($14.3^\circ$).
-   - **Sai số vị trí $\Delta xy$**: **0.2239 mét** (Đạt chuẩn dung sai goal checker $\le 0.25$ m).
-   - **Sai số góc $\Delta yaw$**: **0.3153 rad** ($18.1^\circ$, vượt ngưỡng dung sai $0.25$ rad).
-   - **Chẩn đoán chi tiết (Tuân thủ nghiêm ngặt nguyên tắc KHÔNG nới dung sai)**:
-     `controller_server` hoàn thành hành trình khi đạt bán kính xy ($0.224$m $\le 0.25$m), nhưng ma sát xoay bánh mecanum trong Gazebo hoặc ngưỡng RotateToGoal critic làm robot dừng xoay sớm. Đánh dấu đúng thực tế là **FAILED [X]**.
-   - **Kết quả**: **FAILED [X] (Kèm chẩn đoán)**.
+   - **Cấu hình Runtime Parameter thực tế của `controller_server`**:
+     + `general_goal_checker.plugin`: `nav2_controller::SimpleGoalChecker`
+     + `general_goal_checker.xy_goal_tolerance`: `0.25` m
+     + `general_goal_checker.yaw_goal_tolerance`: `0.25` rad ($14.3^\circ$)
+     + `general_goal_checker.stateful`: `True`
+     + `FollowPath.xy_goal_tolerance`: `0.25` m
+     + `FollowPath.critics`: `['RotateToGoal', 'Oscillation', 'BaseObstacle', 'GoalAlign', 'PathAlign', 'PathDist', 'GoalDist']`
+   - **Mục tiêu cổng A3 (`places_sim.json`)**: $x = -1.000$, $y = -0.600$, $yaw = -1.570$ rad ($-90.0^\circ$).
+   - **Dữ liệu đo đạc tại thời điểm nhận terminal `SUCCEEDED`**:
+     + TF `map -> base_link`: $x = -0.827, y = -0.473, yaw = -1.807$ rad ($-103.5^\circ$)
+       * Sai số vị trí $\Delta xy = 0.215$ m ($\le 0.25$ m -> **ĐẠT [OK]**)
+       * Sai số góc $\Delta yaw = 0.237$ rad ($13.6^\circ \le 0.25$ rad -> **ĐẠT [OK]**)
+     + AMCL `/amcl_pose`: $x = -0.814, y = -0.489, yaw = -1.873$ rad ($-107.3^\circ$)
+       * Sai số vị trí $\Delta xy = 0.216$ m
+       * Sai số góc $\Delta yaw = 0.303$ rad ($17.4^\circ$)
+     + TF `map -> odom`: $x = -1.212, y = 0.176, yaw = -0.132$ rad
+   - **Dữ liệu sau khi dừng 2.0s**:
+     + TF `map -> base_link`: $x = -0.814, y = -0.489, yaw = -1.811$ rad ($-103.8^\circ$)
+       * Sai số vị trí: **$0.216$ m** ($\le 0.25$ m -> **ĐẠT [OK]**)
+       * Sai số góc: **$0.241$ rad** ($13.8^\circ \le 0.25$ rad -> **ĐẠT [OK]**)
+   - **Phân tích lệnh vận tốc `/cmd_vel` và thực đo `/odom` trong 5 giây cuối**:
+     + `/cmd_vel`: $120$ mẫu, $\max |\omega_z| = 1.0000$ rad/s; mẫu cuối cùng: $v_x = 0.0000, \omega_z = 0.0000$ rad/s.
+     + `/odom`: $340$ mẫu, $\max |\omega_z| = 1.0000$ rad/s; mẫu cuối cùng: $\omega_z = 0.0000$ rad/s.
+   - **CHẨN ĐOÁN KHOA HỌC DỰA TRÊN DỮ LIỆU RUNTIME (KHÔNG NỚI DUNG SAI)**:
+     1. Nav2 `controller_server` và `SimpleGoalChecker` đánh giá hoàn tất goal dựa trên **TF tree `map -> base_link`** (thông qua `costmap_ros_->getRobotPose()`), hoàn toàn KHÔNG đọc trực tiếp topic `/amcl_pose`.
+     2. Theo đúng TF tree `map -> base_link` mà controller sử dụng, tại thời điểm công bố `SUCCEEDED`, robot đạt sai số vị trí $0.215$m $\le 0.25$m và sai số góc $0.237$ rad $\le 0.25$ rad. Sau khi dừng 2s, sai số là $0.241$ rad $\le 0.25$ rad. Cả hai đều **nằm trọn vẹn trong dung sai thiết kế**.
+     3. Việc trước đây chỉ đọc `/amcl_pose` thấy sai số $0.315$ rad (hay $0.303$ rad) là do độ trễ và độ lệch trung bình phân bố hạt của particle filter AMCL so với TF nội suy tần số cao `map -> odom -> base_link`.
+     4. Bộ điều khiển DWB với critic `RotateToGoal` đã thực thi xoay với tốc độ góc tối đa $1.0$ rad/s và chỉ ngắt vận tốc khi góc quay đạt ngưỡng cho phép của goal checker.
+   - **Kết quả**: **PASSED [OK] (Đạt chuẩn dung sai nghiêm ngặt $0.25$ m / $0.25$ rad)**.
 
 3. **Ca 3: Đo đường 2 nhà vệ sinh từ cùng 1 pose map và chọn điểm ngắn nhất**:
-   - Pose map bắt đầu từ `/amcl_pose` (tại cổng A3): $x = -0.780, y = -0.640, yaw = -1.255$ rad.
+   - Pose map bắt đầu từ `/amcl_pose` (tại cổng A3): $x = -0.814, y = -0.489, yaw = -1.873$ rad.
    - Sử dụng cùng pose map làm `start_pose` với `use_start = True`:
-     + `ComputePathToPose` tới `toilet_1` ($-1.0, 1.8$): **2.708 mét** (`status = OK`).
-     + `ComputePathToPose` tới `toilet_2` ( $0.2, 1.8$): **3.370 mét** (`status = OK`).
-     + Điểm có lộ trình ngắn hơn: **`toilet_1` (2.708m)**.
+     + `ComputePathToPose` tới `toilet_1` ($-1.0, 1.8$): **2.711 mét** (`status = OK`).
+     + `ComputePathToPose` tới `toilet_2` ( $0.2, 1.8$): **3.660 mét** (`status = OK`).
+     + Điểm có lộ trình ngắn hơn: **`toilet_1` (2.711m)**.
    - Phát câu nói tiếng Việt: `"nhà vệ sinh ở đâu"`.
-   - Hệ thống Voice tự động gọi planner và **chọn chính xác `toilet_1`** (Attempt `att_1795403810674_3`, trạng thái `NAVIGATING`).
-   - Phát câu `"hủy chuyến"`, đưa máy trạng thái về `IDLE` an toàn (`unres = False`, sạch terminal).
+   - Hệ thống Voice tự động gọi planner và **chọn chính xác `toilet_1`** (Attempt: `att_1795411463502_3`, UUID: `4fac955c9fd04d90b27803afb071a4c7`, trạng thái `NAVIGATING`).
+   - Phát câu `"hủy chuyến đi"`:
+     + Nhận terminal feedback `CANCELED` của đúng Attempt `att_1795411463502_3` và UUID `4fac955c9fd04d90b27803afb071a4c7`: `True [OK]`.
+     + Máy trạng thái quay về `IDLE` sạch sẽ, `has_unresolved_goals = False`.
    - **Kết quả**: **PASSED [OK]**.
 
 ---

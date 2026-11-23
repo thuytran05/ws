@@ -4,12 +4,12 @@ LAUNCH ARGS: ['source_mode:=synthetic_fixture', 'synthetic_case:=person_valid_rg
 ============================================================
 Results for synthetic_fixture_person:
   RGB messages received: 8
-  Depth messages received: 7
-  CameraInfo messages received: 8
-  Status messages received: 8
-  Last Status: {'source_mode': 'synthetic_fixture', 'frame_count': 61, 'fps': 15.0, 'eof': False, 'data_quality': 'VALID_RGBD', 'reason': '', 'stamp': {'sec': 1795403641, 'nanosec': 109030430}, 'timestamp': 1795403641.1115847}
-  Last RGB metadata: {'width': 640, 'height': 480, 'encoding': 'bgr8', 'frame_id': 'camera_color_optical_frame', 'stamp': '1795403641.175761969'}
-  Last Depth metadata: {'width': 640, 'height': 480, 'encoding': '16UC1', 'frame_id': 'camera_color_optical_frame', 'stamp': '1795403641.109030430'}
+  Depth messages received: 9
+  CameraInfo messages received: 11
+  Status messages received: 12
+  Last Status: {'source_mode': 'synthetic_fixture', 'frame_count': 34, 'fps': 15.0, 'eof': False, 'data_quality': 'VALID_RGBD', 'reason': '', 'stamp': {'sec': 1795410769, 'nanosec': 115823085}, 'timestamp': 1795410769.122497}
+  Last RGB metadata: {'width': 640, 'height': 480, 'encoding': 'bgr8', 'frame_id': 'camera_color_optical_frame', 'stamp': '1795410769.182460916'}
+  Last Depth metadata: {'width': 640, 'height': 480, 'encoding': '16UC1', 'frame_id': 'camera_color_optical_frame', 'stamp': '1795410769.115823085'}
   Last Info metadata: {'width': 640, 'height': 480, 'distortion_model': 'simulated_pinhole', 'fx': 554.2562584220408, 'cx': 320.0, 'cy': 240.0}
   Topic info /cmd_vel:
 
@@ -23,10 +23,10 @@ LAUNCH ARGS: ['source_mode:=video_replay', 'fps:=15.0', 'loop:=true']
 Results for video_replay_rgb_only:
   RGB messages received: 8
   Depth messages received: 0
-  CameraInfo messages received: 9
-  Status messages received: 14
-  Last Status: {'source_mode': 'video_replay', 'frame_count': 34, 'fps': 15.0, 'eof': False, 'data_quality': 'RGB_ONLY', 'reason': 'RGB-only video replay; depth sensor absent.', 'stamp': {'sec': 1795403646, 'nanosec': 438364241}, 'timestamp': 1795403646.439904}
-  Last RGB metadata: {'width': 640, 'height': 480, 'encoding': 'bgr8', 'frame_id': 'camera_color_optical_frame', 'stamp': '1795403646.505019043'}
+  CameraInfo messages received: 12
+  Status messages received: 17
+  Last Status: {'source_mode': 'video_replay', 'frame_count': 39, 'fps': 15.0, 'eof': False, 'data_quality': 'RGB_ONLY', 'reason': 'RGB-only video replay; depth sensor absent.', 'stamp': {'sec': 1795410774, 'nanosec': 596314541}, 'timestamp': 1795410774.6003165}
+  Last RGB metadata: {'width': 640, 'height': 480, 'encoding': 'bgr8', 'frame_id': 'camera_color_optical_frame', 'stamp': '1795410774.663052474'}
   Last Depth metadata: {}
   Last Info metadata: {'width': 640, 'height': 480, 'distortion_model': 'simulated_pinhole', 'fx': 554.2562584220408, 'cx': 320.0, 'cy': 240.0}
   Topic info /cmd_vel:
@@ -40,12 +40,12 @@ LAUNCH ARGS: ['source_mode:=synthetic_fixture', 'synthetic_case:=corrupted_depth
 ============================================================
 Results for synthetic_corrupted_depth:
   RGB messages received: 8
-  Depth messages received: 9
-  CameraInfo messages received: 10
-  Status messages received: 11
-  Last Status: {'source_mode': 'synthetic_fixture', 'frame_count': 33, 'fps': 15.0, 'eof': False, 'data_quality': 'INVALID_DEPTH', 'reason': 'Central depth region contains NaN and zero values.', 'stamp': {'sec': 1795403651, 'nanosec': 560237528}, 'timestamp': 1795403651.568417}
-  Last RGB metadata: {'width': 640, 'height': 480, 'encoding': 'bgr8', 'frame_id': 'camera_color_optical_frame', 'stamp': '1795403651.626982586'}
-  Last Depth metadata: {'width': 640, 'height': 480, 'encoding': '16UC1', 'frame_id': 'camera_color_optical_frame', 'stamp': '1795403651.560237528'}
+  Depth messages received: 8
+  CameraInfo messages received: 9
+  Status messages received: 9
+  Last Status: {'source_mode': 'synthetic_fixture', 'frame_count': 72, 'fps': 15.0, 'eof': False, 'data_quality': 'INVALID_DEPTH', 'reason': 'Central depth region contains NaN and zero values.', 'stamp': {'sec': 1795410782, 'nanosec': 243374224}, 'timestamp': 1795410782.2514281}
+  Last RGB metadata: {'width': 640, 'height': 480, 'encoding': 'bgr8', 'frame_id': 'camera_color_optical_frame', 'stamp': '1795410782.310051309'}
+  Last Depth metadata: {'width': 640, 'height': 480, 'encoding': '16UC1', 'frame_id': 'camera_color_optical_frame', 'stamp': '1795410782.243374224'}
   Last Info metadata: {'width': 640, 'height': 480, 'distortion_model': 'simulated_pinhole', 'fx': 554.2562584220408, 'cx': 320.0, 'cy': 240.0}
   Topic info /cmd_vel:
 

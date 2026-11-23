@@ -71,50 +71,6 @@ source /home/ws/install_tracking/setup.bash
 
 ---
 
-## 3. Các Câu lệnh Dự kiến cho Các Phase Sau [PLANNED / NOT YET EXECUTED]
-
-> [!WARNING]
-> Toàn bộ các lệnh dưới đây là kế hoạch kỹ thuật cho các phase triển khai tiếp theo. **Chưa được thực thi trong Phase 1**.
-
-### 3.1. Phase 2: Khởi chạy Perception Offline
-```bash
-# [PLANNED - Phase 2] Chạy node perception với video fixture
-ros2 launch person_tracking tracking.launch.py source_mode:=video_replay video_path:=/path/to/test.mp4
-
-# [PLANNED - Phase 2] Chạy kiểm thử pytest cho bộ đọc dữ liệu
-pytest src/person_tracking/test/test_source_adapters.py -v
-```
-
-### 3.2. Phase 4: Kiểm thử Nhận diện Cử chỉ và Khóa Người Gần nhất
-```bash
-# [PLANNED - Phase 4] Chạy bài kiểm thử tự động nearest person selection
-pytest src/person_tracking/test/test_nearest_selection.py -v --timeout=30
-```
-
-### 3.3. Phase 6: Kiểm thử State Machine và Mock Voice
-```bash
-# [PLANNED - Phase 6] Khởi chạy node FSM Manager kết hợp Mock Voice Owner
-ros2 run person_tracking escort_tracking_manager --ros-args --params-file src/person_tracking/config/person_tracking.yaml &
-ros2 run person_tracking mock_voice_owner &
-
-# [PLANNED - Phase 6] Kiểm tra chuyển trạng thái qua CLI
-ros2 topic echo /tracking/session_state
-```
-
-### 3.4. Phase 7: Kiểm thử Velocity Guard
-```bash
-# [PLANNED - Phase 7] Chạy test an toàn ngắt vận tốc tức thì khi mất khách
-pytest src/person_tracking/test/test_velocity_guard_safety.py -v --timeout=20
-```
-
-### 3.5. Phase 8: Khởi chạy Tích hợp Toàn hệ thống
-```bash
-# [PLANNED - Phase 8] Khởi chạy toàn bộ stack tracking kết hợp Gazebo mô phỏng
-ros2 launch person_tracking escort.launch.py use_sim_time:=true
-```
-
----
-
 ## 3. Quy trình Kiểm thử và Chạy Offline Replay Đã Kiểm chứng (Verified in Phase 2)
 
 ### 3.1. Chạy Bộ Kiểm thử Unit và Smoke Test (Pytest)
@@ -124,7 +80,7 @@ source /opt/ros/jazzy/setup.bash
 source /home/ws/install_tracking/setup.bash
 export ROS_DOMAIN_ID=42
 
-# Chạy toàn bộ 12 test của adapter và source node (100% PASS)
+# Chạy toàn bộ 16 tests của adapter, đồng bộ stamp và source node (100% PASS)
 pytest src/person_tracking/test/ -v
 ```
 
@@ -157,7 +113,7 @@ export ROS_DOMAIN_ID=42
 # Chạy perception source
 ros2 run person_tracking perception_source --ros-args -p source_mode:=synthetic_fixture &
 
-# Ghi dữ liệu mẫu (kết thúc đúng cách bằng SIGINT / Ctrl+C)
+# Ghi dữ liệu mẫu (kết thúc đúng cách bằng SIGINT / Ctrl+C, KHÔNG dùng cờ -d để tự dừng)
 ros2 bag record -o src/person_tracking/fixtures/sample_fixture_bag \
   /camera/color/image_raw \
   /camera/depth/image_raw \
@@ -167,6 +123,41 @@ ros2 bag record -o src/person_tracking/fixtures/sample_fixture_bag \
 # Kiểm tra thông tin bag (metadata và message count)
 ros2 bag info src/person_tracking/fixtures/sample_fixture_bag
 
-# Phát lại rosbag2
+# Phát lại rosbag2 đơn lẻ (lưu ý DDS discovery mất ~200ms đầu đối với QoS Best Effort)
 ros2 bag play src/person_tracking/fixtures/sample_fixture_bag --rate 1.0
+```
+
+---
+
+## 4. Các Câu lệnh Dự kiến cho Các Phase Tiếp Theo [PLANNED / NOT YET EXECUTED]
+
+### 4.1. Phase 3: Multi-person Pose & Tracking ID
+```bash
+# Chạy node multi-person perception với debug image
+ros2 run person_tracking person_detector_tracker --ros-args -p device:=cuda:0
+
+# Kiểm tra output detection topic
+ros2 topic echo /tracking/detected_persons
+```
+
+### 4.2. Phase 4: Nhận diện Cử chỉ và Khóa Người Gần nhất
+```bash
+# Chạy kiểm thử tự động chọn người gần nhất
+pytest src/person_tracking/test/test_nearest_selection.py -v --timeout=30
+```
+
+### 4.3. Phase 6: State Machine và Giao thức Voice
+```bash
+ros2 run person_tracking escort_tracking_manager --ros-args --params-file src/person_tracking/config/person_tracking.yaml &
+ros2 topic echo /tracking/session_state
+```
+
+### 4.4. Phase 7: Velocity Guard & Watchdog
+```bash
+pytest src/person_tracking/test/test_velocity_guard_safety.py -v --timeout=20
+```
+
+### 4.5. Phase 8: Khởi chạy Tích hợp Toàn hệ thống
+```bash
+ros2 launch person_tracking escort.launch.py use_sim_time:=true
 ```

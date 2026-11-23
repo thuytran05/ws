@@ -559,23 +559,42 @@ Khi Nav2 Action Server bị crash, rớt kết nối mạng hoặc không trả 
 > **Nguyên tắc an toàn**: Hệ thống **tuyệt đối không cho phép** bất kỳ câu lệnh thoại nào ép xóa trạng thái chưa xác minh ở `IDLE`. Chỉ người vận hành mới được phép can thiệp bằng quy trình chuẩn dưới đây.
 
 #### Quy trình 4 bước cho Người vận hành:
-1. **Bước 1 — Dừng khẩn cấp thực tế và Xác minh Robot dừng hẳn**:
-   - **Lưu ý kỹ thuật quan trọng**: Tuyệt đối **không dùng** lệnh `ros2 topic pub --once /cmd_vel ...` như một cơ chế dừng khẩn cấp. Trên cấu hình robot Mecanum đang chạy với Nav2, `controller_server` liên tục tính toán và xuất topic `/cmd_vel` theo chu kỳ vòng lặp 10–20 Hz. Một bản tin `--once` sẽ ngay lập tức bị ghi đè bởi chu kỳ tiếp theo của controller nếu goal Nav2 vẫn đang active.
-   - **Cơ chế dừng đã xác minh trên hệ thống**:
-     + *Dừng phần mềm*: Gọi lệnh cancel goal thông qua ActionClient trên action `/navigate_to_pose`, hoặc chuyển lifecycle manager của Nav2 sang trạng thái inactive:
-       ```bash
-       # Hủy goal đang hoạt động qua Nav2 action CLI (nếu action server còn phản hồi):
-       ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "{}" --feedback
-       ```
-     + *Dừng cưỡng bức / Khẩn cấp*: Nhấn công tắc E-stop vật lý trên thân robot nếu ở hiện trường; hoặc trong mô phỏng/terminal, phát lặp liên tục tần số cao (10–20 Hz) lệnh dừng vận tốc:
-       ```bash
-       # Phát lặp liên tục tần số 20 Hz cưỡng bức dừng motor:
-       ros2 topic pub -r 20 /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}"
-       ```
-   - **Xác minh robot dừng hẳn**: Trước khi thực hiện bất kỳ bước khôi phục nào, người vận hành phải kiểm tra vận tốc từ `/odom` để đảm bảo robot đã đứng yên hoàn toàn ($v \le 0.02$ m/s, $\omega \le 0.02$ rad/s):
+1. **Bước 1 — Dừng goal qua đường Voice đã kiểm chứng & Xác minh Robot dừng hẳn**:
+   - **Lưu ý kỹ thuật quan trọng**:
+     + Tuyệt đối **không dùng** lệnh `ros2 topic pub --once /cmd_vel ...` hoặc pub lặp zero vào `/cmd_vel` như một cơ chế dừng khẩn cấp. Trên cấu hình robot Mecanum đang chạy với Nav2, `controller_server` liên tục tính toán và xuất topic `/cmd_vel` theo chu kỳ vòng lặp 10–20 Hz. Một bản tin `--once` sẽ ngay lập tức bị ghi đè bởi chu kỳ tiếp theo của controller nếu goal Nav2 vẫn đang active; còn lệnh pub lặp tần số cao sẽ tranh chấp trực tiếp với controller gây giật xung đột trên motor.
+     + Tuyệt đối **không dùng** lệnh `ros2 action send_goal /navigate_to_pose ... "{}"` vì lệnh đó sẽ gửi một goal rỗng mới tới Nav2 thay vì hủy goal cũ.
+   - **Cơ chế dừng đã kiểm chứng trên hệ thống (Phần mềm / Mô phỏng)**:
+     Sử dụng đường cancel goal chuẩn đã được tích hợp và kiểm chứng của hệ thống Voice:
      ```bash
-     ros2 topic echo /odom --once | grep -E "linear|angular"
+     # Cách 1: Gửi lệnh thoại hủy chuyến qua topic text:
+     ros2 topic pub --once /voice/text std_msgs/msg/String "{data: 'hủy chuyến'}"
+
+     # Hoặc Cách 2: Phát trực tiếp intent hủy chuẩn Schema v1.0:
+     ros2 topic pub --once /voice/intent std_msgs/msg/String \
+       '{"schema_version": "1.0", "request_id": "req_op_cancel", "raw": "hủy chuyến", "intent": "cancel_robot", "action": "cancel"}'
      ```
+     `nav_command_node` sẽ gọi `cancel_goal_async()` lên đúng goal handle đang hoạt động trên Nav2 và chuyển sang trạng thái `CANCELING`.
+   - **Cơ chế dừng trên robot thật (Phần cứng)**:
+     > [!WARNING]
+     > **[CHỜ NGHIỆM THU PHẦN CỨNG]**: Các cơ chế dừng khẩn cấp vật lý trên robot thật (như nút nhấn E-stop cơ học ngắt nguồn motor, công tắc an toàn hoặc phanh điện từ) **chưa được xác minh thực tế** trên phần cứng của cấu hình này. Khi triển khai trên robot thật, phải thực hiện nghiệm thu riêng cho cơ chế E-stop phần cứng trước khi vận hành.
+   - **Xác nhận terminal của đúng goal**:
+     Giám sát topic `/voice/feedback` và `/voice/nav_state`:
+     ```bash
+     # Xác nhận feedback terminal của đúng goal attempt và UUID:
+     ros2 topic echo /voice/feedback
+     ```
+     *Dấu hiệu xác nhận*: Nhận được bản tin `event: "CANCELED"`, `status: "OK"`, đúng `goal_attempt_id` và `nav2_uuid` của chuyến đi đang chạy.
+     ```bash
+     # Xác nhận trạng thái máy nhiệm vụ đã sạch goal:
+     ros2 topic echo /voice/nav_state --once --qos-durability transient_local
+     ```
+     *Dấu hiệu xác nhận*: `mission_state: "IDLE"`, `has_unresolved_goals: false`, `current_target_id: null`.
+   - **Xác nhận robot đã dừng hẳn**:
+     Kiểm tra vận tốc thực tế từ `/odom` trong một cửa sổ dừng liên tục ít nhất 2 giây với timestamp tăng nghiêm ngặt:
+     ```bash
+     ros2 topic echo /odom
+     ```
+     *Dấu hiệu xác nhận*: Cả vận tốc tuyến tính $v = \sqrt{v_x^2 + v_y^2} \le 0.02$ m/s và vận tốc góc $|\omega_z| \le 0.02$ rad/s ở mọi mẫu trong cửa sổ dừng.
 
 2. **Bước 2 — Kiểm tra và Xử lý triệt để Goal cũ trên Nav2**:
    - Kiểm tra xem `bt_navigator` và các action server của Nav2 còn hoạt động hay không:
@@ -601,7 +620,7 @@ Khi Nav2 Action Server bị crash, rớt kết nối mạng hoặc không trả 
    - Khi node khởi động lại, một phiên làm việc mới hoàn toàn được tạo với `_session_start_ms` mới (dựa trên epoch timestamp ms).
    - Máy trạng thái bắt đầu từ `IDLE` sạch, danh sách `_attempts` trống, cờ `_unconfirmed_terminal = False`.
    - > [!IMPORTANT]
-     > **Phạm vi của Restart**: Việc khởi động lại Voice đưa máy trạng thái về `IDLE` **chỉ xác nhận và làm sạch bộ nhớ cục bộ trong phiên của node Voice mới**. Node mới không kế thừa attempt cũ, nhưng người vận hành **bắt buộc phải hoàn thành Bước 1 và Bước 2** để chắc chắn robot vật lý đã dừng và Nav2 không còn goal cũ trước khi ra lệnh dẫn đường mới.
+     > **Phạm vi của Restart**: Việc khởi động lại Voice đưa máy trạng thái về `IDLE` **chỉ làm sạch bộ nhớ cục bộ trong phiên của node Voice mới, tuyệt đối không chứng minh goal cũ trên Nav2 đã dừng**. Node mới không kế thừa attempt cũ, nhưng người vận hành **bắt buộc phải hoàn thành Bước 1 và Bước 2** để chắc chắn robot vật lý đã dừng và Nav2 không còn goal mồ côi trước khi ra lệnh dẫn đường mới.
    - Kiểm tra trạng thái sẵn sàng qua topic:
      ```bash
      ros2 topic echo /voice/nav_state --once --qos-durability transient_local
@@ -787,7 +806,7 @@ Nếu muốn chạy lại bất kỳ lúc nào:
 cd /home/ws
 source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
 
-# 1. Toàn bộ 92 bài test pytest (Cô lập ROS_DOMAIN_ID=42):
+# 1. Toàn bộ 94 bài test pytest (Cô lập ROS_DOMAIN_ID=42):
 export ROS_DOMAIN_ID=42
 python3 -m pytest src/airport_robot_voice/test/test_audio.py src/airport_robot_voice/test/test_nlu.py src/airport_robot_voice/test/test_places.py src/airport_robot_voice/test/test_planner_resolution.py -v
 python3 -m pytest src/airport_robot_voice/test/test_ros_lifecycle.py -v

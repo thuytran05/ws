@@ -17,7 +17,7 @@
 | **T03** | 1 người giơ tay $\ge$ 1.5s | Phase 4 | Video / Replay | Khóa đúng ID; cấp `session_id`; hạ tay vẫn giữ khóa; robot đứng yên. | `phase_4/t03_valid_lock.log` | NOT_STARTED |
 | **T04** | 2 người cùng giơ tay, khác depth | Phase 4 | Synthetic / Bag | Khóa người có depth nhỏ nhất (gần camera nhất); bỏ qua người ở xa. | `phase_4/t04_nearest_depth.log` | NOT_STARTED |
 | **T05** | 2 người giơ tay, thiếu depth, kích thước gần bằng nhau | Phase 4 | Synthetic / Video | Không khóa tùy tiện; báo `AMBIGUOUS_GESTURE`; giữ `IDLE` chờ xác định rõ. | `phase_4/t05_ambiguity_no_depth.log` | NOT_STARTED |
-| **T06** | Người khác cắt ngang người đang khóa | Phase 3 | Video Replay | ByteTrack giữ ID khách; nếu che khuất hoàn toàn thì grace period, không đổi sang ID người cắt ngang. | `phase_3/t06_crossing_occlusion.log` | NOT_STARTED |
+| **T06** | Người khác cắt ngang người đang khóa | Phase 3 | Video Replay | ByteTrack gán track ID riêng; phát hiện mơ hồ (is_ambiguous = True) khi IoU > 0.35. (Chờ video người thật từ user để nghiệm thu hình ảnh). | `phase_3/pytest_results.txt` | **PARTIAL / CODE_READY** |
 | **T07** | Voice gửi đích khi chưa khóa | Phase 6 | Mock Voice | Bị chặn ở giao diện; Voice nhận cờ `locked == false` và từ chối. | `phase_6/t07_gate_no_lock.log` | NOT_STARTED |
 | **T08** | Voice gửi đích sau khi đã khóa | Phase 6 | Mock Voice | Hợp lệ; Nav2 goal được chấp nhận; FSM chuyển sang `NAVIGATING`. | `phase_6/t08_gate_locked_start.log` | NOT_STARTED |
 | **T09** | Khách ở giữa ảnh, cự ly chuẩn (1.5m) | Phase 7 | Fake Obs + Nav2 | Cho phép Nav2 đi đúng tốc độ tính toán (trong giới hạn an toàn). | `phase_7/t09_normal_escort.log` | NOT_STARTED |
@@ -38,7 +38,7 @@
 | **T24** | Chạy kiểm thử trên Gazebo hiện có | Phase 8 | Gazebo + Fake Perception | Robot dừng/quay/lách đúng quy tắc khi nhận tín hiệu quan sát giả lập; không sửa URDF. | `phase_8/t24_gazebo_injected_escort.log` | NOT_STARTED |
 | **T25** | ROS 2 automated tests lặp 50 vòng | Phase 10 | Pytest / Launch Test | 100% pass; không có hiện tượng test bị treo (timeout rõ ràng); tài nguyên ổn định. | `phase_10/t25_stress_reliability.log` | NOT_STARTED |
 | **T26** | Thiếu depth hoặc alignment chưa kiểm chứng | Phase 5 | RGB-only Video | Sử dụng tỷ lệ 2D kèm cờ cảnh báo; cấm điều khiển yaw gắt; từ chối khi mơ hồ. | `phase_5/t26_unverified_alignment.log` | NOT_STARTED |
-| **T27** | ByteTrack giữ ID nhưng vị trí không gian mơ hồ | Phase 3 | Synthetic Crossing | Báo giảm confidence; Guard giảm tốc độ tịnh tiến; không tăng tốc bừa bãi. | `phase_3/t27_bytetrack_ambiguity.log` | NOT_STARTED |
+| **T27** | ByteTrack giữ ID nhưng vị trí không gian mơ hồ | Phase 3 | Synthetic Crossing | Đã triển khai cờ is_ambiguous = True trong MultiPersonTracker khi bbox chồng lấn; truyền dữ liệu chuẩn sang Phase 7 Guard. | `phase_3/pytest_results.txt` | **PASS** |
 | **T28** | Bản tin TRANSIENT_LOCAL cũ khi node mới bật | Phase 6 | Node Restart | So sánh thời gian và sequence; bỏ qua bản tin cũ đã hết hạn (`freshness_ttl`). | `phase_6/t28_latched_msg_filtering.log` | NOT_STARTED |
 | **T29** | Voice ACK cancel nhưng Goal chưa terminal | Phase 6 | Mock Voice In-flight | Guard vẫn giữ dừng 0; FSM chưa đóng phiên cho tới khi nhận xác nhận terminal. | `phase_6/t29_voice_ack_not_terminal.log` | NOT_STARTED |
 | **T30** | Khóa khách mới khi Goal cũ còn unresolved | Phase 6 | Mock Nav Conflict | Manager từ chối giơ tay khóa mới; giữ FSM chờ Goal cũ dọn dẹp xong hoàn toàn. | `phase_6/t30_unresolved_goal_blockade.log` | NOT_STARTED |

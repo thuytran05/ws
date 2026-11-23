@@ -19,6 +19,7 @@ import json
 import math
 import os
 import time
+import uuid
 
 import rclpy
 from rclpy.node import Node
@@ -30,6 +31,7 @@ from std_msgs.msg import String, Bool
 from geometry_msgs.msg import PoseStamped
 from nav2_msgs.action import NavigateToPose, ComputePathToPose
 from action_msgs.msg import GoalStatus
+from unique_identifier_msgs.msg import UUID as MsgUUID
 from ament_index_python.packages import get_package_share_directory
 
 
@@ -535,6 +537,7 @@ class NavCommandNode(Node):
             'last_feedback_time': self._last_feedback_time,
             'unresolved_attempts_count': len(self._unresolved_attempts),
             'has_unresolved_goals': self.has_unresolved_goals(),
+            'pending_replace_target': self._pending_replace_target or self._pending_replace_category,
             'timestamp': time.time()
         }
         self.pub_nav_state.publish(String(data=json.dumps(payload, ensure_ascii=False)))
@@ -928,18 +931,30 @@ class NavCommandNode(Node):
         self._current_goal_attempt_id = attempt_id
         mission_id = self._current_mission_id
         rec = GoalAttemptRecord(attempt_id, mission_id, self._current_target_key, self._current_target_name)
+
+        goal_u = uuid.uuid4()
+        rec.nav2_uuid = goal_u.hex
+        msg_uuid = MsgUUID(uuid=list(goal_u.bytes))
+
         self._attempts[attempt_id] = rec
         self._unresolved_attempts.add(attempt_id)
 
         goal = NavigateToPose.Goal()
         goal.pose = self._current_target_pose
 
-        self.get_logger().info(f'[{attempt_id}] Gửi goal tới Nav2 cho mission {mission_id} ({self._current_target_name})...')
+        self.get_logger().info(f'[{attempt_id}] Gửi goal tới Nav2 cho mission {mission_id} ({self._current_target_name}, uuid={rec.nav2_uuid})...')
         self._start_acceptance_timer(attempt_id)
-        future = self.nav_client.send_goal_async(
-            goal,
-            feedback_callback=lambda f_msg: self.on_nav_feedback(f_msg.feedback, attempt_id)
-        )
+        try:
+            future = self.nav_client.send_goal_async(
+                goal,
+                feedback_callback=lambda f_msg: self.on_nav_feedback(f_msg.feedback, attempt_id),
+                goal_uuid=msg_uuid
+            )
+        except TypeError:
+            future = self.nav_client.send_goal_async(
+                goal,
+                feedback_callback=lambda f_msg: self.on_nav_feedback(f_msg.feedback, attempt_id)
+            )
         self._pending_goal_future = future
         future.add_done_callback(
             lambda fut: self.on_goal_response(fut, attempt_id, mission_id)
@@ -1693,6 +1708,7 @@ class NavCommandNode(Node):
             self.publish_state()
         elif self.state == MissionState.NAVIGATING:
             self.state = MissionState.PAUSING
+            self.publish_feedback('REPLACE_PENDING', 'OK', f'Chờ dừng trước khi đổi sang {valid_key or valid_cat}')
             self.publish_state()
             if self._active_goal_handle:
                 attempt_id = self._current_goal_attempt_id

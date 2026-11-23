@@ -1,0 +1,21 @@
+============================================================
+PHASE 3 BENCHMARK: YOLO Pose + ByteTrack Inference
+============================================================
+Checkpoint: /home/ws/yolo26n-pose.pt
+Torch version: 2.14.1+cu130
+CUDA available: True
+GPU Device: NVIDIA RTX A3000 Laptop GPU | Total VRAM: 6.08 GB
+
+--- GPU (CUDA:0 - NVIDIA RTX A3000) Performance (50 iterations) ---
+  Mean Latency: 5.61 ms
+  Median Latency: 5.59 ms
+  Min Latency: 5.40 ms
+  Max Latency: 5.99 ms
+  Throughput: 178.3 FPS
+
+--- CPU Performance (20 iterations) ---
+  Mean Latency: 23.26 ms
+  Median Latency: 22.49 ms
+  Min Latency: 21.62 ms
+  Max Latency: 32.62 ms
+  Throughput: 43.0 FPS

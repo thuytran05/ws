@@ -319,6 +319,11 @@ class LiveAstraAdapter:
         self.max_capture_age_sec = max_capture_age_sec
         self.sync_slop_sec = sync_slop_sec
         self.require_hardware_alignment_proof = require_hardware_alignment_proof
+        self.last_rgb_stamp: float = -1.0
+
+    def reset(self):
+        """Reset tracker clock tracking (e.g. on new bag or source switch)."""
+        self.last_rgb_stamp = -1.0
 
     def process_messages(
         self,
@@ -332,13 +337,33 @@ class LiveAstraAdapter:
         camera_info: Optional[CameraInfo],
         current_time_sec: float,
     ) -> ObservationFrame:
-        """Process incoming synchronized data into an ObservationFrame."""
+        """Process incoming synchronized data into an ObservationFrame.
+        
+        Guarantees that RGB readiness is decoupled from depth validity:
+        If depth is absent, has excessive stamp difference, dimension/frame_id mismatch,
+        or invalid encoding, valid RGB is STILL retained and passed to downstream pose/track.
+        """
         receive_mono = time.monotonic()
         stamp_sec, stamp_nanosec = rgb_header_stamp
         img_time = stamp_sec + stamp_nanosec * 1e-9
         age = current_time_sec - img_time
 
-        # 1. Stale check
+        # 1. Stale & Out-of-order check on RGB
+        if self.last_rgb_stamp > 0.0 and img_time < self.last_rgb_stamp:
+            return ObservationFrame(
+                rgb=rgb_img,
+                depth=None,
+                depth_raw=None,
+                camera_info=camera_info,
+                stamp_sec=stamp_sec,
+                stamp_nanosec=stamp_nanosec,
+                receive_monotonic=receive_mono,
+                frame_id=rgb_frame_id,
+                source_mode=SourceMode.LIVE_ASTRA.value,
+                data_quality=DataQuality.STALE.value,
+                error_reason=f"Out-of-order frame: stamp {img_time:.4f}s < last stamp {self.last_rgb_stamp:.4f}s.",
+            )
+
         if age > self.max_capture_age_sec or age < -0.05:
             return ObservationFrame(
                 rgb=rgb_img,
@@ -354,16 +379,19 @@ class LiveAstraAdapter:
                 error_reason=f"Image age ({age:.3f}s) outside window [-0.05, {self.max_capture_age_sec}s].",
             )
 
-        # 2. CameraInfo validation
-        if camera_info is None or len(camera_info.k) < 9 or camera_info.k[0] <= 0:
-            quality = DataQuality.DEGRADED_NO_INFO.value
-            reason = "CameraInfo missing or contains invalid intrinsic focal length."
-        else:
-            quality = DataQuality.VALID_RGBD.value
-            reason = ""
+        self.last_rgb_stamp = img_time
 
-        # 3. Depth check (if depth is absent or RGB-only stream)
+        # 2. CameraInfo validation
+        info_missing = (
+            camera_info is None or
+            len(camera_info.k) < 9 or
+            camera_info.k[0] <= 0
+        )
+
+        # 3. Depth check (Decoupled: missing or invalid depth degrades to RGB-only)
         if depth_img is None:
+            quality = DataQuality.DEGRADED_NO_INFO.value if info_missing else DataQuality.RGB_ONLY.value
+            reason = "CameraInfo missing & depth absent; operating in RGB-only mode." if info_missing else "Depth stream absent; operating in RGB-only mode."
             return ObservationFrame(
                 rgb=rgb_img,
                 depth=None,
@@ -374,11 +402,32 @@ class LiveAstraAdapter:
                 receive_monotonic=receive_mono,
                 frame_id=rgb_frame_id,
                 source_mode=SourceMode.LIVE_ASTRA.value,
-                data_quality=DataQuality.RGB_ONLY.value,
-                error_reason="Depth stream absent; operating in RGB-only mode.",
+                data_quality=quality,
+                error_reason=reason,
             )
 
-        # 4. Dimension check
+        # 4. Check Depth timestamp synchronization (sync_slop_sec)
+        if depth_header_stamp is not None:
+            depth_time = depth_header_stamp[0] + depth_header_stamp[1] * 1e-9
+            slop = abs(img_time - depth_time)
+            if slop > self.sync_slop_sec:
+                # Stamp slop exceeded: drop depth, keep valid RGB!
+                quality = DataQuality.DEGRADED_NO_INFO.value if info_missing else DataQuality.RGB_ONLY.value
+                return ObservationFrame(
+                    rgb=rgb_img,
+                    depth=None,
+                    depth_raw=None,
+                    camera_info=camera_info,
+                    stamp_sec=stamp_sec,
+                    stamp_nanosec=stamp_nanosec,
+                    receive_monotonic=receive_mono,
+                    frame_id=rgb_frame_id,
+                    source_mode=SourceMode.LIVE_ASTRA.value,
+                    data_quality=quality,
+                    error_reason=f"Depth stamp slop ({slop:.4f}s) exceeds limit ({self.sync_slop_sec:.4f}s); degraded to RGB-only.",
+                )
+
+        # 5. Dimension check
         if (rgb_img.shape[0], rgb_img.shape[1]) != (depth_img.shape[0], depth_img.shape[1]):
             return ObservationFrame(
                 rgb=rgb_img,
@@ -391,10 +440,10 @@ class LiveAstraAdapter:
                 frame_id=rgb_frame_id,
                 source_mode=SourceMode.LIVE_ASTRA.value,
                 data_quality=DataQuality.DIMENSION_MISMATCH.value,
-                error_reason=f"RGB shape {rgb_img.shape[:2]} != Depth shape {depth_img.shape[:2]}.",
+                error_reason=f"RGB shape {rgb_img.shape[:2]} != Depth shape {depth_img.shape[:2]}; degraded to RGB-only.",
             )
 
-        # 5. Frame ID check
+        # 6. Frame ID check
         if depth_frame_id != rgb_frame_id:
             return ObservationFrame(
                 rgb=rgb_img,
@@ -407,10 +456,10 @@ class LiveAstraAdapter:
                 frame_id=rgb_frame_id,
                 source_mode=SourceMode.LIVE_ASTRA.value,
                 data_quality=DataQuality.FRAME_ID_MISMATCH.value,
-                error_reason=f"RGB frame '{rgb_frame_id}' != Depth frame '{depth_frame_id}'.",
+                error_reason=f"RGB frame '{rgb_frame_id}' != Depth frame '{depth_frame_id}'; degraded to RGB-only.",
             )
 
-        # 6. Unpack depth to meters
+        # 7. Unpack depth to meters
         depth_raw = None
         if depth_encoding == "16UC1":
             depth_raw = depth_img.copy()
@@ -430,14 +479,19 @@ class LiveAstraAdapter:
                 frame_id=rgb_frame_id,
                 source_mode=SourceMode.LIVE_ASTRA.value,
                 data_quality=DataQuality.INVALID_DEPTH.value,
-                error_reason=f"Unsupported depth encoding: {depth_encoding}.",
+                error_reason=f"Unsupported depth encoding: {depth_encoding}; degraded to RGB-only.",
             )
 
-        # 7. Alignment verification policy (D03 / Phase 0 Audit Addendum)
-        # Matching frame_id does not prove hardware registration succeeded!
-        if self.require_hardware_alignment_proof and quality == DataQuality.VALID_RGBD.value:
+        # 8. Alignment verification policy (D03 / Phase 0 Audit Addendum)
+        if self.require_hardware_alignment_proof:
             quality = DataQuality.UNVERIFIED_ALIGNMENT.value
             reason = "Depth is present and frame IDs match, but hardware registration is pending field verification."
+        elif info_missing:
+            quality = DataQuality.DEGRADED_NO_INFO.value
+            reason = "CameraInfo missing or contains invalid intrinsic focal length."
+        else:
+            quality = DataQuality.VALID_RGBD.value
+            reason = ""
 
         return ObservationFrame(
             rgb=rgb_img,
@@ -451,4 +505,76 @@ class LiveAstraAdapter:
             source_mode=SourceMode.LIVE_ASTRA.value,
             data_quality=quality,
             error_reason=reason,
+        )
+
+
+class TopicSynchronizer:
+    """Buffers Depth and CameraInfo messages and syncs with incoming RGB frames."""
+
+    def __init__(self, adapter: LiveAstraAdapter, max_depth_buffer: int = 30):
+        self.adapter = adapter
+        self.depth_buffer = []  # List of tuples: (t_depth, stamp_tuple, depth_img, frame_id, encoding)
+        self.max_depth_buffer = max_depth_buffer
+        self.last_camera_info: Optional[CameraInfo] = None
+
+    def add_depth(
+        self,
+        depth_img: np.ndarray,
+        stamp: Tuple[int, int],
+        frame_id: str,
+        encoding: str = "16UC1",
+    ):
+        t_depth = stamp[0] + stamp[1] * 1e-9
+        self.depth_buffer.append((t_depth, stamp, depth_img, frame_id, encoding))
+        if len(self.depth_buffer) > self.max_depth_buffer:
+            self.depth_buffer.pop(0)
+
+    def set_camera_info(self, info: CameraInfo):
+        self.last_camera_info = info
+
+    def process_rgb(
+        self,
+        rgb_img: np.ndarray,
+        stamp: Tuple[int, int],
+        frame_id: str,
+        current_time_sec: float,
+    ) -> ObservationFrame:
+        """Match RGB frame with nearest buffered depth and produce ObservationFrame."""
+        t_rgb = stamp[0] + stamp[1] * 1e-9
+
+        best_depth = None
+        best_stamp = None
+        best_fid = None
+        best_enc = None
+        best_diff = float("inf")
+
+        for t_d, d_stamp, d_img, d_fid, d_enc in self.depth_buffer:
+            diff = abs(t_rgb - t_d)
+            if diff < best_diff:
+                best_diff = diff
+                best_depth = d_img
+                best_stamp = d_stamp
+                best_fid = d_fid
+                best_enc = d_enc
+
+        # Clean old depth frames older than t_rgb - 1.0s
+        self.depth_buffer = [d for d in self.depth_buffer if d[0] >= t_rgb - 1.0]
+
+        # Only pass depth if difference is within sync_slop_sec
+        if best_diff > self.adapter.sync_slop_sec:
+            best_depth = None
+            best_stamp = None
+            best_fid = None
+            best_enc = None
+
+        return self.adapter.process_messages(
+            rgb_img=rgb_img,
+            rgb_header_stamp=stamp,
+            rgb_frame_id=frame_id,
+            depth_img=best_depth,
+            depth_header_stamp=best_stamp,
+            depth_frame_id=best_fid,
+            depth_encoding=best_enc,
+            camera_info=self.last_camera_info,
+            current_time_sec=current_time_sec,
         )
