@@ -19,6 +19,7 @@ Safety Principles & Architecture:
 """
 
 import json
+import signal
 import sys
 import time
 
@@ -156,14 +157,39 @@ class VelocityGuardNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
+    node = None
     try:
         node = VelocityGuardNode()
+
+        def _sig_handler(sig, frame):
+            if node is not None:
+                try:
+                    zero_msg = Twist()
+                    for _ in range(5):
+                        node.pub_cmd_guarded.publish(zero_msg)
+                        time.sleep(0.01)
+                except Exception:
+                    pass
+            sys.exit(0)
+
+        signal.signal(signal.SIGTERM, _sig_handler)
+        signal.signal(signal.SIGINT, _sig_handler)
+
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, SystemExit):
         pass
     except Exception as exc:
         print(f"Unhandled exception in VelocityGuardNode: {exc}", file=sys.stderr)
     finally:
+        if node is not None:
+            try:
+                zero_msg = Twist()
+                for _ in range(5):
+                    node.pub_cmd_guarded.publish(zero_msg)
+                    time.sleep(0.01)
+            except Exception:
+                pass
+            node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
 

@@ -21,16 +21,20 @@
 
 Chạy thực nghiệm trên `gazebo_escort_integration.launch.py` với Gazebo headless (`gz sim 8.15.0`) + Nav2 stack thật (`dwb_core`, `costmap_2d`, `bt_navigator`) + `nav2_collision_monitor` + `escort_velocity_guard` + `escort_tracking_manager` trên `ROS_DOMAIN_ID=43`:
 
-| Test ID | Nội Dung Kịch Bản | Kết Quả Quan Sát Thực Tế | Trạng Thái |
+| Test ID | Kịch Bản & Trọng Tâm Đo Đạc | Kết Quả Đo Thực Tế Từ ROS Graph | Trạng Thái |
 | :--- | :--- | :--- | :--- |
-| **Audit** | Topic Chain & Sole Publisher | Chuỗi: Nav2 Controller -> `/cmd_vel_smoothed` -> Guard -> `/tracking/cmd_vel_guarded` -> Collision Monitor -> `/cmd_vel` -> Gazebo bridge (`ros_gz_bridge` chỉ subscribe `]`). Xác nhận Collision Monitor là publisher DUY NHẤT trên `/cmd_vel`. Strictly ZERO `/cmd_vel` publishers trong package `person_tracking`. | **PASS** |
-| **T09** | Normal Escort Pass-Through | Giơ tay khóa khách thành công (`session_id`), Voice gửi `NAVIGATION_STARTED`, gửi Goal thật sang Nav2 `NavigateToPose`. Nav2 Action Goal Accepted! Guard pass vận tốc và xe tiến hành dẫn đường an toàn. | **PASS** |
-| **T23** | Real Collision Monitor Priority Stop | Khi robot đang di chuyển, bơm vật cản cự ly $0.30$ m vào topic test cô lập `/tracking/scan_test` (nằm trong `PolygonStop` circle bán kính $0.45$ m). Collision Monitor lập tức ép `/cmd_vel` về 0.0 m/s dù Guard đang phát lệnh di chuyển, `/odom` xác nhận xe dừng. | **PASS** |
-| **T22** | Guard Process Termination Watchdog | Kill process `escort_velocity_guard` khi xe đang chạy. Collision Monitor kích hoạt cơ chế an toàn cấp dưới `source_timeout` (1.0 s) ngắt toàn bộ vận tốc trên `/cmd_vel` về 0.0 m/s, robot dừng hẳn bền vững. | **PASS** |
-| **T33** | Clock Pause Monotonic Watchdog | Watchdog của Guard chạy trên `ClockType.STEADY_TIME`. Khi `/clock` mô phỏng bị đóng băng/pause, watchdog đơn điệu vẫn tính tuổi bản tin (0.20s/1.0s) và kẹp 0. Khi resume `/clock`, xe không bị giật bởi lệnh cũ. | **PASS** |
-| **T14/T15/T16** | Mất Quan Sát & Bắt Tay Mock Voice | Ngắt luồng quan sát: Mất $< 0.40$ s (grace period) -> xe tiếp tục; Mất $> 1.20$ s -> TrackingManager vào `ABORTING`, Guard kẹp 0, phát `/tracking/safety_request` (ABORT). Mock Voice nhận yêu cầu, gửi ACK `CANCEL_ACKNOWLEDGED`, gọi `cancel_goal_async` trên Nav2. Trong lúc có ACK nhưng chưa có terminal: xe duy trì dừng 0 và session vẫn khóa. Khi Nav2 hoàn tất hủy, Voice gửi Terminal `CANCELED`, session dọn dẹp sạch về `IDLE`. | **PASS** |
+| **Audit** | Topic Chain & Sole Publisher | Sole publisher trên `/cmd_vel` là `collision_monitor` (1 pub), `ros_gz_bridge` subscribed, 0 publisher từ Guard. `/tracking/cmd_vel_guarded` có sole pub là `escort_velocity_guard`. | **PASS** |
+| **Locking** | Khóa khách cử chỉ giơ tay | Nhận diện khách, tích lũy cử chỉ giơ tay -> `locked=True`, `session_id=f24274d0-17c0-43cd-b84f-f3748b8ddc35`, trạng thái `LOCKED_WAIT_DESTINATION`. | **PASS** |
+| **T09** | Escort Velocity & Physical Movement | Voice phát `NAVIGATION_STARTED`, gửi Nav2 Goal. Đo thực tế: `Guard max vx=0.500 m/s (>0.05)`, `/cmd_vel max vx=0.500 m/s (>0.05)`, `Odom max vx=0.122 m/s (>0.02)`, `delta_x=0.100 m (>0.10m)`. | **PASS** |
+| **T23** | Real Collision Monitor Priority Stop | Bơm vật cản 0.25 m vào `/tracking/scan_test` trong vùng `PolygonStop` (bán kính 0.30 m). Đo thực tế: `Guard output=0.500 m/s (>0.05)`, `/cmd_vel clamped to=0.0000 m/s (<1e-3)`, `odom vx=0.0041 m/s (<0.05)`. | **PASS** |
+| **T14** | Brief Observation Loss Grace | Ngắt quan sát 0.18 s (< 0.25 s grace). Đo thực tế: FSM duy trì `NAVIGATING=True`, `Guard vx maintained=0.500 m/s (>0.05)`. | **PASS** |
+| **T33** | Clock Pause Monotonic Watchdog | Pause world control Gazebo. Đo thực tế: `Clock frozen=True`, `Guard during pause=0.0000 m/s (<1e-3)`. Khi resume: `Clock resumed=True`, `Max vx after resume=0.500 m/s (<=0.50)`, không giật lệnh cũ. | **PASS** |
+| **T15** | Prolonged Loss Lifecycle & Voice Handshake | Ngắt quan sát > 1.20 s. Đo thực tế: FSM vào `ABORTING=True`, `Guard zeroed=True`, `safety_request` gửi sang Voice. Voice gửi `ACK`, gọi `cancel_goal_async` (`Nav2 goal canceled=True`), gửi Terminal `CANCELED`, FSM dọn về `IDLE=True`. | **PASS** |
+| **T16** | Unresponsive Voice Watchdog FAULT | Voice không phản hồi khi ngắt quan sát. Đo thực tế: `Safety requests sent=4 (>=2)`, Guard duy trì kẹp `0.0 m/s=True`, FSM chuyển sang `FAULT=True`. | **PASS** |
+| **SUCCEEDED** | Nav2 Real Waypoint Completion | Xe di chuyển đến đích thực tế. Đo thực tế: `Nav2 action reached STATUS_SUCCEEDED=True`, Voice gửi terminal SUCCEEDED, `FSM IDLE reached=True`. | **PASS** |
+| **T22** | Guard Termination Base Watchdog | Gửi `SIGTERM` tới process PID của `escort_velocity_guard` khi xe đang chạy. Đo thực tế: `Measured stop delay=0.401s (<=2.5s)`. Collision Monitor `source_timeout` (1.0s) cắt hoàn toàn `/cmd_vel` về 0, xe dừng hẳn. | **PASS** |
 
----
+**Tổng kết:** TOTAL=10 | PASSED=10 | FAILED=0 | BLOCKED=0 | EXIT CODE=0
 
 ## 3. Danh Mục File Bằng Chứng
 

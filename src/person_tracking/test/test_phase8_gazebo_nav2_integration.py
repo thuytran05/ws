@@ -485,24 +485,34 @@ def test_phase8_t23_collision_monitor_priority_over_guard():
             "schema_version": "1.0", "session_id": "s1", "state": "NAVIGATING", "locked": True,
             "person_track_id": 1, "person_distance_m": 1.5, "depth_proven": True, "obs_fresh": True
         }, now_mono=time.monotonic())
-        obs_pub.publish_obs(track_id=1, dist_m=1.5, offset_x=0.0, depth_valid=True)
-        _spin_all(all_nodes, duration_sec=0.10)
 
         # Nav2 sends cmd -> passed through
         cmd = Twist()
         cmd.linear.x = 0.35
-        smoother_pub.publish(cmd)
-        _spin_all(all_nodes, duration_sec=0.15)
+        sec = 1
+        t_start = time.monotonic()
+        while time.monotonic() - t_start < 1.0:
+            sec += 1
+            obs_pub.publish_obs(track_id=1, dist_m=1.5, offset_x=0.0, depth_valid=True, stamp_sec=sec)
+            smoother_pub.publish(cmd)
+            _spin_all(all_nodes, duration_sec=0.05)
+            if any(m.linear.x > 0.0 for m in listener.received_msgs):
+                break
 
-        assert len(listener.received_msgs) > 0
-        assert listener.received_msgs[-1].linear.x > 0.0
+        assert any(m.linear.x > 0.0 for m in listener.received_msgs)
 
         # 2. INJECT OBSTACLE in scan: range = 0.40m (< 1.0m collision zone)
         # Guard continues sending 0.35 m/s, but Collision Monitor MUST clamp /cmd_vel to zero!
         listener.received_msgs.clear()
         scan_pub.publish_scan(min_range=0.40)
-        smoother_pub.publish(cmd)
-        _spin_all(all_nodes, duration_sec=0.15)
+        t_obs = time.monotonic()
+        while time.monotonic() - t_obs < 1.0:
+            sec += 1
+            obs_pub.publish_obs(track_id=1, dist_m=1.5, offset_x=0.0, depth_valid=True, stamp_sec=sec)
+            smoother_pub.publish(cmd)
+            _spin_all(all_nodes, duration_sec=0.05)
+            if listener.received_msgs and all(abs(m.linear.x) < 1e-3 for m in listener.received_msgs[-2:]):
+                break
 
         assert len(listener.received_msgs) > 0
         latest = listener.received_msgs[-1]

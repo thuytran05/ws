@@ -13,6 +13,8 @@ data_files = [
     ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
     ('share/' + package_name + '/config', glob('config/*.yaml')),
     ('share/' + package_name + '/fixtures', fixture_files),
+    ('share/' + package_name + '/urdf/robots', glob('urdf/robots/*.xacro')),
+    ('share/' + package_name + '/urdf/controllers', glob('urdf/controllers/*.xacro')),
 ]
 if sample_bag_files:
     data_files.append(('share/' + package_name + '/fixtures/sample_fixture_bag', sample_bag_files))

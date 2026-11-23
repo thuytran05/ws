@@ -345,8 +345,8 @@
 ---
 
 ### Phase 8 — End-to-end ROS 2 integration (không sửa Gazebo) — [PASS]
-- **Ngày/giờ hoàn thành:** 23/11/2026 19:30:00+07:00
-- **Baseline Git Commit:** `53eed7e10795cab5dc8d62f654e1a65f73d5cad7`
+- **Ngày/giờ hoàn thành:** 23/11/2026 22:35:00+07:00
+- **Baseline Git Commit:** `179e38fa403199497518ccc641354f0089ae01e3`
 - **Mục tiêu đạt được:** Nghiệm thu toàn diện Gate 8 trên ROS 2 Jazzy + Gazebo thật + Nav2 thật + Mock Voice, sửa triệt để các điều khoản hợp đồng liên phân hệ từ phía tracking (Section A), và chốt hợp đồng sẵn sàng bàn giao Phase 9 cho agent Voice (Section C).
 
 - **Các nội dung kỹ thuật đã hoàn thành:**

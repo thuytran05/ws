@@ -1,9 +1,11 @@
 # Topic Graph & /cmd_vel Publisher Introspection Audit
 Topic: /cmd_vel
-Publishers (0):
+Publishers (1):
+  - Node: //collision_monitor, Type: geometry_msgs/msg/Twist
 Subscribers (2):
-  - Node: _NODE_NAMESPACE_UNKNOWN_/_NODE_NAME_UNKNOWN_, Type: geometry_msgs/msg/Twist
+  - Node: //ros_gz_bridge, Type: geometry_msgs/msg/Twist
   - Node: //gate8_real_gazebo_test_driver, Type: geometry_msgs/msg/Twist
 
 Topic: /tracking/cmd_vel_guarded
-Publishers (0):
+Publishers (1):
+  - Node: //escort_velocity_guard, Type: geometry_msgs/msg/Twist

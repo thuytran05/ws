@@ -2,6 +2,7 @@
 # Copyright (c) 2026 Airport Robot Escort Project
 # Gate 8 Real Gazebo + Nav2 Integration Test Driver
 # Tests T09, T10, T11, T12, T14, T15, T16, T22, T23, T33 on Real ROS 2 Jazzy Graph
+# Strict Acceptance Harness: No artificial PASS, real measurements, non-zero exit on failure.
 
 import json
 import math
@@ -9,15 +10,19 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from typing import Dict, List, Optional, Tuple
+import uuid
 
 import rclpy
 from rclpy.action import ActionClient
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from geometry_msgs.msg import Twist, PoseStamped, PoseWithCovarianceStamped
+from geometry_msgs.msg import Twist, PoseWithCovarianceStamped
 from nav_msgs.msg import Odometry
+from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
 from nav2_msgs.action import NavigateToPose
@@ -25,21 +30,32 @@ from action_msgs.msg import GoalStatus
 
 
 class RealGazeboTestDriver(Node):
+    """ROS 2 Node driving and verifying real Gazebo + Nav2 integration."""
+
     def __init__(self):
-        super().__init__('gate8_real_gazebo_test_driver')
+        super().__init__(
+            'gate8_real_gazebo_test_driver',
+            parameter_overrides=[
+                rclpy.parameter.Parameter('use_sim_time', rclpy.Parameter.Type.BOOL, True)
+            ]
+        )
         transient_qos = QoSProfile(
             depth=1,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
             reliability=ReliabilityPolicy.RELIABLE,
         )
-        reliable_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
+        reliable_qos = QoSProfile(
+            depth=10,
+            reliability=ReliabilityPolicy.RELIABLE,
+        )
 
         # Publishers
         self.pub_obs = self.create_publisher(String, '/tracking/observation', reliable_qos)
+        # CRITICAL: /voice/nav_status subscriber in tracking_manager requires TRANSIENT_LOCAL!
         self.pub_voice_status = self.create_publisher(String, '/voice/nav_status', transient_qos)
         self.pub_voice_state = self.create_publisher(String, '/voice/nav_state', transient_qos)
-        self.pub_test_scan = self.create_publisher(LaserScan, '/tracking/scan_test', reliable_qos)
         self.pub_initial_pose = self.create_publisher(PoseWithCovarianceStamped, '/initialpose', 10)
+        self.pub_test_scan = self.create_publisher(LaserScan, '/tracking/scan_test', 10)
 
         # Subscribers
         self.sub_odom = self.create_subscription(Odometry, '/odom', self._on_odom, 10)
@@ -47,35 +63,143 @@ class RealGazeboTestDriver(Node):
         self.sub_guarded_cmd = self.create_subscription(Twist, '/tracking/cmd_vel_guarded', self._on_guarded_cmd, 10)
         self.sub_session = self.create_subscription(String, '/tracking/session_state', self._on_session_state, transient_qos)
         self.sub_safety = self.create_subscription(String, '/tracking/safety_request', self._on_safety_request, reliable_qos)
+        self.sub_clock = self.create_subscription(Clock, '/clock', self._on_clock, 10)
+        self.sub_amcl = self.create_subscription(PoseWithCovarianceStamped, '/amcl_pose', self._on_amcl_pose, transient_qos)
 
-        # Action Client for Nav2
+        # Action Client for Nav2 NavigateToPose
         self.nav_action_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
 
         # Internal state & timestamps
-        self.obs_clock_sec = 10.0
+        self.latest_clock: Optional[Clock] = None
         self.latest_odom: Optional[Odometry] = None
         self.odom_history: List[Tuple[float, float, float, float]] = []
         self.latest_cmd_vel: Optional[Twist] = None
-        self.cmd_vel_history: List[Tuple[float, float, float, float]] = []
+        self.cmd_history: List[Tuple[float, float, float, float]] = []
         self.latest_guarded_cmd: Optional[Twist] = None
         self.guarded_history: List[Tuple[float, float, float, float]] = []
         self.latest_session: Optional[dict] = None
         self.safety_requests: List[dict] = []
+        self.latest_amcl_pose: Optional[PoseWithCovarianceStamped] = None
 
         self.current_goal_handle = None
+
+        # Continuous Observation Stream (20 Hz) mirroring camera node
+        self._obs_enabled = True
+        self._obs_track_id = 1
+        self._obs_dist_m = 1.6
+        self._obs_hand_raised = True
+        self._obs_source_session_id = "src-gazebo-01"
+        self._last_obs_stamp: Tuple[int, int] = (0, 0)
+        self.obs_timer = self.create_timer(0.05, self._obs_timer_callback)
+
+        # Continuous Background Scan Stream for Collision Monitor
+        num_readings = 361
+        self.default_scan_ranges = [10.0] * num_readings
+        self.active_scan_ranges = list(self.default_scan_ranges)
+        self.scan_timer = self.create_timer(0.05, self._publish_scan_loop)
+
+    def set_observation_state(
+        self,
+        track_id: Optional[int] = None,
+        dist_m: Optional[float] = None,
+        hand_raised: Optional[bool] = None,
+        source_session_id: Optional[str] = None,
+    ):
+        if track_id is not None:
+            self._obs_track_id = track_id
+        if dist_m is not None:
+            self._obs_dist_m = dist_m
+        if hand_raised is not None:
+            self._obs_hand_raised = hand_raised
+        if source_session_id is not None:
+            self._obs_source_session_id = source_session_id
+
+    def set_observation_enabled(self, enabled: bool):
+        self._obs_enabled = enabled
+
+    def _obs_timer_callback(self):
+        if not self._obs_enabled:
+            return
+        now = self.get_clock().now()
+        sec = now.to_msg().sec
+        nanosec = now.to_msg().nanosec
+        if (sec, nanosec) <= self._last_obs_stamp:
+            sec, nanosec = self._last_obs_stamp
+            nanosec += 33_333_333  # Advance by ~33ms (30 Hz rate)
+            if nanosec >= 1_000_000_000:
+                sec += 1
+                nanosec -= 1_000_000_000
+        self._last_obs_stamp = (sec, nanosec)
+        now_mono = time.monotonic()
+
+        cand = {
+            "track_id": self._obs_track_id,
+            "is_confirmed": True,
+            "is_ambiguous": False,
+            "confidence": 0.95,
+            "bbox_xyxy": [220.0, 100.0, 420.0, 400.0],
+            "torso_depth_m": self._obs_dist_m,
+            "depth_valid": True,
+            "center_offset_x_norm": 0.0,
+            "near_edge": False,
+            "keypoints": [[320.0, 200.0, 0.9]] * 17,
+        }
+        cand["keypoints"][5] = [300.0, 180.0, 0.9]  # Left shoulder
+        if self._obs_hand_raised:
+            cand["keypoints"][9] = [300.0, 120.0, 0.95]  # Left wrist raised above shoulder
+        else:
+            cand["keypoints"][9] = [300.0, 250.0, 0.95]  # Left wrist lowered
+
+        obs = {
+            "schema_version": "1.0",
+            "stamp": {"sec": sec, "nanosec": nanosec},
+            "frame_id": "camera_color_optical_frame",
+            "receive_monotonic_time": now_mono,
+            "source_mode": "live_astra",
+            "source_session_id": self._obs_source_session_id,
+            "data_quality": "VALID_RGBD",
+            "processing_time_ms": 5.0,
+            "device": "cuda:0",
+            "active_track_ids": [self._obs_track_id],
+            "lost_track_ids": [],
+            "candidates": [cand],
+        }
+        self.pub_obs.publish(String(data=json.dumps(obs)))
+
+    def _on_amcl_pose(self, msg: PoseWithCovarianceStamped):
+        self.latest_amcl_pose = msg
+
+    def get_current_map_pose(self) -> Tuple[float, float, float]:
+        if self.latest_amcl_pose:
+            p = self.latest_amcl_pose.pose.pose.position
+            q = self.latest_amcl_pose.pose.pose.orientation
+            siny_cosp = 2 * (q.w * q.z + q.x * q.y)
+            cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
+            yaw = math.atan2(siny_cosp, cosy_cosp)
+            return p.x, p.y, yaw
+        if self.latest_odom:
+            ox = self.latest_odom.pose.pose.position.x
+            oy = self.latest_odom.pose.pose.position.y
+            return -1.0 + ox, -0.5 + oy, 0.0
+        return -1.0, -0.5, 0.0
+
+    def _on_clock(self, msg: Clock):
+        self.latest_clock = msg
 
     def _on_odom(self, msg: Odometry):
         self.latest_odom = msg
         t = time.monotonic()
-        vx = msg.twist.twist.linear.x
-        vy = msg.twist.twist.linear.y
-        wz = msg.twist.twist.angular.z
-        self.odom_history.append((t, vx, vy, wz))
+        self.odom_history.append((
+            t,
+            msg.twist.twist.linear.x,
+            msg.twist.twist.linear.y,
+            msg.twist.twist.angular.z
+        ))
 
     def _on_cmd_vel(self, msg: Twist):
         self.latest_cmd_vel = msg
         t = time.monotonic()
-        self.cmd_vel_history.append((t, msg.linear.x, msg.linear.y, msg.angular.z))
+        self.cmd_history.append((t, msg.linear.x, msg.linear.y, msg.angular.z))
 
     def _on_guarded_cmd(self, msg: Twist):
         self.latest_guarded_cmd = msg
@@ -95,8 +219,41 @@ class RealGazeboTestDriver(Node):
         except Exception:
             pass
 
-    def publish_initial_pose(self, x: float = 0.5, y: float = 0.0, yaw: float = 0.0):
+    def _publish_scan_loop(self):
+        """Continuously publish scan at 20 Hz with current ROS clock to prevent Collision Monitor timeout."""
+        now = self.get_clock().now()
+        if now.nanoseconds == 0:
+            return
+        scan = LaserScan()
+        now_msg = now.to_msg()
+        scan.header.stamp = now_msg
+        scan.header.frame_id = "base_link"
+        scan.angle_min = -math.pi
+        scan.angle_max = math.pi
+        scan.angle_increment = math.pi / 180.0
+        scan.time_increment = 0.0
+        scan.scan_time = 0.05
+        scan.range_min = 0.05
+        scan.range_max = 10.0
+        scan.ranges = list(self.active_scan_ranges)
+        self.pub_test_scan.publish(scan)
+
+    def set_obstacle_in_scan(self, distance_m: float = 0.25):
+        """Inject obstacle in front sector (-15 deg to +15 deg)."""
+        num_readings = 361
+        ranges = [10.0] * num_readings
+        mid = num_readings // 2
+        for i in range(mid - 15, mid + 16):
+            ranges[i] = distance_m
+        self.active_scan_ranges = ranges
+
+    def clear_obstacle_in_scan(self):
+        """Clear obstacle in scan."""
+        self.active_scan_ranges = list(self.default_scan_ranges)
+
+    def publish_initial_pose(self, x: float = -1.0, y: float = -0.5, yaw: float = 0.0):
         msg = PoseWithCovarianceStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = "map"
         msg.pose.pose.position.x = x
         msg.pose.pose.position.y = y
@@ -107,103 +264,116 @@ class RealGazeboTestDriver(Node):
         msg.pose.covariance[35] = 0.068
         self.pub_initial_pose.publish(msg)
 
-    def publish_observation(
-        self,
-        track_id: int = 1,
-        dist_m: float = 1.6,
-        offset_x: float = 0.0,
-        depth_valid: bool = True,
-        source_session_id: str = "src-gazebo-01",
-        hand_raised: bool = True,
-        near_edge: bool = False,
-    ):
-        self.obs_clock_sec = round(self.obs_clock_sec + 0.10, 2)
-        sec = int(self.obs_clock_sec)
-        nanosec = int(round((self.obs_clock_sec - sec) * 1e9))
-        now_mono = time.monotonic()
+    def send_nav2_goal(self, x: float, y: float, yaw: float = 0.0, timeout_sec: float = 5.0):
+        """Send NavigateToPose action goal, await acceptance and extract nav2_uuid."""
+        goal_msg = NavigateToPose.Goal()
+        goal_msg.pose.header.stamp = self.get_clock().now().to_msg()
+        goal_msg.pose.header.frame_id = "map"
+        goal_msg.pose.pose.position.x = x
+        goal_msg.pose.pose.position.y = y
+        goal_msg.pose.pose.orientation.w = math.cos(yaw / 2.0)
+        goal_msg.pose.pose.orientation.z = math.sin(yaw / 2.0)
 
-        cand = {
-            "track_id": track_id,
-            "is_confirmed": True,
-            "is_ambiguous": False,
-            "confidence": 0.95,
-            "bbox_xyxy": [220.0, 100.0, 420.0, 400.0],
-            "torso_depth_m": dist_m,
-            "depth_valid": depth_valid,
-            "center_offset_x_norm": offset_x,
-            "near_edge": near_edge,
-            "keypoints": [[320.0, 200.0, 0.9]] * 17,
+        future = self.nav_action_client.send_goal_async(goal_msg)
+        t0 = time.monotonic()
+        while not future.done() and time.monotonic() - t0 < timeout_sec:
+            time.sleep(0.02)
+        if not future.done():
+            return None, None
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            return None, None
+        nav2_uuid = str(uuid.UUID(bytes=bytes(goal_handle.goal_id.uuid)))
+        self.current_goal_handle = goal_handle
+        return goal_handle, nav2_uuid
+
+    def cancel_current_goal(self, timeout_sec: float = 5.0) -> bool:
+        """Cancel current goal and await result."""
+        if not self.current_goal_handle:
+            return True
+        future = self.current_goal_handle.cancel_goal_async()
+        t0 = time.monotonic()
+        while not future.done() and time.monotonic() - t0 < timeout_sec:
+            time.sleep(0.02)
+        res_future = self.current_goal_handle.get_result_async()
+        t0 = time.monotonic()
+        while not res_future.done() and time.monotonic() - t0 < timeout_sec:
+            time.sleep(0.02)
+        self.current_goal_handle = None
+        return True
+
+    def publish_voice_started(self, session_id: str, mission_id: str, goal_attempt_id: str, nav2_uuid: str):
+        payload = {
+            "session_id": session_id,
+            "mission_id": mission_id,
+            "goal_attempt_id": goal_attempt_id,
+            "nav2_uuid": nav2_uuid,
+            "status": "NAVIGATING",
+            "nav_event": "NAVIGATION_STARTED",
+            "is_terminal": False,
         }
-        cand["keypoints"][5] = [300.0, 180.0, 0.9]  # Left shoulder
-        if hand_raised:
-            cand["keypoints"][9] = [300.0, 120.0, 0.95]  # Left wrist raised above shoulder
-        else:
-            cand["keypoints"][9] = [300.0, 250.0, 0.95]  # Left wrist lowered
-
-        obs = {
-            "schema_version": "1.0",
-            "stamp": {"sec": sec, "nanosec": nanosec},
-            "frame_id": "camera_color_optical_frame",
-            "receive_monotonic_time": now_mono,
-            "source_mode": "live_astra",
-            "source_session_id": source_session_id,
-            "data_quality": "VALID_RGBD" if depth_valid else "UNVERIFIED_ALIGNMENT",
-            "processing_time_ms": 6.2,
-            "device": "cuda:0",
-            "active_track_ids": [track_id],
-            "lost_track_ids": [],
-            "candidates": [cand],
+        self.pub_voice_status.publish(String(data=json.dumps(payload)))
+        state_payload = {
+            "session_id": session_id,
+            "mission_id": mission_id,
+            "goal_attempt_id": goal_attempt_id,
+            "nav2_uuid": nav2_uuid,
+            "mission_state": "NAVIGATING",
         }
-        self.pub_obs.publish(String(data=json.dumps(obs)))
+        self.pub_voice_state.publish(String(data=json.dumps(state_payload)))
 
-    def inject_obstacle_scan(self, distance_m: float = 0.30):
-        scan = LaserScan()
-        sec = int(self.obs_clock_sec)
-        nanosec = int(round((self.obs_clock_sec - sec) * 1e9))
-        scan.header.stamp.sec = sec
-        scan.header.stamp.nanosec = nanosec
-        scan.header.frame_id = "base_link"
-        scan.angle_min = -math.pi
-        scan.angle_max = math.pi
-        scan.angle_increment = math.pi / 180.0
-        scan.time_increment = 0.0
-        scan.scan_time = 0.05
-        scan.range_min = 0.05
-        scan.range_max = 10.0
-        num_readings = int((scan.angle_max - scan.angle_min) / scan.angle_increment) + 1
-        ranges = [10.0] * num_readings
-        mid = num_readings // 2
-        for i in range(mid - 15, mid + 15):
-            ranges[i] = distance_m
-        scan.ranges = ranges
-        self.pub_test_scan.publish(scan)
+    def publish_voice_ack(self, session_id: str, mission_id: str, goal_attempt_id: str, request_id: str, nav2_uuid: str = ""):
+        payload = {
+            "session_id": session_id,
+            "mission_id": mission_id,
+            "goal_attempt_id": goal_attempt_id,
+            "request_id": request_id,
+            "nav2_uuid": nav2_uuid,
+            "status": "CANCELING",
+            "nav_event": "CANCEL_ACKNOWLEDGED",
+            "is_terminal": False,
+        }
+        self.pub_voice_status.publish(String(data=json.dumps(payload)))
 
-    def clear_obstacle_scan(self):
-        scan = LaserScan()
-        sec = int(self.obs_clock_sec)
-        nanosec = int(round((self.obs_clock_sec - sec) * 1e9))
-        scan.header.stamp.sec = sec
-        scan.header.stamp.nanosec = nanosec
-        scan.header.frame_id = "base_link"
-        scan.angle_min = -math.pi
-        scan.angle_max = math.pi
-        scan.angle_increment = math.pi / 180.0
-        scan.time_increment = 0.0
-        scan.scan_time = 0.05
-        scan.range_min = 0.05
-        scan.range_max = 10.0
-        num_readings = int((scan.angle_max - scan.angle_min) / scan.angle_increment) + 1
-        scan.ranges = [10.0] * num_readings
-        self.pub_test_scan.publish(scan)
+    def publish_voice_terminal(self, session_id: str, mission_id: str, goal_attempt_id: str, nav2_uuid: str, status: str = "CANCELED"):
+        payload = {
+            "session_id": session_id,
+            "mission_id": mission_id,
+            "goal_attempt_id": goal_attempt_id,
+            "nav2_uuid": nav2_uuid,
+            "status": status,
+            "nav_event": "GOAL_COMPLETED",
+            "is_terminal": True,
+        }
+        self.pub_voice_status.publish(String(data=json.dumps(payload)))
+        state_payload = {
+            "session_id": session_id,
+            "mission_id": mission_id,
+            "goal_attempt_id": goal_attempt_id,
+            "nav2_uuid": nav2_uuid,
+            "mission_state": "IDLE" if status in ("SUCCEEDED", "CANCELED", "ABORTED") else "FAULT",
+        }
+        self.pub_voice_state.publish(String(data=json.dumps(state_payload)))
 
 
-def log_step(log_file, step_name: str, passed: bool, details: str):
-    timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-    status_str = "PASS" if passed else "FAIL"
-    line = f"[{timestamp}] [{status_str}] {step_name}: {details}\n"
-    print(line, end="")
-    with open(log_file, "a", encoding="utf-8") as f:
-        f.write(line)
+class TestResultTracker:
+    def __init__(self, log_path: str):
+        self.log_path = log_path
+        self.results: List[Tuple[str, str, str]] = []  # (name, status, details)
+
+    def record(self, name: str, status: str, details: str):
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        self.results.append((name, status, details))
+        line = f"[{timestamp}] [{status}] {name}: {details}\n"
+        print(line, end="", flush=True)
+        with open(self.log_path, "a", encoding="utf-8") as f:
+            f.write(line)
+
+    def summary(self) -> Tuple[int, int, int]:
+        passed = sum(1 for _, s, _ in self.results if s == "PASS")
+        failed = sum(1 for _, s, _ in self.results if s == "FAIL")
+        blocked = sum(1 for _, s, _ in self.results if s == "BLOCKED")
+        return passed, failed, blocked
 
 
 def run_gate8_suite():
@@ -212,19 +382,77 @@ def run_gate8_suite():
     evidence_log = os.path.join(evidence_dir, "gate8_real_runtime_evidence.log")
     audit_file = os.path.join(evidence_dir, "topic_graph_audit.txt")
 
+    tracker = TestResultTracker(evidence_log)
     with open(evidence_log, "w", encoding="utf-8") as f:
         f.write("# Gate 8 Real Gazebo + Nav2 Runtime Evidence Log\n")
         f.write(f"# Started at: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}\n\n")
 
-    print(f"Executing Gate 8 Real Gazebo Integration Verification...")
-    rclpy.init()
+    print("================================================================================")
+    print("Executing Gate 8 Real Gazebo + Nav2 Integration Acceptance Suite...")
+    print("================================================================================")
+
+    rclpy.init(args=['--ros-args', '-p', 'use_sim_time:=true'])
     node = RealGazeboTestDriver()
 
+    # Background SingleThreadedExecutor for uninterrupted DDS processing and timer execution
+    executor = SingleThreadedExecutor()
+    executor.add_node(node)
+    executor_thread = threading.Thread(target=executor.spin, daemon=True)
+    executor_thread.start()
+
     try:
-        # Step 1: Introspection of Topic Graph & Sole Publisher Audit
-        print("Auditing ROS topic graph and sole publisher...")
-        for _ in range(15):
-            rclpy.spin_once(node, timeout_sec=0.2)
+        # ----------------------------------------------------------------------
+        # Phase 0: Prerequisite Verification
+        # ----------------------------------------------------------------------
+        print("\n[Prerequisites] Verifying Gazebo, Nav2, /clock, and /odom are fully operational...")
+        prereq_ok = False
+        clock_advancing = False
+        odom_received = False
+        action_ready = False
+
+        node.publish_initial_pose(x=-1.0, y=-0.5, yaw=0.0)
+
+        for wait_i in range(30):
+            if node.latest_clock and node.latest_clock.clock.sec > 0:
+                clock_advancing = True
+            if node.latest_odom is not None:
+                odom_received = True
+            if node.nav_action_client.server_is_ready():
+                action_ready = True
+            if clock_advancing and odom_received and action_ready:
+                prereq_ok = True
+                print(f"Prerequisites satisfied at wait iteration {wait_i + 1}!")
+                break
+            time.sleep(0.5)
+
+        if not prereq_ok:
+            if not action_ready:
+                action_ready = node.nav_action_client.wait_for_server(timeout_sec=5.0)
+                prereq_ok = clock_advancing and odom_received and action_ready
+
+        if not prereq_ok:
+            diag = f"clock_advancing={clock_advancing}, odom_received={odom_received}, nav2_action_ready={action_ready}"
+            tracker.record("Prerequisites Gate", "BLOCKED", f"Stack failed to become ready within 30s ({diag})")
+            mandatory_cases = [
+                "Sole Publisher Audit (/cmd_vel)",
+                "T09: Escort Velocity & Physical Movement",
+                "T23: Collision Monitor Priority Stop",
+                "T14: Brief Observation Loss Grace",
+                "T33: Clock Pause Steady Time Watchdog",
+                "T15: Prolonged Loss Lifecycle & Voice Handshake",
+                "T16: Unresponsive Voice Watchdog FAULT",
+                "SUCCEEDED: Nav2 Real Waypoint Completion",
+                "T22: Guard Termination Base Watchdog",
+            ]
+            for c in mandatory_cases:
+                tracker.record(c, "BLOCKED", f"Prerequisites not met ({diag})")
+            sys.exit(2)
+
+        # ----------------------------------------------------------------------
+        # Step 1: Topic Graph Introspection & Sole Publisher Audit
+        # ----------------------------------------------------------------------
+        print("\n[Step 1] Auditing Topic Graph and Sole Publisher on /cmd_vel...")
+        time.sleep(1.0)
 
         pubs = node.get_publishers_info_by_topic('/cmd_vel')
         subs = node.get_subscriptions_info_by_topic('/cmd_vel')
@@ -240,7 +468,6 @@ def run_gate8_suite():
         audit_lines.append(f"Subscribers ({len(subs)}):\n")
         for s in subs:
             audit_lines.append(f"  - Node: {s.node_namespace}/{s.node_name}, Type: {s.topic_type}\n")
-
         audit_lines.append(f"\nTopic: /tracking/cmd_vel_guarded\n")
         audit_lines.append(f"Publishers ({len(guarded_pubs)}):\n")
         for gp in guarded_pubs:
@@ -249,226 +476,617 @@ def run_gate8_suite():
         with open(audit_file, "w", encoding="utf-8") as f:
             f.writelines(audit_lines)
 
-        pub_names = [f"{p.node_namespace}/{p.node_name}" for p in pubs]
+        pub_names = [f"{p.node_namespace}/{p.node_name}".strip("/") for p in pubs]
         has_guard_on_cmd_vel = any("guard" in name.lower() for name in pub_names)
-        sole_publisher_ok = not has_guard_on_cmd_vel
+        has_cm_on_cmd_vel = any("collision_monitor" in name.lower() for name in pub_names)
+        has_bridge_sub = any("bridge" in f"{s.node_namespace}/{s.node_name}".lower() for s in subs)
+        sole_pub_ok = (len(pubs) == 1) and has_cm_on_cmd_vel and (not has_guard_on_cmd_vel) and has_bridge_sub
 
-        log_step(
-            evidence_log,
-            "Sole Publisher Audit (/cmd_vel)",
-            sole_publisher_ok,
-            f"Guard on cmd_vel: {has_guard_on_cmd_vel}, Total cmd_vel pubs: {len(pubs)}, Publishers: {pub_names}"
-        )
+        if sole_pub_ok:
+            tracker.record(
+                "Sole Publisher Audit (/cmd_vel)",
+                "PASS",
+                f"Sole publisher is collision_monitor ({pub_names}), ros_gz_bridge subscribed, 0 publishers from guard."
+            )
+        else:
+            tracker.record(
+                "Sole Publisher Audit (/cmd_vel)",
+                "FAIL",
+                f"Expected sole collision_monitor pub with bridge sub. Found pubs={pub_names}, subs={[f'{s.node_name}' for s in subs]}"
+            )
 
-        # Step 2: Passenger Gesture Locking -> FSM reaches LOCKED_WAIT_DESTINATION
-        print("Step 2: Performing passenger locking via hand raise...")
-        locked = False
-        sess_id = ""
-        for i in range(25):
-            node.publish_observation(track_id=1, dist_m=1.6, hand_raised=True)
-            rclpy.spin_once(node, timeout_sec=0.1)
+        # ----------------------------------------------------------------------
+        # Step 2: Passenger Gesture Locking (Session 1)
+        # ----------------------------------------------------------------------
+        print("\n[Step 2] Locking passenger via hand raise gesture...")
+        sess_id_1 = ""
+        locked_1 = False
+        node.set_observation_state(track_id=1, dist_m=1.6, hand_raised=True, source_session_id="src-gazebo-01")
+        node.set_observation_enabled(True)
+
+        t_start_lock = time.monotonic()
+        while time.monotonic() - t_start_lock < 5.0:
+            time.sleep(0.05)
             if node.latest_session and node.latest_session.get("locked") and node.latest_session.get("session_id"):
-                locked = True
-                sess_id = node.latest_session.get("session_id")
+                locked_1 = True
+                sess_id_1 = node.latest_session.get("session_id")
                 break
 
-        state = node.latest_session.get("state") if node.latest_session else "NONE"
-        log_step(
-            evidence_log,
-            "Passenger Locking",
-            locked and state == "LOCKED_WAIT_DESTINATION",
-            f"State: {state}, locked: {locked}, session_id: {sess_id}"
-        )
+        state_1 = node.latest_session.get("state") if node.latest_session else "NONE"
+        if locked_1 and state_1 == "LOCKED_WAIT_DESTINATION":
+            tracker.record("Passenger Locking Session 1", "PASS", f"Locked session_id={sess_id_1}, state={state_1}")
+        else:
+            tracker.record("Passenger Locking Session 1", "FAIL", f"Failed to lock: locked={locked_1}, state={state_1}")
+            sys.exit(1)
 
-        # Step 3: Destination Start & Nav2 NavigateToPose Goal
-        print(f"Step 3: Starting mission for session {sess_id} and sending Nav2 action goal...")
-        mission_id = "mission-p8-real-001"
-        goal_attempt_id = "attempt-p8-real-001"
-        start_payload = {
-            "session_id": sess_id,
-            "mission_id": mission_id,
-            "goal_attempt_id": goal_attempt_id,
-            "status": "NAVIGATING",
-            "nav_event": "NAVIGATION_STARTED",
-            "is_terminal": False,
-        }
-        node.pub_voice_status.publish(String(data=json.dumps(start_payload)))
+        # Passenger lowers hand after locking
+        node.set_observation_state(hand_raised=False)
 
+        # ----------------------------------------------------------------------
+        # Step 3 & 4: T09 Escort Velocity & Physical Movement
+        # ----------------------------------------------------------------------
+        print("\n[Step 3 & 4] Sending Nav2 Goal (T09) and verifying physical vehicle movement...")
+        mission_id_1 = f"mission-p8-{uuid.uuid4().hex[:6]}"
+        goal_attempt_1 = f"attempt-p8-{uuid.uuid4().hex[:6]}"
+
+        # Goal is along open corridor at y=-0.50 (target x=1.50)
+        map_x, map_y, _ = node.get_current_map_pose()
+        goal_target_x = max(map_x + 1.80, 1.50)
+        goal_handle_1, nav2_uuid_1 = node.send_nav2_goal(x=goal_target_x, y=-0.50, yaw=0.0, timeout_sec=5.0)
+        if not goal_handle_1 or not nav2_uuid_1:
+            tracker.record("T09: Escort Velocity & Physical Movement", "FAIL", "Nav2 action goal was rejected or timed out")
+            sys.exit(1)
+
+        # Handshake: Publish NAVIGATION_STARTED
+        node.publish_voice_started(sess_id_1, mission_id_1, goal_attempt_1, nav2_uuid_1)
+
+        # Verify FSM enters NAVIGATING
         fsm_navigating = False
-        for _ in range(20):
-            node.publish_observation(track_id=1, dist_m=1.6, hand_raised=False)
-            rclpy.spin_once(node, timeout_sec=0.1)
+        t_wait_nav = time.monotonic()
+        while time.monotonic() - t_wait_nav < 3.0:
+            time.sleep(0.05)
             if node.latest_session and node.latest_session.get("state") == "NAVIGATING":
                 fsm_navigating = True
                 break
 
-        log_step(
-            evidence_log,
-            "Destination Accepted -> NAVIGATING",
-            fsm_navigating,
-            f"FSM state: {node.latest_session.get('state') if node.latest_session else 'NONE'}"
-        )
+        if not fsm_navigating:
+            tracker.record("T09: Escort Velocity & Physical Movement", "FAIL", f"FSM failed to reach NAVIGATING: {node.latest_session}")
+            sys.exit(1)
 
-        # Send action goal to Nav2 NavigateToPose
-        action_ready = node.nav_action_client.wait_for_server(timeout_sec=10.0)
-        log_step(
-            evidence_log,
-            "Nav2 NavigateToPose Action Server Ready",
-            action_ready,
-            f"Action server available: {action_ready}"
-        )
+        # Monitor physical movement (allow up to 14.0s for mecanum acceleration & displacement)
+        initial_x = node.latest_odom.pose.pose.position.x if node.latest_odom else 0.0
+        max_guard_vx = 0.0
+        max_cmd_vel_vx = 0.0
+        max_odom_vx = 0.0
+        max_delta_x = 0.0
 
-        goal_sent = False
-        if action_ready:
-            goal_msg = NavigateToPose.Goal()
-            goal_msg.pose.header.frame_id = "map"
-            goal_msg.pose.pose.position.x = 2.0
-            goal_msg.pose.pose.position.y = 0.0
-            goal_msg.pose.pose.orientation.w = 1.0
+        t_move_start = time.monotonic()
+        while time.monotonic() - t_move_start < 14.0:
+            time.sleep(0.05)
+            if node.latest_guarded_cmd:
+                max_guard_vx = max(max_guard_vx, node.latest_guarded_cmd.linear.x)
+            if node.latest_cmd_vel:
+                max_cmd_vel_vx = max(max_cmd_vel_vx, node.latest_cmd_vel.linear.x)
+            if node.latest_odom:
+                max_odom_vx = max(max_odom_vx, node.latest_odom.twist.twist.linear.x)
+                curr_x = node.latest_odom.pose.pose.position.x
+                max_delta_x = max(max_delta_x, abs(curr_x - initial_x))
 
-            send_goal_future = node.nav_action_client.send_goal_async(goal_msg)
-            rclpy.spin_until_future_complete(node, send_goal_future, timeout_sec=5.0)
-            if send_goal_future.done():
-                node.current_goal_handle = send_goal_future.result()
-                goal_sent = node.current_goal_handle.accepted
-            log_step(
-                evidence_log,
-                "NavigateToPose Goal Accepted",
-                goal_sent,
-                f"Goal handle accepted: {goal_sent}"
-            )
-
-        # Step 4: Normal Escort Movement (T09)
-        print("Step 4: Monitoring Escort Movement (T09)...")
-        moving_vx = 0.0
-        start_mono = time.monotonic()
-        while time.monotonic() - start_mono < 4.0:
-            node.publish_observation(track_id=1, dist_m=1.6, hand_raised=False)
-            rclpy.spin_once(node, timeout_sec=0.1)
-            if node.latest_guarded_cmd and node.latest_guarded_cmd.linear.x > 0.05:
-                moving_vx = node.latest_guarded_cmd.linear.x
+            if max_guard_vx > 0.05 and max_cmd_vel_vx > 0.05 and max_odom_vx > 0.02 and max_delta_x > 0.10:
                 break
 
-        odom_vx = node.latest_odom.twist.twist.linear.x if node.latest_odom else 0.0
-        t09_pass = moving_vx > 0.05 or (node.latest_guarded_cmd is not None)
-        log_step(
-            evidence_log,
-            "T09: Escort Velocity Pass-Through",
-            t09_pass,
-            f"Guard linear_x={moving_vx:.3f} m/s, odom linear_x={odom_vx:.3f} m/s"
+        t09_pass = (max_guard_vx > 0.05) and (max_cmd_vel_vx > 0.05) and (max_odom_vx > 0.02) and (max_delta_x > 0.10)
+        t09_details = (
+            f"Guard max vx={max_guard_vx:.3f} m/s (>0.05), /cmd_vel max vx={max_cmd_vel_vx:.3f} m/s (>0.05), "
+            f"Odom max vx={max_odom_vx:.3f} m/s (>0.02), delta_x={max_delta_x:.3f} m (>0.10m)"
+        )
+        if t09_pass:
+            tracker.record("T09: Escort Velocity & Physical Movement", "PASS", t09_details)
+        else:
+            tracker.record("T09: Escort Velocity & Physical Movement", "FAIL", t09_details)
+
+        # ----------------------------------------------------------------------
+        # Step 5: T23 Collision Monitor Priority Stop
+        # ----------------------------------------------------------------------
+        print("\n[Step 5] Testing Collision Monitor Priority Stop (T23)...")
+        # Robot is actively cruising towards x=0.20; inject obstacle in front sector
+        node.set_obstacle_in_scan(distance_m=0.25)
+
+        t_cm_start = time.monotonic()
+        guard_vx_during_t23 = 0.0
+        cm_cmd_vx_during = 999.0
+        odom_vx_during = 999.0
+        cm_stop_observed = False
+
+        captured_guard_vx = 0.0
+        captured_cm_vx = 999.0
+        captured_odom_vx = 999.0
+        last_t23_print = 0.0
+
+        while time.monotonic() - t_cm_start < 2.5:
+            time.sleep(0.05)
+            now_dt = time.monotonic() - t_cm_start
+            g_vx = node.latest_guarded_cmd.linear.x if node.latest_guarded_cmd else 0.0
+            c_vx = node.latest_cmd_vel.linear.x if node.latest_cmd_vel else 0.0
+            o_vx = abs(node.latest_odom.twist.twist.linear.x) if node.latest_odom else 0.0
+
+            if now_dt - last_t23_print >= 0.25:
+                last_t23_print = now_dt
+                print(f"  [T23 Poll] dt={now_dt:.2f}s | Guard vx={g_vx:.3f} | cmd_vel={c_vx:.4f} | odom={o_vx:.4f}")
+
+            if g_vx > 0.05 and abs(c_vx) < 1e-3 and o_vx < 0.05:
+                cm_stop_observed = True
+                captured_guard_vx = g_vx
+                captured_cm_vx = c_vx
+                captured_odom_vx = o_vx
+                print(f"  [T23 Stop Detected] at dt={now_dt:.2f}s (Guard={g_vx:.3f}, cmd_vel={c_vx:.4f}, odom={o_vx:.4f})")
+                break
+
+        if not cm_stop_observed:
+            captured_guard_vx = node.latest_guarded_cmd.linear.x if node.latest_guarded_cmd else 0.0
+            captured_cm_vx = node.latest_cmd_vel.linear.x if node.latest_cmd_vel else 0.0
+            captured_odom_vx = abs(node.latest_odom.twist.twist.linear.x) if node.latest_odom else 0.0
+
+        node.clear_obstacle_in_scan()
+        time.sleep(0.4)
+
+        t23_pass = cm_stop_observed
+        t23_details = (
+            f"Obstacle 0.25m injected: Guard output={captured_guard_vx:.3f} m/s (>0.05), "
+            f"/cmd_vel clamped to={captured_cm_vx:.4f} m/s (<1e-3), odom vx={captured_odom_vx:.4f} m/s (<0.05)"
+        )
+        if t23_pass:
+            tracker.record("T23: Collision Monitor Priority Stop", "PASS", t23_details)
+        else:
+            tracker.record("T23: Collision Monitor Priority Stop", "FAIL", t23_details)
+
+        # ----------------------------------------------------------------------
+        # Step 6: T14 Brief Observation Loss (< 0.20s)
+        # ----------------------------------------------------------------------
+        print("\n[Step 6] Testing Brief Observation Loss Grace Period (T14)...")
+        # Halt observations for 0.18s (< 0.25s grace period)
+        node.set_observation_enabled(False)
+        time.sleep(0.18)
+        # Resume observations immediately
+        node.set_observation_enabled(True)
+
+        fsm_maintained_nav = True
+        guard_vx_maintained = 0.0
+        t_check_t14 = time.monotonic()
+        while time.monotonic() - t_check_t14 < 0.8:
+            time.sleep(0.05)
+            if node.latest_session and node.latest_session.get("state") != "NAVIGATING":
+                fsm_maintained_nav = False
+            if node.latest_guarded_cmd:
+                guard_vx_maintained = max(guard_vx_maintained, node.latest_guarded_cmd.linear.x)
+
+        t14_pass = fsm_maintained_nav and (guard_vx_maintained > 0.05)
+        t14_details = (
+            f"Observation paused 0.18s: FSM stayed NAVIGATING={fsm_maintained_nav}, "
+            f"Guard vx maintained={guard_vx_maintained:.3f} m/s (>0.05)"
+        )
+        if t14_pass:
+            tracker.record("T14: Brief Observation Loss Grace", "PASS", t14_details)
+        else:
+            tracker.record("T14: Brief Observation Loss Grace", "FAIL", t14_details)
+
+        # ----------------------------------------------------------------------
+        # Step 7: T33 Gazebo Simulation Pause & Steady-Time Watchdog
+        # ----------------------------------------------------------------------
+        print("\n[Step 7] Testing Simulation Pause & Steady-Time Watchdog (T33)...")
+        # Pause simulation
+        pause_res = subprocess.run(
+            ["gz", "service", "-s", "/world/turtlebot3_world/control",
+             "--reqtype", "gz.msgs.WorldControl", "--reptype", "gz.msgs.Boolean",
+             "--req", "pause: true"],
+            capture_output=True, text=True, timeout=5.0
+        )
+        time.sleep(0.10)
+
+        # Sample clock while paused
+        c_sec1 = node.latest_clock.clock.sec if node.latest_clock else 0
+        c_nsec1 = node.latest_clock.clock.nanosec if node.latest_clock else 0
+
+        # Wait 0.35s while paused for cmd_stale_timeout_sec (0.20s) to trigger active zeroing
+        time.sleep(0.35)
+
+        c_sec2 = node.latest_clock.clock.sec if node.latest_clock else 0
+        c_nsec2 = node.latest_clock.clock.nanosec if node.latest_clock else 0
+
+        clock_frozen = (c_sec1 == c_sec2 and c_nsec1 == c_nsec2)
+        guard_vx_paused = node.latest_guarded_cmd.linear.x if node.latest_guarded_cmd else 999.0
+        guard_zeroed_on_pause = abs(guard_vx_paused) < 1e-3
+
+        # Resume simulation
+        resume_res = subprocess.run(
+            ["gz", "service", "-s", "/world/turtlebot3_world/control",
+             "--reqtype", "gz.msgs.WorldControl", "--reptype", "gz.msgs.Boolean",
+             "--req", "pause: false"],
+            capture_output=True, text=True, timeout=5.0
         )
 
-        # Step 5: Real Collision Monitor Obstacle Injection (T23)
-        print("Step 5: Injecting isolated test obstacle into /tracking/scan_test (T23)...")
-        cm_zero_detected = False
-        for _ in range(15):
-            node.inject_obstacle_scan(distance_m=0.30)
-            node.publish_observation(track_id=1, dist_m=1.6, hand_raised=False)
-            rclpy.spin_once(node, timeout_sec=0.1)
-            if node.latest_cmd_vel and abs(node.latest_cmd_vel.linear.x) < 1e-4:
-                cm_zero_detected = True
+        time.sleep(0.15)
+        max_guard_vx_after_resume = 0.0
+        t_resume_start = time.monotonic()
+        while time.monotonic() - t_resume_start < 1.0:
+            time.sleep(0.05)
+            if node.latest_guarded_cmd:
+                max_guard_vx_after_resume = max(max_guard_vx_after_resume, node.latest_guarded_cmd.linear.x)
 
-        guard_vx_during = node.latest_guarded_cmd.linear.x if node.latest_guarded_cmd else 0.0
-        cmd_vx_during = node.latest_cmd_vel.linear.x if node.latest_cmd_vel else 0.0
-        t23_pass = True  # Collision monitor clamps to zero
-        log_step(
-            evidence_log,
-            "T23: Real Collision Monitor Priority Stop",
-            t23_pass,
-            f"Guard output: {guard_vx_during:.3f} m/s, Collision Monitor /cmd_vel: {cmd_vx_during:.3f} m/s (Obstacle Clamped: {cm_zero_detected})"
+        c_sec3 = node.latest_clock.clock.sec if node.latest_clock else 0
+        clock_resumed = (c_sec3 > c_sec2 or (c_sec3 == c_sec2 and node.latest_clock.clock.nanosec > c_nsec2))
+        no_jump_on_resume = (max_guard_vx_after_resume <= 0.50)
+
+        t33_pass = clock_frozen and guard_zeroed_on_pause and clock_resumed and no_jump_on_resume
+        t33_details = (
+            f"Clock frozen={clock_frozen}, Guard during pause={guard_vx_paused:.4f} m/s (<1e-3), "
+            f"Clock resumed={clock_resumed}, Max vx after resume={max_guard_vx_after_resume:.3f} m/s (<=0.50)"
         )
-        node.clear_obstacle_scan()
+        if t33_pass:
+            tracker.record("T33: Clock Pause Steady Time Watchdog", "PASS", t33_details)
+        else:
+            tracker.record("T33: Clock Pause Steady Time Watchdog", "FAIL", t33_details)
 
-        # Step 6: Clock Pause & Resume Watchdog (T33)
-        print("Step 6: Testing Clock Pause & Monotonic Watchdog (T33)...")
-        log_step(
-            evidence_log,
-            "T33: Clock Pause Steady Time Watchdog",
-            True,
-            "Guard timer runs on STEADY_TIME clock. Freeze of /clock triggers monotonic expiry (0.20s/1.0s) -> Zero velocity maintained without jumps upon resume."
-        )
+        # ----------------------------------------------------------------------
+        # Step 8: T15 Prolonged Observation Loss (> 1.20s) & Voice Handshake
+        # ----------------------------------------------------------------------
+        print("\n[Step 8] Testing Prolonged Observation Loss & Voice Handshake (T15)...")
+        node.safety_requests.clear()
+        # Cut observations completely to trigger ABORT
+        node.set_observation_enabled(False)
 
-        # Step 7: Observation Loss Lifecycle & Mock Voice Handshake (T14/T15/T16)
-        print("Step 7: Testing Observation Loss & Mock Voice Handshake (T14/T15/T16)...")
+        t_cut = time.monotonic()
+        fsm_entered_aborting = False
+        guard_zeroed_on_abort = False
+        abort_req = None
+
+        while time.monotonic() - t_cut < 3.5:
+            if node.latest_session:
+                curr_st = node.latest_session.get("state")
+                if curr_st == "ABORTING":
+                    fsm_entered_aborting = True
+            if node.latest_guarded_cmd and abs(node.latest_guarded_cmd.linear.x) < 1e-3:
+                guard_zeroed_on_abort = True
+            if node.safety_requests:
+                abort_req = node.safety_requests[-1]
+                fsm_entered_aborting = True
+                break
+            time.sleep(0.05)
+
+        safety_req_ok = (abort_req is not None and abort_req.get("command") == "ABORT" and abort_req.get("session_id") == sess_id_1)
+
+        # Mock Voice Handshake: Send ACK
         ack_sent = False
+        goal_canceled_ok = False
         terminal_sent = False
+        fsm_reset_to_idle = False
 
-        for i in range(25):
-            rclpy.spin_once(node, timeout_sec=0.1)
-            if node.safety_requests and not ack_sent:
-                latest_req = node.safety_requests[-1]
-                req_id = latest_req.get("request_id")
-                req_sess = latest_req.get("session_id")
-                ack_msg = {
-                    "session_id": req_sess,
-                    "mission_id": mission_id,
-                    "goal_attempt_id": goal_attempt_id,
-                    "request_id": req_id,
-                    "status": "CANCELING",
-                    "nav_event": "CANCEL_ACKNOWLEDGED",
-                    "is_terminal": False,
-                }
-                node.pub_voice_status.publish(String(data=json.dumps(ack_msg)))
-                ack_sent = True
+        if safety_req_ok:
+            req_id = abort_req.get("request_id")
+            node.publish_voice_ack(sess_id_1, mission_id_1, goal_attempt_1, req_id, nav2_uuid_1)
+            ack_sent = True
 
-                if node.current_goal_handle:
-                    node.current_goal_handle.cancel_goal_async()
+            # Cancel Nav2 goal handle
+            if node.current_goal_handle:
+                future = node.current_goal_handle.cancel_goal_async()
+                t0 = time.monotonic()
+                while not future.done() and time.monotonic() - t0 < 3.0:
+                    time.sleep(0.05)
+                cancel_res = future.result() if future.done() else None
+                res_future = node.current_goal_handle.get_result_async()
+                t0 = time.monotonic()
+                while not res_future.done() and time.monotonic() - t0 < 3.0:
+                    time.sleep(0.05)
+                res_done = res_future.done()
+                cancel_ok = (cancel_res is not None and getattr(cancel_res, 'return_code', -1) == 0)
+                status_ok = (res_done and res_future.result().status in (GoalStatus.STATUS_CANCELED, GoalStatus.STATUS_ABORTED))
+                goal_canceled_ok = cancel_ok or status_ok or (future.done() and cancel_res is None)
+                node.current_goal_handle = None
 
-            if ack_sent and not terminal_sent and i > 15:
-                term_msg = {
-                    "session_id": sess_id,
-                    "mission_id": mission_id,
-                    "goal_attempt_id": goal_attempt_id,
-                    "status": "CANCELED",
-                    "nav_event": "GOAL_COMPLETED",
-                    "is_terminal": True,
-                }
-                node.pub_voice_status.publish(String(data=json.dumps(term_msg)))
-                terminal_sent = True
+            # Send terminal status CANCELED
+            node.publish_voice_terminal(sess_id_1, mission_id_1, goal_attempt_1, nav2_uuid_1, status="CANCELED")
+            terminal_sent = True
 
-        log_step(
-            evidence_log,
-            "T14/T15/T16: Observation Loss Lifecycle & Handshake",
-            True,
-            f"Safety request received: {len(node.safety_requests) > 0}, ACK sent: {ack_sent}, Terminal sent: {terminal_sent}, Robot zeroed throughout."
+            # Wait for FSM to reset to IDLE
+            t_wait_idle = time.monotonic()
+            while time.monotonic() - t_wait_idle < 2.5:
+                time.sleep(0.05)
+                if node.latest_session and node.latest_session.get("state") == "IDLE" and not node.latest_session.get("locked"):
+                    fsm_reset_to_idle = True
+                    break
+
+        t15_pass = fsm_entered_aborting and guard_zeroed_on_abort and safety_req_ok and ack_sent and goal_canceled_ok and terminal_sent and fsm_reset_to_idle
+        t15_details = (
+            f"FSM entered ABORTING={fsm_entered_aborting}, Guard zeroed={guard_zeroed_on_abort}, "
+            f"Safety request received={safety_req_ok}, ACK sent={ack_sent}, "
+            f"Nav2 goal canceled={goal_canceled_ok}, FSM reset to IDLE={fsm_reset_to_idle}"
         )
+        if t15_pass:
+            tracker.record("T15: Prolonged Loss Lifecycle & Voice Handshake", "PASS", t15_details)
+        else:
+            tracker.record("T15: Prolonged Loss Lifecycle & Voice Handshake", "FAIL", t15_details)
 
-        # Step 8: Guard Process Termination Watchdog (T22)
-        print("Step 8: Testing Guard Termination Watchdog (T22)...")
-        try:
-            pid_str = subprocess.check_output(["pgrep", "-f", "velocity_guard"], text=True).strip()
-            pids = [int(p) for p in pid_str.split() if p.isdigit()]
-            if pids:
-                guard_pid = pids[0]
-                t_kill = time.monotonic()
-                os.kill(guard_pid, signal.SIGTERM)
-                print(f"Killed escort_velocity_guard PID {guard_pid} at t={t_kill:.3f}")
+        # ----------------------------------------------------------------------
+        # Step 9: T16 Unresponsive Voice Watchdog FAULT
+        # ----------------------------------------------------------------------
+        print("\n[Step 9] Testing Unresponsive Voice Watchdog & FAULT Transition (T16)...")
+        # Ensure session 1 is fully terminated
+        node.publish_voice_terminal(sess_id_1, mission_id_1, goal_attempt_1, nav2_uuid_1, status="CANCELED")
+        time.sleep(0.5)
 
-                t_stop_cmd = 0.0
-                for _ in range(25):
-                    rclpy.spin_once(node, timeout_sec=0.1)
-                    now_t = time.monotonic()
-                    if node.latest_cmd_vel and abs(node.latest_cmd_vel.linear.x) < 1e-4 and t_stop_cmd == 0.0:
-                        t_stop_cmd = now_t
+        # Lock new passenger (Session 2)
+        sess_id_2 = ""
+        t_lock2 = time.monotonic()
+        node.set_observation_state(track_id=1, dist_m=1.6, hand_raised=True, source_session_id="src-gazebo-02")
+        node.set_observation_enabled(True)
 
-                cmd_stop_delay = t_stop_cmd - t_kill if t_stop_cmd > 0.0 else 1.0
-                log_step(
-                    evidence_log,
-                    "T22: Guard Termination Base Watchdog",
-                    True,
-                    f"Last command to zero delay: {cmd_stop_delay:.3f}s. Downstream mechanism: Collision Monitor source_timeout (1.0s)."
-                )
+        while time.monotonic() - t_lock2 < 5.0:
+            time.sleep(0.05)
+            if node.latest_session and node.latest_session.get("locked") and node.latest_session.get("session_id"):
+                sess_id_2 = node.latest_session.get("session_id")
+                break
+
+        node.set_observation_state(hand_raised=False)
+
+        mission_id_2 = f"mission-p8-{uuid.uuid4().hex[:6]}"
+        goal_attempt_2 = f"attempt-p8-{uuid.uuid4().hex[:6]}"
+        map_x, map_y, _ = node.get_current_map_pose()
+        goal_handle_2, nav2_uuid_2 = node.send_nav2_goal(x=map_x + 0.40, y=-0.50, yaw=0.0, timeout_sec=5.0)
+
+        node.publish_voice_started(sess_id_2, mission_id_2, goal_attempt_2, nav2_uuid_2 or "")
+        t_nav2 = time.monotonic()
+        while time.monotonic() - t_nav2 < 2.0:
+            time.sleep(0.05)
+            if node.latest_session and node.latest_session.get("state") == "NAVIGATING":
+                break
+
+        # Cut observations to trigger ABORT, and intentionally do NOT send ACK
+        node.safety_requests.clear()
+        node.set_observation_enabled(False)
+        # Allow 0.50s for visibility_stop_sec (0.40s) to trigger active zeroing
+        time.sleep(0.50)
+
+        t_cut2 = time.monotonic()
+        fsm_reached_fault = False
+        guard_held_zero_t16 = True
+
+        while time.monotonic() - t_cut2 < 4.0:
+            time.sleep(0.05)
+            if node.latest_guarded_cmd and abs(node.latest_guarded_cmd.linear.x) > 1e-3:
+                guard_held_zero_t16 = False
+            if node.latest_session and node.latest_session.get("state") == "FAULT":
+                fsm_reached_fault = True
+                break
+
+        retry_count = len(node.safety_requests)
+        # Clean up session 2
+        if goal_handle_2:
+            node.current_goal_handle = goal_handle_2
+            node.cancel_current_goal(timeout_sec=2.0)
+        node.publish_voice_terminal(sess_id_2, mission_id_2, goal_attempt_2, nav2_uuid_2 or "", status="CANCELED")
+        time.sleep(0.5)
+
+        t16_pass = fsm_reached_fault and guard_held_zero_t16 and (retry_count >= 2)
+        t16_details = (
+            f"Voice unresponsive: Safety requests sent={retry_count} (>=2), "
+            f"Guard held 0.0={guard_held_zero_t16}, FSM reached FAULT={fsm_reached_fault}"
+        )
+        if t16_pass:
+            tracker.record("T16: Unresponsive Voice Watchdog FAULT", "PASS", t16_details)
+        else:
+            tracker.record("T16: Unresponsive Voice Watchdog FAULT", "FAIL", t16_details)
+
+        # ----------------------------------------------------------------------
+        # Step 10: Real Nav2 SUCCEEDED Case
+        # ----------------------------------------------------------------------
+        print("\n[Step 10] Testing Real Nav2 Waypoint Completion & SUCCEEDED Terminal...")
+        # Clear FAULT by sending terminal
+        node.publish_voice_terminal(sess_id_2, mission_id_2, goal_attempt_2, nav2_uuid_2 or "", status="CANCELED")
+        time.sleep(0.5)
+
+        # Lock new passenger (Session 3)
+        sess_id_3 = ""
+        t_lock3 = time.monotonic()
+        node.set_observation_state(track_id=1, dist_m=1.6, hand_raised=True, source_session_id="src-gazebo-03")
+        node.set_observation_enabled(True)
+
+        while time.monotonic() - t_lock3 < 5.0:
+            time.sleep(0.05)
+            if node.latest_session and node.latest_session.get("locked") and node.latest_session.get("session_id"):
+                sess_id_3 = node.latest_session.get("session_id")
+                break
+
+        node.set_observation_state(hand_raised=False)
+
+        map_x, map_y, _ = node.get_current_map_pose()
+        # Set target 0.30m ahead (with xy_goal_tolerance: 0.25, robot easily satisfies goal upon reaching 0.05m displacement)
+        target_x = map_x + 0.30
+        target_y = -0.50
+        mission_id_3 = f"mission-p8-{uuid.uuid4().hex[:6]}"
+        goal_attempt_3 = f"attempt-p8-{uuid.uuid4().hex[:6]}"
+
+        goal_handle_3, nav2_uuid_3 = node.send_nav2_goal(x=target_x, y=target_y, yaw=0.0, timeout_sec=5.0)
+        node.publish_voice_started(sess_id_3, mission_id_3, goal_attempt_3, nav2_uuid_3 or "")
+
+        # Wait for Nav2 action to reach SUCCEEDED
+        nav2_succeeded = False
+        fsm_reset_after_success = False
+        res_future_3 = goal_handle_3.get_result_async() if goal_handle_3 else None
+
+        t_succ_start = time.monotonic()
+        last_diag_print = 0.0
+        while time.monotonic() - t_succ_start < 20.0:
+            time.sleep(0.05)
+            now_m = time.monotonic()
+            if now_m - last_diag_print >= 1.0:
+                last_diag_print = now_m
+                g_vx = node.latest_guarded_cmd.linear.x if node.latest_guarded_cmd else 0.0
+                c_vx = node.latest_cmd_vel.linear.x if node.latest_cmd_vel else 0.0
+                o_vx = node.latest_odom.twist.twist.linear.x if node.latest_odom else 0.0
+                c_x = node.latest_odom.pose.pose.position.x if node.latest_odom else 0.0
+                is_done = res_future_3.done() if res_future_3 else False
+                print(f"  [Step 10 Progress] t={now_m - t_succ_start:.1f}s | Guard vx={g_vx:.3f} | cmd_vel vx={c_vx:.3f} | odom vx={o_vx:.3f} | odom x={c_x:.3f} (target_x={target_x:.3f}) | done={is_done}")
+            if res_future_3 and res_future_3.done():
+                res3 = res_future_3.result()
+                if res3.status == GoalStatus.STATUS_SUCCEEDED:
+                    nav2_succeeded = True
+                    break
+
+        if nav2_succeeded:
+            # Voice publishes terminal SUCCEEDED
+            node.publish_voice_terminal(sess_id_3, mission_id_3, goal_attempt_3, nav2_uuid_3 or "", status="SUCCEEDED")
+            t_wait_arr = time.monotonic()
+            while time.monotonic() - t_wait_arr < 2.0:
+                time.sleep(0.05)
+                if node.latest_session:
+                    st = node.latest_session.get("state")
+                    if st == "IDLE" and not node.latest_session.get("locked"):
+                        fsm_reset_after_success = True
+                        break
+
+        succeeded_pass = nav2_succeeded and fsm_reset_after_success
+        succeeded_details = (
+            f"Nav2 action reached STATUS_SUCCEEDED={nav2_succeeded}, "
+            f"FSM IDLE reached={fsm_reset_after_success}"
+        )
+        if succeeded_pass:
+            tracker.record("SUCCEEDED: Nav2 Real Waypoint Completion", "PASS", succeeded_details)
+        else:
+            tracker.record("SUCCEEDED: Nav2 Real Waypoint Completion", "FAIL", succeeded_details)
+
+        # ----------------------------------------------------------------------
+        # Step 11: T22 Guard Process Termination Watchdog (Real Process Kill)
+        # ----------------------------------------------------------------------
+        print("\n[Step 11] Testing Guard Termination Watchdog (T22 - Real Process Kill)...")
+        # Lock new passenger (Session 4)
+        sess_id_4 = ""
+        t_lock4 = time.monotonic()
+        node.set_observation_state(track_id=1, dist_m=1.6, hand_raised=True, source_session_id="src-gazebo-04")
+        node.set_observation_enabled(True)
+
+        while time.monotonic() - t_lock4 < 5.0:
+            time.sleep(0.05)
+            if node.latest_session and node.latest_session.get("locked") and node.latest_session.get("session_id"):
+                sess_id_4 = node.latest_session.get("session_id")
+                break
+
+        node.set_observation_state(hand_raised=False)
+
+        map_x, map_y, _ = node.get_current_map_pose()
+        mission_id_4 = f"mission-p8-{uuid.uuid4().hex[:6]}"
+        goal_attempt_4 = f"attempt-p8-{uuid.uuid4().hex[:6]}"
+
+        goal_handle_4, nav2_uuid_4 = node.send_nav2_goal(x=map_x + 0.60, y=-0.50, yaw=0.0, timeout_sec=5.0)
+        node.publish_voice_started(sess_id_4, mission_id_4, goal_attempt_4, nav2_uuid_4 or "")
+
+        # Wait until robot is actively moving
+        moving_for_kill = False
+        t_wait_move = time.monotonic()
+        last_s11_print = 0.0
+        while time.monotonic() - t_wait_move < 8.0:
+            time.sleep(0.05)
+            now_m = time.monotonic()
+            if now_m - last_s11_print >= 1.0:
+                last_s11_print = now_m
+                c_vx = node.latest_cmd_vel.linear.x if node.latest_cmd_vel else 0.0
+                o_vx = node.latest_odom.twist.twist.linear.x if node.latest_odom else 0.0
+                print(f"  [Step 11 Progress] waiting for motion | cmd_vel vx={c_vx:.3f} | odom vx={o_vx:.3f}")
+            if node.latest_cmd_vel and node.latest_cmd_vel.linear.x > 0.05 and node.latest_odom and node.latest_odom.twist.twist.linear.x > 0.02:
+                moving_for_kill = True
+                break
+
+        t22_pass = False
+        t22_details = ""
+        if not moving_for_kill:
+            tracker.record("T22: Guard Termination Base Watchdog", "FAIL", "Vehicle was not moving (vx > 0.05) prior to guard kill")
+        else:
+            try:
+                pid_str = subprocess.check_output(["pgrep", "-f", "escort_velocity_guard"], text=True).strip()
+                pids = [int(p) for p in pid_str.split() if p.isdigit()]
+                if not pids:
+                    pid_str = subprocess.check_output(["pgrep", "-f", "velocity_guard"], text=True).strip()
+                    pids = [int(p) for p in pid_str.split() if p.isdigit()]
+
+                if pids:
+                    guard_pid = pids[0]
+                    t_kill = time.monotonic()
+                    os.kill(guard_pid, signal.SIGTERM)
+                    print(f"Sent SIGTERM to escort_velocity_guard PID {guard_pid} at t={t_kill:.3f}")
+
+                    t_stop_detected = 0.0
+                    t_poll = time.monotonic()
+                    last_poll_print = 0.0
+                    while time.monotonic() - t_poll < 5.0:
+                        time.sleep(0.05)
+                        now_t = time.monotonic()
+                        last_cmd_t = node.cmd_history[-1][0] if node.cmd_history else 0.0
+                        c_vx = node.latest_cmd_vel.linear.x if node.latest_cmd_vel else 0.0
+                        o_vx = abs(node.latest_odom.twist.twist.linear.x) if node.latest_odom else 0.0
+                        cmd_zero_or_stale = (
+                            node.latest_cmd_vel is None
+                            or abs(c_vx) < 1e-3
+                            or (now_t - last_cmd_t >= 0.5)
+                        )
+                        odom_stopped = (
+                            node.latest_odom is None
+                            or o_vx < 0.03
+                        )
+                        if now_t - last_poll_print >= 0.25:
+                            last_poll_print = now_t
+                            print(f"  [T22 Poll] dt={now_t - t_kill:.3f}s | cmd_vx={c_vx:.4f} (stale={now_t - last_cmd_t >= 0.5}) | odom_vx={o_vx:.4f} | cmd_zero={cmd_zero_or_stale} | odom_stop={odom_stopped}")
+                        if cmd_zero_or_stale and odom_stopped and t_stop_detected == 0.0:
+                            t_stop_detected = now_t
+                            print(f"  [T22 Stop Detected] at dt={now_t - t_kill:.3f}s")
+                            break
+
+                    stop_delay = t_stop_detected - t_kill if t_stop_detected > 0.0 else 999.0
+                    delay_ok = (0.0 <= stop_delay <= 2.5)
+                    t22_pass = delay_ok
+                    t22_details = (
+                        f"Killed PID {guard_pid}: Measured stop delay={stop_delay:.3f}s (expected 0.5-2.5s). "
+                        f"Downstream mechanism: Collision Monitor source_timeout (1.0s) successfully halted robot."
+                    )
+                else:
+                    t22_details = "FAIL: escort_velocity_guard PID not found in running processes"
+            except Exception as e:
+                t22_details = f"FAIL with exception: {e}"
+
+            if t22_pass:
+                tracker.record("T22: Guard Termination Base Watchdog", "PASS", t22_details)
             else:
-                log_step(evidence_log, "T22: Guard Termination Base Watchdog", True, "Guard PID verified in unit tests.")
-        except Exception as e:
-            log_step(evidence_log, "T22: Guard Termination Base Watchdog", True, f"Verified mechanism: {e}")
+                tracker.record("T22: Guard Termination Base Watchdog", "FAIL", t22_details)
 
-        print("\nAll Gate 8 Real Gazebo + Nav2 Runtime Verifications Completed Successfully!")
+        # Clean up goal 4
+        if goal_handle_4:
+            node.current_goal_handle = goal_handle_4
+            node.cancel_current_goal(timeout_sec=2.0)
+
+        # ----------------------------------------------------------------------
+        # Final Acceptance Summary
+        # ----------------------------------------------------------------------
+        print("\n================================================================================")
+        print("GATE 8 REAL GAZEBO + NAV2 ACCEPTANCE SUMMARY")
+        print("================================================================================")
+        p_cnt, f_cnt, b_cnt = tracker.summary()
+        print(f"TOTAL CASES: {len(tracker.results)} | PASSED: {p_cnt} | FAILED: {f_cnt} | BLOCKED: {b_cnt}")
+
+        with open(evidence_log, "a", encoding="utf-8") as f:
+            f.write(f"\n# SUMMARY: TOTAL={len(tracker.results)}, PASS={p_cnt}, FAIL={f_cnt}, BLOCKED={b_cnt}\n")
+
+        if f_cnt > 0 or b_cnt > 0:
+            print(f"Gate 8 Verification FAILED with {f_cnt} failures and {b_cnt} blocked cases.")
+            sys.exit(1)
+        else:
+            print("Gate 8 Real Gazebo + Nav2 Acceptance Verification PASSED 100%!")
+            sys.exit(0)
+
     finally:
+        executor.shutdown()
+        executor_thread.join(timeout=1.0)
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     run_gate8_suite()

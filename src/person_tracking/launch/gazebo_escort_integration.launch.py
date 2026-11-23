@@ -3,10 +3,10 @@
 
 import os
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, GroupAction
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch_ros.actions import Node
+from launch_ros.actions import Node, SetRemap
 from launch_ros.substitutions import FindPackageShare
 from launch.conditions import IfCondition
 
@@ -25,11 +25,12 @@ def generate_launch_description():
     desc_launch_path = PathJoinSubstitution([pkg_linorobot2_desc, 'launch', 'description.launch.py'])
     nav2_launch_path = PathJoinSubstitution([pkg_nav2_bringup, 'launch', 'bringup_launch.py'])
 
-    ekf_config_path = PathJoinSubstitution([pkg_linorobot2_base, 'config', 'ekf.yaml'])
+    ekf_config_path = PathJoinSubstitution([pkg_tracking, 'config', 'ekf.yaml'])
     default_map_path = PathJoinSubstitution([pkg_linorobot2_nav, 'maps', 'turtlebot3_world.yaml'])
     guard_nav_params_path = PathJoinSubstitution([pkg_tracking, 'config', 'navigation_guard.yaml'])
 
-    urdf_path = PathJoinSubstitution([pkg_linorobot2_desc, 'urdf', 'robots', 'mecanum.urdf.xacro'])
+    # Use tracking overlay URDF with clean MecanumDrive (no duplicate/spiking OdometryPublisher)
+    urdf_path = PathJoinSubstitution([pkg_tracking, 'urdf', 'robots', 'mecanum.urdf.xacro'])
 
     # Launch Configurations
     use_sim_time = LaunchConfiguration('sim')
@@ -60,20 +61,37 @@ def generate_launch_description():
             default_value=default_map_path,
             description='Full path to map file'
         ),
+        # Gazebo spawn coordinates (Gazebo origin is center: cylinder at 0, 0)
+        DeclareLaunchArgument(
+            name='spawn_x',
+            default_value='-0.50',
+            description='Gazebo spawn position in X'
+        ),
+        DeclareLaunchArgument(
+            name='spawn_y',
+            default_value='-0.50',
+            description='Gazebo spawn position in Y'
+        ),
+        DeclareLaunchArgument(
+            name='spawn_yaw',
+            default_value='0.0',
+            description='Gazebo spawn heading'
+        ),
+        # Map initial pose coordinates for AMCL (Map origin shifted by -0.50m in X: cylinder at -0.50, 0)
         DeclareLaunchArgument(
             name='initial_pose_x',
-            default_value='0.5',
-            description='Initial robot X'
+            default_value='-1.00',
+            description='Initial map robot X for AMCL'
         ),
         DeclareLaunchArgument(
             name='initial_pose_y',
-            default_value='0.0',
-            description='Initial robot Y'
+            default_value='-0.50',
+            description='Initial map robot Y for AMCL'
         ),
         DeclareLaunchArgument(
             name='initial_pose_yaw',
             default_value='0.0',
-            description='Initial robot Yaw'
+            description='Initial map robot Yaw for AMCL'
         ),
 
         # 1. Gazebo Sim Server (Headless)
@@ -97,10 +115,10 @@ def generate_launch_description():
             arguments=[
                 '-topic', 'robot_description',
                 '-entity', 'linorobot2',
-                '-x', LaunchConfiguration('initial_pose_x'),
-                '-y', LaunchConfiguration('initial_pose_y'),
+                '-x', LaunchConfiguration('spawn_x'),
+                '-y', LaunchConfiguration('spawn_y'),
                 '-z', '0.0',
-                '-Y', LaunchConfiguration('initial_pose_yaw'),
+                '-Y', LaunchConfiguration('spawn_yaw'),
             ]
         ),
 
@@ -139,17 +157,22 @@ def generate_launch_description():
         ),
 
         # 6. Nav2 Stack with Guard Navigation Params Overlay
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(nav2_launch_path),
-            launch_arguments={
-                'map': map_yaml,
-                'use_sim_time': use_sim_time,
-                'params_file': guard_nav_params_path,
-                'autostart': 'true',
-                'initial_pose_x': LaunchConfiguration('initial_pose_x'),
-                'initial_pose_y': LaunchConfiguration('initial_pose_y'),
-                'initial_pose_yaw': LaunchConfiguration('initial_pose_yaw'),
-            }.items()
+        GroupAction(
+            actions=[
+                SetRemap(src='docking_server:cmd_vel', dst='/cmd_vel_docking'),
+                IncludeLaunchDescription(
+                    PythonLaunchDescriptionSource(nav2_launch_path),
+                    launch_arguments={
+                        'map': map_yaml,
+                        'use_sim_time': use_sim_time,
+                        'params_file': guard_nav_params_path,
+                        'autostart': 'true',
+                        'initial_pose_x': LaunchConfiguration('initial_pose_x'),
+                        'initial_pose_y': LaunchConfiguration('initial_pose_y'),
+                        'initial_pose_yaw': LaunchConfiguration('initial_pose_yaw'),
+                    }.items()
+                ),
+            ]
         ),
 
         # 7. Tracking Manager Node
