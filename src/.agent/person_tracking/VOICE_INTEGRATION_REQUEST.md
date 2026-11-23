@@ -62,7 +62,11 @@
     "person_distance_m": 1.45,
     "depth_proven": true,
     "confidence": 0.94,
-    "reason_code": "HAND_RAISE_HELD_NEAREST"
+    "reason_code": "HAND_RAISE_HELD_NEAREST",
+    "source_session_id": "src-live-cam-01",
+    "mission_id": null,
+    "goal_attempt_id": null,
+    "nav2_uuid": null
   }
   ```
 - **Quy tắc Kiểm tra tại Voice (Gating Rule):**
@@ -156,6 +160,15 @@ Phân hệ Tracking yêu cầu **tách riêng rẽ bản tin ACK và bản tin K
    *Tác dụng:* Tracking chuyển trạng thái `ARRIVED` -> dọn dẹp phiên về `IDLE`.
 
 ---
+
+
+---
+
+## 4.1. Hiệu chỉnh Góc quay Camera Sau (Angular Trimming - Rear Camera Convention)
+- Camera Astra quay về phía sau thân xe (`yaw = pi` trong robot frame).
+- Khi khách lệch sang PHẢI ảnh quan sát ($e_x > 0$): Phân hệ Tracking bù góc quay theo chiều kim đồng hồ (CW, $\Delta \omega < 0$).
+- Khi khách lệch sang TRÁI ảnh quan sát ($e_x < 0$): Tracking bù góc quay ngược chiều kim đồng hồ (CCW, $\Delta \omega > 0$).
+- Voice hoàn toàn làm chủ góc quay chính từ Nav2; Tracking chỉ bù tinh chỉnh $\Delta \omega \in [-0.20, +0.20]$ rad/s khi đang di chuyển ($v_x > 0$). Khi Nav2 phát lệnh dừng (0.0), Tracking luôn ép góc quay về 0.0.
 
 ## 4. Xử lý Các Trường hợp Biên (Edge Cases)
 

@@ -295,6 +295,8 @@ def test_fsm_abort_safety_request_retry_and_terminal_cleanup():
     # 4. Terminal status from Voice for matching session cleans up to IDLE
     status_terminal = {
         "session_id": sess_id,
+        "mission_id": "mission-123",
+        "goal_attempt_id": "goal-456",
         "status": "CANCELED",
         "is_terminal": True,
     }
@@ -331,7 +333,13 @@ def test_fsm_goal_completion_succeeded_vs_late_stale_goal():
     assert manager.session_id == session_a  # Current session intact!
 
     # 2. Terminal SUCCEEDED for session A arrives: transitions to ARRIVED and cleans up
-    current_status = {"session_id": session_a, "status": "SUCCEEDED", "is_terminal": True}
+    current_status = {
+        "session_id": session_a,
+        "mission_id": "mission-a",
+        "goal_attempt_id": "goal-a1",
+        "status": "SUCCEEDED",
+        "is_terminal": True,
+    }
     handled_ok, reason_ok = manager.on_voice_nav_status(current_status, current_time_sec=2.5)
     assert handled_ok is True
     assert manager.state == TrackingState.IDLE

@@ -110,7 +110,7 @@ def generate_launch_description():
             executable='parameter_bridge',
             arguments=[
                 '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
-                '/cmd_vel@geometry_msgs/msg/Twist@gz.msgs.Twist',
+                '/cmd_vel@geometry_msgs/msg/Twist]gz.msgs.Twist',
                 '/odom/unfiltered@nav_msgs/msg/Odometry[gz.msgs.Odometry',
                 '/imu/data@sensor_msgs/msg/Imu[gz.msgs.IMU',
                 '/joint_states@sensor_msgs/msg/JointState[gz.msgs.Model',
@@ -146,6 +146,9 @@ def generate_launch_description():
                 'use_sim_time': use_sim_time,
                 'params_file': guard_nav_params_path,
                 'autostart': 'true',
+                'initial_pose_x': LaunchConfiguration('initial_pose_x'),
+                'initial_pose_y': LaunchConfiguration('initial_pose_y'),
+                'initial_pose_yaw': LaunchConfiguration('initial_pose_yaw'),
             }.items()
         ),
 

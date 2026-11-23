@@ -76,9 +76,13 @@
       "person_distance_m": { "type": "number", "minimum": 0.0 },
       "depth_proven": { "type": "boolean" },
       "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
-      "reason_code": { "type": "string" }
+      "reason_code": { "type": "string" },
+      "source_session_id": { "type": "string" },
+      "mission_id": { "type": ["string", "null"] },
+      "goal_attempt_id": { "type": ["string", "null"] },
+      "nav2_uuid": { "type": ["string", "null"] }
     },
-    "required": ["schema_version", "stamp", "sequence_num", "session_id", "state", "locked", "person_track_id", "confidence"]
+    "required": ["schema_version", "stamp", "sequence_num", "session_id", "state", "locked", "person_track_id", "confidence", "source_session_id"]
   }
   ```
 - **Ví dụ Payload:**
@@ -96,7 +100,11 @@
     "person_distance_m": 1.45,
     "depth_proven": false,
     "confidence": 0.94,
-    "reason_code": "HAND_RAISE_HELD_NEAREST"
+    "reason_code": "HAND_RAISE_HELD_NEAREST",
+    "source_session_id": "src-live-cam-01",
+    "mission_id": null,
+    "goal_attempt_id": null,
+    "nav2_uuid": null
   }
   ```
 - **Quy tắc Kiểm tra tại Voice (Gating Rule):**
@@ -112,7 +120,12 @@
 - **Bên tiêu thụ (Consumer):** `airport_robot_voice/nav_command_node`
 - **Kiểu ROS 2:** `std_msgs/msg/String` (JSON format)
 - **QoS:** Depth=10, Reliability=RELIABLE
-- **Cơ chế:** Gửi ngay khi có sự kiện bất thường. Tự động gửi lại (retry) tối đa 3 lần sau mỗi 200 ms nếu chưa nhận được ACK từ Voice.
+- **Cơ chế & Vòng đời request_id:**
+  * Sinh duy nhất một `request_id` (UUIDv4) khi bước vào chuỗi hủy `ABORTING`.
+  * **Tái sử dụng nguyên vẹn** `request_id` này cho tối đa 3 lần gửi lại (retry) cách nhau 200 ms (tổng 4 lần phát) cho đến khi nhận được ACK.
+  * Voice **bắt buộc phản hồi ACK** mang cùng `request_id`, `session_id`, và `goal_attempt_id` trên topic `/voice/nav_status`.
+  * **Hạn chót Terminal (3.0s):** Khi nhận ACK đầu tiên, Tracking kích hoạt bộ đếm hạn chót xác nhận Terminal. Các bản tin ACK trùng (duplicate ACK) tiếp theo **tuyệt đối không được kéo dài** hạn chót này.
+  * Quá hạn 3 lần retry không có ACK HOẶC quá 3.0s sau ACK không nhận được bản tin Terminal: Tracking chuyển sang `FAULT`, kích hoạt cờ `unconfirmed_terminal = true`, chốt dừng 0 và chặn khóa khách mới cho đến khi có xác nhận kết thúc.
 - **JSON Schema:**
   ```json
   {
@@ -276,7 +289,10 @@
      - Dưới $1.2m$: An toàn cự ly gần, giữ vận tốc Nav2, không tăng tốc và tuyệt đối không lùi xe vào người ($v_x \ge 0$).
      - Giữ `linear.y = 0.0` tuyệt đối.
   5. **Hiệu chỉnh Góc quay (Angular Trimming):**
-     - Dấu quay ADR-10: Khách lệch phải ảnh ($e_x > 0$) $\implies$ quay CCW ($\omega > 0$). Khách lệch trái ($e_x < 0$) $\implies$ quay CW ($\omega < 0$).
+     - Quy ước dấu camera sau ADR-10 (Camera nhìn về phía sau robot):
+       * Khách lệch PHẢI ảnh ($e_x > 0$, tức phía sau bên phải robot): $\implies$ quay theo chiều kim đồng hồ (CW, $\Delta \omega < 0$).
+       * Khách lệch TRÁI ảnh ($e_x < 0$, tức phía sau bên trái robot): $\implies$ quay ngược chiều kim đồng hồ (CCW, $\Delta \omega > 0$).
+       * Khách ở GIỮA ảnh ($e_x = 0$): $\implies$ không hiệu chỉnh ($\Delta \omega = 0.0$).
      - Vùng chết (Deadband): $|e_x| \le 0.08 \implies \Delta \omega = 0.0$.
      - Bão hòa: $|\Delta \omega| \le 0.20$ rad/s.
      - Giảm tốc mép ảnh: $|e_x| > 0.70 \implies$ giảm 50% tốc độ tiến ($v_x = 0.5 v_x$).

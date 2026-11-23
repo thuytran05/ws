@@ -1,48 +1,9 @@
-================================================================================
-PHASE 8 END-TO-END RUNTIME TOPIC GRAPH AUDIT & VELOCITY CHAIN VERIFICATION
-Date: 23/11/2026
-Environment: ROS 2 Jazzy (Dev Container), ROS_DOMAIN_ID=42
-================================================================================
+# Topic Graph & /cmd_vel Publisher Introspection Audit
+Topic: /cmd_vel
+Publishers (0):
+Subscribers (2):
+  - Node: _NODE_NAMESPACE_UNKNOWN_/_NODE_NAME_UNKNOWN_, Type: geometry_msgs/msg/Twist
+  - Node: //gate8_real_gazebo_test_driver, Type: geometry_msgs/msg/Twist
 
-1. RUNTIME VELOCITY CONTROL CHAIN AUDIT
---------------------------------------------------------------------------------
-Chain Flow:
-  [Nav2 Controller Server]
-     |  Topic: /cmd_vel_nav (geometry_msgs/msg/Twist)
-     v
-  [Nav2 Velocity Smoother]
-     |  Topic: /cmd_vel_smoothed (geometry_msgs/msg/Twist, 20 Hz)
-     v
-  [escort_velocity_guard] (person_tracking)
-     |  Topic: /tracking/cmd_vel_guarded (geometry_msgs/msg/Twist, 20 Hz, transient zeroing)
-     v
-  [nav2_collision_monitor]
-     |  Topic: /cmd_vel (geometry_msgs/msg/Twist, 20 Hz)
-     v
-  [ros_gz_bridge / base_link]
-
-2. PUBLISHER AUDIT ON /cmd_vel:
---------------------------------------------------------------------------------
-  Topic: /cmd_vel
-  Publishers:
-    - /nav2_collision_monitor (or mock_collision_monitor in integration tests)
-  Subscribers:
-    - /ros_gz_bridge (parameter_bridge) -> gz.msgs.Twist base controller
-  AUDIT RESULT: PASS
-  Verification: Collision Monitor is the SOLE publisher on /cmd_vel.
-  No bypass from:
-    - Nav2 controller: outputs to /cmd_vel_nav
-    - Velocity Smoother: outputs to /cmd_vel_smoothed
-    - Velocity Guard: outputs to /tracking/cmd_vel_guarded
-    - Teleop: absent / no active publisher
-
-3. CRITICAL SAFETY INVARIANTS AUDIT:
---------------------------------------------------------------------------------
-  [x] escort_velocity_guard has STRICTLY ZERO /cmd_vel publishers (publishes only /tracking/cmd_vel_guarded).
-  [x] escort_tracking_manager has STRICTLY ZERO /cmd_vel publishers (publishes only /tracking/session_state, /tracking/safety_request).
-  [x] Lateral velocity invariant: linear.y == 0.0 strictly across all output conditions.
-  [x] Nav2 idle invariance: when Nav2 command is 0.0, Guard output is strictly 0.0 (no self-motion).
-  [x] Obstacle override: Collision Monitor halts /cmd_vel independently of Guard non-zero output (T23 PASS).
-  [x] Watchdog halt: Guard termination stops /cmd_vel via Collision Monitor timeout (T22 PASS).
-  [x] Clock pause immunity: Monotonic steady clock maintains active zeroing on simulation freeze (T33 PASS).
-================================================================================
+Topic: /tracking/cmd_vel_guarded
+Publishers (0):

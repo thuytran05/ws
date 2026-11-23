@@ -172,11 +172,45 @@ class TrackingManagerNode(Node):
                     if status_data.get("nav2_uuid") != self.manager.bound_nav2_uuid:
                         self.get_logger().warn("ACK nav2_uuid mismatch! Ignored.")
                         return
-                self.get_logger().info(f"Received matching ACK for abort request: {self.current_abort_request_id}")
-                self.abort_acked = True
-                self.abort_ack_received_mono_time = now_mono
+                if not self.abort_acked:
+                    self.get_logger().info(f"Received matching ACK for abort request: {self.current_abort_request_id}")
+                    self.abort_acked = True
+                    self.abort_ack_received_mono_time = now_mono
+                else:
+                    self.get_logger().info(f"Duplicate ACK received for abort request {self.current_abort_request_id}, deadline not extended.")
 
-        # 2. Check if destination acceptance event
+        # 2. Check for startup / restart with unresolved goal
+        if self.manager.state == TrackingState.IDLE and not self.manager.session_id:
+            if not is_terminal and status_val in ("NAVIGATING", "EXECUTING", "CANCELING", "PAUSED"):
+                self.get_logger().warn(
+                    f"Startup detected active unresolved goal from Voice (status={status_val}, session={session_id}, goal={status_data.get('goal_attempt_id')}). Locking blocked until terminal."
+                )
+                self.manager.unconfirmed_terminal = True
+                self.unresolved_goal_session_id = session_id
+                self.unresolved_goal_attempt_id = status_data.get("goal_attempt_id")
+                self.manager.reason_code = "UNRESOLVED_GOAL_ON_STARTUP"
+                now = self.get_clock().now().to_msg()
+                snapshot = self.manager._make_snapshot(now.sec, now.nanosec, now_mono)
+                self.last_snapshot = snapshot
+                self._publish_session_state(snapshot)
+                return
+            elif is_terminal and self.manager.unconfirmed_terminal:
+                unres_goal = getattr(self, "unresolved_goal_attempt_id", None)
+                if not unres_goal or unres_goal == status_data.get("goal_attempt_id") or session_id == getattr(self, "unresolved_goal_session_id", None):
+                    self.get_logger().info(
+                        f"Terminal received for unresolved startup goal (status={status_val}). Unblocking locking."
+                    )
+                    self.manager.unconfirmed_terminal = False
+                    self.unresolved_goal_session_id = None
+                    self.unresolved_goal_attempt_id = None
+                    self.manager.reason_code = "NO_LOCK"
+                    now = self.get_clock().now().to_msg()
+                    snapshot = self.manager._make_snapshot(now.sec, now.nanosec, now_mono)
+                    self.last_snapshot = snapshot
+                    self._publish_session_state(snapshot)
+                    return
+
+        # 3. Check if destination acceptance event
         if (nav_event == "NAVIGATION_STARTED" or status_val == "NAVIGATING") and not is_terminal:
             mission_id = status_data.get("mission_id")
             goal_attempt_id = status_data.get("goal_attempt_id")
@@ -198,7 +232,7 @@ class TrackingManagerNode(Node):
                 self.get_logger().warn(f"Destination acceptance rejected: {reason}")
             return
 
-        # 3. Check for terminal event or session reset
+        # 4. Check for terminal event or session reset
         prev_state = self.manager.state.value
         handled, reason = self.manager.on_voice_nav_status(status_data, current_time_sec=now_mono)
         if handled:
@@ -218,6 +252,19 @@ class TrackingManagerNode(Node):
             return
 
         m_state = str(state_data.get("mission_state", "")).upper()
+        if m_state == "NAVIGATING" and self.manager.state == TrackingState.IDLE and not self.manager.session_id:
+            self.manager.unconfirmed_terminal = True
+            self.unresolved_goal_session_id = state_data.get("session_id")
+            self.unresolved_goal_attempt_id = state_data.get("goal_attempt_id")
+            self.manager.reason_code = "UNRESOLVED_GOAL_ON_STARTUP"
+            return
+        elif self.manager.unconfirmed_terminal and self.manager.state == TrackingState.IDLE:
+            if m_state in ("IDLE", "COMPLETED", "CANCELED"):
+                self.manager.unconfirmed_terminal = False
+                self.unresolved_goal_session_id = None
+                self.unresolved_goal_attempt_id = None
+                self.manager.reason_code = "NO_LOCK"
+                return
         if m_state == "NAVIGATING" and self.manager.state == TrackingState.LOCKED_WAIT_DESTINATION:
             now_mono = time.monotonic()
             sess_id = state_data.get("session_id")

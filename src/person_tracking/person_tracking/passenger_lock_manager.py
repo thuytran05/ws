@@ -53,6 +53,10 @@ class SessionStateSnapshot:
     depth_proven: bool
     confidence: float
     reason_code: str
+    source_session_id: str = ""
+    mission_id: Optional[str] = None
+    goal_attempt_id: Optional[str] = None
+    nav2_uuid: Optional[str] = None
 
 
 class PassengerLockManager:
@@ -564,6 +568,8 @@ class PassengerLockManager:
             uuid_val = status_payload.get("nav2_uuid")
             if self.bound_nav2_uuid and uuid_val and uuid_val != self.bound_nav2_uuid:
                 return False, "MISMATCHED_NAV2_UUID"
+            if self.bound_goal_attempt_id and not g_id:
+                return False, "MISSING_GOAL_ATTEMPT_ID"
 
             if status == "SUCCEEDED":
                 self.state = TrackingState.ARRIVED
@@ -611,6 +617,10 @@ class PassengerLockManager:
             depth_proven=self.locked_depth_proven,
             confidence=self.locked_confidence,
             reason_code=reason,
+            source_session_id=self.locked_source_session_id or "",
+            mission_id=self.bound_mission_id,
+            goal_attempt_id=self.bound_goal_attempt_id,
+            nav2_uuid=self.bound_nav2_uuid,
         )
 
     def to_json_dict(self, snapshot: SessionStateSnapshot) -> dict:
@@ -629,4 +639,8 @@ class PassengerLockManager:
             "depth_proven": snapshot.depth_proven,
             "confidence": snapshot.confidence,
             "reason_code": snapshot.reason_code,
+            "source_session_id": snapshot.source_session_id,
+            "mission_id": snapshot.mission_id,
+            "goal_attempt_id": snapshot.goal_attempt_id,
+            "nav2_uuid": snapshot.nav2_uuid,
         }

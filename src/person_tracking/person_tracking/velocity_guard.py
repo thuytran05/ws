@@ -85,10 +85,14 @@ class VelocityGuard:
         self.last_observation_mono_time: float = 0.0
         self.last_passenger_seen_mono_time: float = 0.0
 
-        # Session and track binding
+        # Session, source and goal binding
         self.current_session_id: str = ""
         self.bound_track_id: Optional[int] = None
         self.bound_source_session_id: str = ""
+        self.bound_mission_id: Optional[str] = None
+        self.bound_goal_attempt_id: Optional[str] = None
+        self.bound_nav2_uuid: Optional[str] = None
+        self.last_heartbeat_stamp: Tuple[int, int] = (-1, -1)
         self.last_obs_stamp: Tuple[int, int] = (-1, -1)
         self.last_valid_observation: Optional[dict] = None
         self.valid_obs_count: int = 0
@@ -108,12 +112,25 @@ class VelocityGuard:
         if now_mono is None:
             now_mono = time.monotonic()
 
+        # Reject out-of-order or stale heartbeat after restart / delay
+        stamp = session_payload.get("stamp", {})
+        hb_sec = stamp.get("sec", -1)
+        hb_nanosec = stamp.get("nanosec", -1)
+        if isinstance(hb_sec, int) and isinstance(hb_nanosec, int) and hb_sec >= 0:
+            if (hb_sec, hb_nanosec) < self.last_heartbeat_stamp:
+                # Stale heartbeat from before restart or network delay: reject!
+                return
+            self.last_heartbeat_stamp = (hb_sec, hb_nanosec)
+
         new_sess_id = session_payload.get("session_id", "")
         # Session changed: reset session-bound state and revoke old commands
         if new_sess_id != self.current_session_id:
             self.current_session_id = new_sess_id
             self.bound_track_id = session_payload.get("person_track_id")
-            self.bound_source_session_id = ""
+            self.bound_source_session_id = session_payload.get("source_session_id", "")
+            self.bound_mission_id = session_payload.get("mission_id")
+            self.bound_goal_attempt_id = session_payload.get("goal_attempt_id")
+            self.bound_nav2_uuid = session_payload.get("nav2_uuid")
             self.last_obs_stamp = (-1, -1)
             self.last_valid_observation = None
             self.valid_obs_count = 0
@@ -125,6 +142,33 @@ class VelocityGuard:
             self.distance_stop_latched = False
         else:
             self.bound_track_id = session_payload.get("person_track_id")
+            src_sess = session_payload.get("source_session_id", "")
+            if src_sess:
+                self.bound_source_session_id = src_sess
+
+            new_goal_attempt = session_payload.get("goal_attempt_id")
+            new_mission_id = session_payload.get("mission_id")
+            new_nav2_uuid = session_payload.get("nav2_uuid")
+
+            # Detect goal change even within the same session
+            goal_changed = (
+                self.bound_goal_attempt_id is not None
+                and new_goal_attempt is not None
+                and new_goal_attempt != self.bound_goal_attempt_id
+            ) or (
+                self.bound_mission_id is not None
+                and new_mission_id is not None
+                and new_mission_id != self.bound_mission_id
+            )
+
+            if goal_changed:
+                # Cancel/clear cached cmd_vel when goal changes, even within same session!
+                self.latest_cmd_vel = None
+                self.motion_gate_opened_mono_time = now_mono
+
+            self.bound_mission_id = new_mission_id
+            self.bound_goal_attempt_id = new_goal_attempt
+            self.bound_nav2_uuid = new_nav2_uuid
 
         prev_state = self.latest_session_state.get("state") if self.latest_session_state else None
         curr_state = session_payload.get("state")
@@ -285,6 +329,8 @@ class VelocityGuard:
         if not locked or state != "NAVIGATING":
             self.is_gate_open = False
             return False, f"GATE_CLOSED_{state}"
+
+        
 
         # 3. Observation validation: must have at least one valid observation from start
         if self.valid_obs_count == 0 or self.last_valid_observation is None or self.last_passenger_seen_mono_time <= 0.0:

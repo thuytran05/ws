@@ -316,3 +316,182 @@ def test_terminal_timeout_after_ack_triggers_fault_and_unconfirmed_terminal():
     finally:
         if rclpy.ok():
             rclpy.shutdown()
+
+
+def test_terminal_validation_missing_fields_and_uuid():
+    """A.2: Terminal missing goal_attempt_id, wrong nav2_uuid, or mismatched mission_id is rejected."""
+    manager = PassengerLockManager(gesture_hold_time_sec=1.5)
+    sess_id = _lock_passenger(manager, track_id=11)
+    manager.on_destination_accepted(
+        sess_id,
+        mission_id="mission-100",
+        goal_attempt_id="attempt-100",
+        nav2_uuid="uuid-1234-5678",
+        current_time_sec=1.5,
+    )
+
+    # 1. Missing session_id or wrong session_id
+    handled, reason = manager.on_voice_nav_status(
+        {"session_id": "wrong-sess", "status": "SUCCEEDED", "is_terminal": True},
+        current_time_sec=1.6,
+    )
+    assert handled is False
+    assert reason == "IGNORED_STALE_SESSION"
+
+    # 2. Missing goal_attempt_id when goal was bound
+    handled, reason = manager.on_voice_nav_status(
+        {"session_id": sess_id, "status": "SUCCEEDED", "is_terminal": True},
+        current_time_sec=1.6,
+    )
+    assert handled is False
+    assert reason == "MISSING_GOAL_ATTEMPT_ID"
+
+    # 3. Wrong nav2_uuid
+    handled, reason = manager.on_voice_nav_status(
+        {
+            "session_id": sess_id,
+            "goal_attempt_id": "attempt-100",
+            "nav2_uuid": "wrong-uuid",
+            "status": "SUCCEEDED",
+            "is_terminal": True,
+        },
+        current_time_sec=1.6,
+    )
+    assert handled is False
+    assert reason == "MISMATCHED_NAV2_UUID"
+
+    # 4. Wrong mission_id
+    handled, reason = manager.on_voice_nav_status(
+        {
+            "session_id": sess_id,
+            "mission_id": "wrong-mission",
+            "goal_attempt_id": "attempt-100",
+            "nav2_uuid": "uuid-1234-5678",
+            "status": "SUCCEEDED",
+            "is_terminal": True,
+        },
+        current_time_sec=1.6,
+    )
+    assert handled is False
+    assert reason == "MISMATCHED_MISSION_ID"
+
+    # 5. Matching all identifiers -> accepted terminal
+    handled, reason = manager.on_voice_nav_status(
+        {
+            "session_id": sess_id,
+            "mission_id": "mission-100",
+            "goal_attempt_id": "attempt-100",
+            "nav2_uuid": "uuid-1234-5678",
+            "status": "SUCCEEDED",
+            "is_terminal": True,
+        },
+        current_time_sec=1.6,
+    )
+    assert handled is True
+    assert reason == "TERMINAL_SUCCEEDED"
+    assert manager.state == TrackingState.IDLE
+
+
+def test_duplicate_ack_does_not_extend_terminal_deadline():
+    """A.2: Duplicate ACK received while ABORTING must NOT extend the 3.0s terminal timeout deadline."""
+    rclpy.init()
+    try:
+        node = TrackingManagerNode()
+        sess_id = _lock_passenger(node.manager, track_id=12)
+        node.manager.on_destination_accepted(sess_id, mission_id="m1", goal_attempt_id="g1", current_time_sec=1.5)
+
+        # Trigger abort
+        node.manager.state = TrackingState.ABORTING
+        node.manager.reason_code = "VISIBILITY_TIMEOUT_ABORT"
+        node._initiate_abort()
+        req_id = node.current_abort_request_id
+
+        # First ACK received
+        ack_data = json.dumps({
+            "session_id": sess_id,
+            "request_id": req_id,
+            "goal_attempt_id": "g1",
+            "nav_event": "CANCEL_ACKNOWLEDGED",
+            "is_terminal": False,
+        })
+        node._on_voice_status(String(data=ack_data))
+        assert node.abort_acked is True
+        first_ack_time = node.abort_ack_received_mono_time
+
+        # Duplicate ACK arrives 2.0 seconds later
+        # Simulate now_mono advancing by 2.0s
+        node._on_voice_status(String(data=ack_data))
+        # Deadline MUST NOT be extended: abort_ack_received_mono_time stays at first_ack_time
+        assert node.abort_ack_received_mono_time == first_ack_time
+
+        # At 3.1s from first ACK, watchdog must trigger FAULT (TERMINAL_TIMEOUT_EXCEEDED)
+        node.abort_ack_received_mono_time = first_ack_time - 3.1
+        node._on_watchdog_tick()
+        assert node.manager.state == TrackingState.FAULT
+        assert node.manager.reason_code == "TERMINAL_TIMEOUT_EXCEEDED"
+        assert node.manager.unconfirmed_terminal is True
+
+        node.destroy_node()
+    finally:
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+def test_restart_with_unresolved_old_goal_blocks_locking_until_terminal():
+    """A.2: Node restart with an unresolved goal from Voice sets unconfirmed_terminal and blocks locking until terminal."""
+    rclpy.init()
+    try:
+        node = TrackingManagerNode()
+        # Node starts in IDLE with empty session
+        assert node.manager.state == TrackingState.IDLE
+        assert node.manager.session_id == ""
+        assert node.manager.unconfirmed_terminal is False
+
+        # Latched message from Voice indicating active goal from previous run
+        latched_status = json.dumps({
+            "session_id": "old-session-999",
+            "mission_id": "old-mission-999",
+            "goal_attempt_id": "old-attempt-999",
+            "status": "NAVIGATING",
+            "nav_event": "EXECUTING",
+            "is_terminal": False,
+        })
+        node._on_voice_status(String(data=latched_status))
+
+        # Node must detect unresolved goal and lock it out
+        assert node.manager.unconfirmed_terminal is True
+        assert node.manager.reason_code == "UNRESOLVED_GOAL_ON_STARTUP"
+
+        # A passenger tries to lock: must be BLOCKED
+        cand = {"track_id": 15, "is_confirmed": True, "depth_valid": True, "keypoints": [[180.0, 150.0, 0.9]] * 17}
+        cand["keypoints"][9] = [180.0, 100.0, 0.95]
+        obs = {"source_session_id": "src-live", "candidates": [cand], "stamp": {"sec": 1, "nanosec": 0}}
+        snap = node.manager.process_observation(obs, current_time_sec=1.0)
+        assert snap.locked is False
+        assert snap.reason_code == "UNCONFIRMED_TERMINAL_BLOCK"
+
+        # Voice now completes cancellation of the old goal and sends terminal
+        terminal_status = json.dumps({
+            "session_id": "old-session-999",
+            "mission_id": "old-mission-999",
+            "goal_attempt_id": "old-attempt-999",
+            "status": "CANCELED",
+            "nav_event": "GOAL_COMPLETED",
+            "is_terminal": True,
+        })
+        node._on_voice_status(String(data=terminal_status))
+
+        # Unconfirmed terminal is now cleared!
+        assert node.manager.unconfirmed_terminal is False
+        assert node.manager.reason_code == "NO_LOCK"
+
+        # Candidate can now lock after holding gesture
+        new_sess_id = _lock_passenger(node.manager, track_id=15)
+        assert node.manager.locked is True
+        assert node.manager.state == TrackingState.LOCKED_WAIT_DESTINATION
+        assert new_sess_id != "old-session-999"
+
+        node.destroy_node()
+    finally:
+        if rclpy.ok():
+            rclpy.shutdown()

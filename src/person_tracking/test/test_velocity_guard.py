@@ -44,9 +44,15 @@ def _make_navigating_session(
     state: str = "NAVIGATING",
     track_id: int = 1,
     session_id: str = "test-session-uuid",
+    goal_attempt_id: str = "attempt-001",
+    source_session_id: str = "src-sess-1",
+    mission_id: str = "mission-001",
+    stamp_sec: int = 1,
+    stamp_nanosec: int = 0,
 ) -> dict:
     return {
         "schema_version": "1.0",
+        "stamp": {"sec": stamp_sec, "nanosec": stamp_nanosec},
         "state": state,
         "locked": state in ("NAVIGATING", "LOCKED_WAIT_DESTINATION"),
         "session_id": session_id,
@@ -54,6 +60,9 @@ def _make_navigating_session(
         "person_distance_m": dist_m,
         "depth_proven": depth_proven,
         "obs_fresh": obs_fresh,
+        "source_session_id": source_session_id,
+        "goal_attempt_id": goal_attempt_id,
+        "mission_id": mission_id,
     }
 
 
@@ -392,7 +401,7 @@ def test_observation_gating_rejects_empty_wrong_source_or_invalid_candidates():
     t = 100.0
 
     # 1. Start navigating without valid observation -> output strictly zero
-    guard.update_session_state(_make_navigating_session(dist_m=1.5, track_id=1), now_mono=t)
+    guard.update_session_state(_make_navigating_session(dist_m=1.5, track_id=1, source_session_id="src-sess-A"), now_mono=t)
     guard.update_cmd_vel(linear_x=0.30, linear_y=0.0, angular_z=0.0, now_mono=t + 0.01)
     vx, _, _, reason = guard.process_velocity(now_mono=t + 0.02)
     assert vx == 0.0
@@ -627,3 +636,71 @@ def test_closed_loop_rear_camera_yaw_geometry():
     guard.update_cmd_vel(linear_x=0.30, linear_y=0.0, angular_z=0.0, now_mono=t + 0.11)
     _, _, wz_center_trim, _ = guard.process_velocity(now_mono=t + 0.12)
     assert pytest.approx(wz_center_trim, 1e-4) == 0.0
+
+
+def test_frame_same_track_id_different_source_first_rejected():
+    """A.1: Frame with same track ID from a different source arriving first
+    does not match bound_source_session_id from session_state -> Guard stays at zero.
+    """
+    guard = VelocityGuard()
+    t = 100.0
+
+    # Session state binds track_id=1 and source_session_id="src-authorized"
+    guard.update_session_state(_make_navigating_session(track_id=1, source_session_id="src-authorized"), now_mono=t)
+    guard.update_cmd_vel(linear_x=0.30, linear_y=0.0, angular_z=0.0, now_mono=t + 0.01)
+
+    # Observation arrives with same track_id=1, but wrong source_session_id="src-unauthorized"
+    obs_wrong_src = _make_observation(track_id=1, source_session_id="src-unauthorized", stamp_sec=1, stamp_nanosec=10)
+    guard.update_observation(obs_wrong_src, now_mono=t + 0.02)
+
+    vx, _, _, reason = guard.process_velocity(now_mono=t + 0.03)
+    assert vx == 0.0
+    assert reason == "NO_VALID_OBSERVATION"
+
+
+def test_goal_change_revokes_cached_cmd_vel_while_navigating():
+    """A.1: When goal changes while still NAVIGATING, cached cmd_vel is revoked immediately.
+    Motion gate requires a fresh command received AFTER the goal change.
+    """
+    guard = VelocityGuard()
+    t = 100.0
+
+    # 1. Start navigating goal 1
+    guard.update_session_state(_make_navigating_session(goal_attempt_id="goal-attempt-001"), now_mono=t)
+    guard.update_observation(_make_observation(stamp_sec=1, stamp_nanosec=0), now_mono=t)
+    guard.update_cmd_vel(linear_x=0.30, linear_y=0.0, angular_z=0.0, now_mono=t + 0.01)
+
+    vx, _, _, reason = guard.process_velocity(now_mono=t + 0.02)
+    assert vx == 0.30
+    assert reason == "ESCORT_VELOCITY_PASS"
+
+    # 2. Goal changes to goal 2 within same session (e.g. replan/retry) at t + 0.05
+    guard.update_session_state(_make_navigating_session(goal_attempt_id="goal-attempt-002", stamp_sec=1, stamp_nanosec=50_000_000), now_mono=t + 0.05)
+
+    # Assert cached command was cleared!
+    assert guard.latest_cmd_vel is None
+
+    # Processing velocity at t + 0.06 without fresh command -> rejected
+    vx, _, _, reason = guard.process_velocity(now_mono=t + 0.06)
+    assert vx == 0.0
+    assert reason == "NO_CMD_VEL"
+
+    # Fresh command received after goal change (t + 0.07) -> moves
+    guard.update_cmd_vel(linear_x=0.30, linear_y=0.0, angular_z=0.0, now_mono=t + 0.07)
+    vx, _, _, reason = guard.process_velocity(now_mono=t + 0.08)
+    assert vx == 0.30
+    assert reason == "ESCORT_VELOCITY_PASS"
+
+
+def test_stale_heartbeat_after_restart_rejected():
+    """A.1: Replayed or stale heartbeat with older stamp arriving after restart is rejected."""
+    guard = VelocityGuard()
+    t = 100.0
+
+    # Newer heartbeat at stamp (10, 0)
+    guard.update_session_state(_make_navigating_session(stamp_sec=10, stamp_nanosec=0), now_mono=t)
+    assert guard.last_heartbeat_stamp == (10, 0)
+
+    # Stale/replayed heartbeat with stamp (5, 0) arrives -> rejected!
+    guard.update_session_state(_make_navigating_session(stamp_sec=5, stamp_nanosec=0), now_mono=t + 0.01)
+    assert guard.last_heartbeat_stamp == (10, 0)  # Unchanged!
