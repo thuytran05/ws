@@ -14,12 +14,24 @@ LOG_DIR="/home/ws/src/.agent/person_tracking/evidence/phase_8"
 mkdir -p "$LOG_DIR"
 RUNTIME_LOG="$LOG_DIR/gazebo_nav2_runtime.log"
 
+echo "=== Cleaning up any lingering processes on ROS_DOMAIN_ID=43 ==="
+pkill -f "[e]scort_velocity_guard" 2>/dev/null || true
+pkill -f "[e]scort_velocity_watchdog" 2>/dev/null || true
+pkill -f "[e]scort_tracking_manager" 2>/dev/null || true
+pkill -f "gate8_real_gazebo_test_driver" 2>/dev/null || true
+pkill -f gz 2>/dev/null || true
+pkill -f parameter_bridge 2>/dev/null || true
+pkill -f nav2 2>/dev/null || true
+rm -f /dev/shm/fastrtps_* /dev/shm/sem.fastrtps_* 2>/dev/null || true
+sleep 1
+
 echo "=== Starting Gazebo + Nav2 Integration Launch on ROS_DOMAIN_ID=43 ==="
 set -m
-ros2 launch person_tracking gazebo_escort_integration.launch.py gui:=false > "$RUNTIME_LOG" 2>&1 &
+ros2 launch person_tracking gazebo_escort_integration.launch.py gui:=false enable_test_scan:=true > "$RUNTIME_LOG" 2>&1 &
 LAUNCH_PID=$!
 LAUNCH_PGID=$(ps -o pgid= -p $LAUNCH_PID | tr -d ' ')
 echo "Launch PID: $LAUNCH_PID, PGID: $LAUNCH_PGID"
+export LAUNCH_PID LAUNCH_PGID
 
 cleanup() {
     echo "=== Shutting down launch process group -$LAUNCH_PGID ==="
@@ -28,14 +40,18 @@ cleanup() {
         sleep 4
         kill -KILL -$LAUNCH_PGID 2>/dev/null || true
     fi
+    pkill -f "[e]scort_velocity_guard" 2>/dev/null || true
+    pkill -f "[e]scort_velocity_watchdog" 2>/dev/null || true
+    pkill -f "[e]scort_tracking_manager" 2>/dev/null || true
+    rm -f /dev/shm/fastrtps_* /dev/shm/sem.fastrtps_* 2>/dev/null || true
     echo "Cleanup complete."
 }
 trap cleanup EXIT INT TERM
 
-echo "Waiting for Nav2 & Gazebo nodes to come online (up to 35s)..."
+echo "Waiting for Nav2 & Gazebo nodes to come online (up to 50s)..."
 NODES_READY=false
-for i in $(seq 1 35); do
-    if ros2 node list 2>/dev/null | grep -q "collision_monitor" && ros2 node list 2>/dev/null | grep -q "escort_velocity_guard"; then
+for i in $(seq 1 50); do
+    if ros2 node list 2>/dev/null | grep -q "escort_velocity_guard" && ros2 node list 2>/dev/null | grep -q "escort_velocity_watchdog" && ros2 node list 2>/dev/null | grep -q "ekf_filter_node"; then
         echo "Nodes detected online at i=$i! Waiting 5s for lifecycle activation..."
         sleep 5
         NODES_READY=true

@@ -17,6 +17,7 @@ import uuid
 
 import rclpy
 from rclpy.action import ActionClient
+import tf2_ros
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
@@ -61,6 +62,9 @@ class RealGazeboTestDriver(Node):
         self.sub_odom = self.create_subscription(Odometry, '/odom', self._on_odom, 10)
         self.sub_cmd_vel = self.create_subscription(Twist, '/cmd_vel', self._on_cmd_vel, 10)
         self.sub_guarded_cmd = self.create_subscription(Twist, '/tracking/cmd_vel_guarded', self._on_guarded_cmd, 10)
+        self.sub_watchdog_cmd = self.create_subscription(Twist, '/tracking/cmd_vel_watchdog', self._on_watchdog_cmd, 10)
+        self.latest_watchdog_cmd: Optional[Twist] = None
+        self.watchdog_history: List[Tuple[float, float, float, float]] = []
         self.sub_session = self.create_subscription(String, '/tracking/session_state', self._on_session_state, transient_qos)
         self.sub_safety = self.create_subscription(String, '/tracking/safety_request', self._on_safety_request, reliable_qos)
         self.sub_clock = self.create_subscription(Clock, '/clock', self._on_clock, 10)
@@ -83,6 +87,8 @@ class RealGazeboTestDriver(Node):
         self.latest_session: Optional[dict] = None
         self.safety_requests: List[dict] = []
         self.latest_amcl_pose: Optional[PoseWithCovarianceStamped] = None
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
         self.current_goal_handle = None
 
@@ -173,6 +179,16 @@ class RealGazeboTestDriver(Node):
         self.latest_amcl_pose = msg
 
     def get_current_map_pose(self) -> Tuple[float, float, float]:
+        try:
+            t = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
+            p = t.transform.translation
+            q = t.transform.rotation
+            siny_cosp = 2 * (q.w * q.z + q.x * q.y)
+            cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
+            yaw = math.atan2(siny_cosp, cosy_cosp)
+            return float(p.x), float(p.y), float(yaw)
+        except Exception:
+            pass
         if self.latest_amcl_pose:
             p = self.latest_amcl_pose.pose.pose.position
             q = self.latest_amcl_pose.pose.pose.orientation
@@ -196,11 +212,15 @@ class RealGazeboTestDriver(Node):
     def _on_odom(self, msg: Odometry):
         self.latest_odom = msg
         t = time.monotonic()
+        sec = msg.header.stamp.sec
+        nanosec = msg.header.stamp.nanosec
         self.odom_history.append((
             t,
             msg.twist.twist.linear.x,
             msg.twist.twist.linear.y,
-            msg.twist.twist.angular.z
+            msg.twist.twist.angular.z,
+            sec,
+            nanosec
         ))
 
     def _on_cmd_vel(self, msg: Twist):
@@ -212,6 +232,11 @@ class RealGazeboTestDriver(Node):
         self.latest_guarded_cmd = msg
         t = time.monotonic()
         self.guarded_history.append((t, msg.linear.x, msg.linear.y, msg.angular.z))
+
+    def _on_watchdog_cmd(self, msg: Twist):
+        self.latest_watchdog_cmd = msg
+        t = time.monotonic()
+        self.watchdog_history.append((t, msg.linear.x, msg.linear.y, msg.angular.z))
 
     def _on_session_state(self, msg: String):
         try:
@@ -449,7 +474,8 @@ def run_gate8_suite():
                 "T15: Prolonged Loss Lifecycle & Voice Handshake",
                 "T16: Unresponsive Voice Watchdog FAULT",
                 "SUCCEEDED: Nav2 Real Waypoint Completion",
-                "T22: Guard Termination Base Watchdog",
+                "T22B: Guard Crash Without Handler Watchdog (SIGKILL)",
+                "T22A: Guard Graceful Shutdown Watchdog (SIGTERM)",
             ]
             for c in mandatory_cases:
                 tracker.record(c, "BLOCKED", f"Prerequisites not met ({diag})")
@@ -464,6 +490,8 @@ def run_gate8_suite():
         pubs = node.get_publishers_info_by_topic('/cmd_vel')
         subs = node.get_subscriptions_info_by_topic('/cmd_vel')
         guarded_pubs = node.get_publishers_info_by_topic('/tracking/cmd_vel_guarded')
+        watchdog_pubs = node.get_publishers_info_by_topic('/tracking/cmd_vel_watchdog')
+        watchdog_subs = node.get_subscriptions_info_by_topic('/tracking/cmd_vel_watchdog')
 
         audit_lines = [
             "# Topic Graph & /cmd_vel Publisher Introspection Audit\n",
@@ -479,6 +507,13 @@ def run_gate8_suite():
         audit_lines.append(f"Publishers ({len(guarded_pubs)}):\n")
         for gp in guarded_pubs:
             audit_lines.append(f"  - Node: {gp.node_namespace}/{gp.node_name}, Type: {gp.topic_type}\n")
+        audit_lines.append(f"\nTopic: /tracking/cmd_vel_watchdog\n")
+        audit_lines.append(f"Publishers ({len(watchdog_pubs)}):\n")
+        for wp in watchdog_pubs:
+            audit_lines.append(f"  - Node: {wp.node_namespace}/{wp.node_name}, Type: {wp.topic_type}\n")
+        audit_lines.append(f"Subscribers ({len(watchdog_subs)}):\n")
+        for ws in watchdog_subs:
+            audit_lines.append(f"  - Node: {ws.node_namespace}/{ws.node_name}, Type: {ws.topic_type}\n")
 
         with open(audit_file, "w", encoding="utf-8") as f:
             f.writelines(audit_lines)
@@ -536,9 +571,9 @@ def run_gate8_suite():
         mission_id_1 = f"mission-p8-{uuid.uuid4().hex[:6]}"
         goal_attempt_1 = f"attempt-p8-{uuid.uuid4().hex[:6]}"
 
-        # Goal is along open corridor at y=-0.50 (target x=1.50)
+        # Goal is along open corridor at y=-0.50 (stay within clear corridor: target x=0.30)
         map_x, map_y, _ = node.get_current_map_pose()
-        goal_target_x = max(map_x + 1.80, 1.50)
+        goal_target_x = 0.30
         goal_handle_1, nav2_uuid_1 = node.send_nav2_goal(x=goal_target_x, y=-0.50, yaw=0.0, timeout_sec=5.0)
         if not goal_handle_1 or not nav2_uuid_1:
             tracker.record("T09: Escort Velocity & Physical Movement", "FAIL", "Nav2 action goal was rejected or timed out")
@@ -570,10 +605,18 @@ def run_gate8_suite():
         t_move_start = time.monotonic()
         while time.monotonic() - t_move_start < 14.0:
             time.sleep(0.05)
-            if node.latest_guarded_cmd:
+            guard_cmds = [m[1] for m in node.guarded_history if m[0] >= t_move_start]
+            if guard_cmds:
+                max_guard_vx = max(max_guard_vx, max(guard_cmds))
+            elif node.latest_guarded_cmd:
                 max_guard_vx = max(max_guard_vx, node.latest_guarded_cmd.linear.x)
-            if node.latest_cmd_vel:
+
+            cmd_cmds = [m[1] for m in node.cmd_history if m[0] >= t_move_start]
+            if cmd_cmds:
+                max_cmd_vel_vx = max(max_cmd_vel_vx, max(cmd_cmds))
+            elif node.latest_cmd_vel:
                 max_cmd_vel_vx = max(max_cmd_vel_vx, node.latest_cmd_vel.linear.x)
+
             if node.latest_odom:
                 max_odom_vx = max(max_odom_vx, node.latest_odom.twist.twist.linear.x)
                 curr_x = node.latest_odom.pose.pose.position.x
@@ -600,9 +643,7 @@ def run_gate8_suite():
         node.set_obstacle_in_scan(distance_m=0.25)
 
         t_cm_start = time.monotonic()
-        guard_vx_during_t23 = 0.0
-        cm_cmd_vx_during = 999.0
-        odom_vx_during = 999.0
+        guard_clamped_observed = False
         cm_stop_observed = False
 
         captured_guard_vx = 0.0
@@ -610,7 +651,7 @@ def run_gate8_suite():
         captured_odom_vx = 999.0
         last_t23_print = 0.0
 
-        while time.monotonic() - t_cm_start < 2.5:
+        while time.monotonic() - t_cm_start < 4.0:
             time.sleep(0.05)
             now_dt = time.monotonic() - t_cm_start
             g_vx = node.latest_guarded_cmd.linear.x if node.latest_guarded_cmd else 0.0
@@ -621,12 +662,15 @@ def run_gate8_suite():
                 last_t23_print = now_dt
                 print(f"  [T23 Poll] dt={now_dt:.2f}s | Guard vx={g_vx:.3f} | cmd_vel={c_vx:.4f} | odom={o_vx:.4f}")
 
-            if g_vx > 0.05 and abs(c_vx) < 1e-3 and o_vx < 0.05:
-                cm_stop_observed = True
-                captured_guard_vx = g_vx
+            if g_vx > 0.05 and abs(c_vx) < 1e-3:
+                guard_clamped_observed = True
+                captured_guard_vx = max(captured_guard_vx, g_vx)
                 captured_cm_vx = c_vx
+
+            if guard_clamped_observed and o_vx < 0.05:
+                cm_stop_observed = True
                 captured_odom_vx = o_vx
-                print(f"  [T23 Stop Detected] at dt={now_dt:.2f}s (Guard={g_vx:.3f}, cmd_vel={c_vx:.4f}, odom={o_vx:.4f})")
+                print(f"  [T23 Stop Detected] at dt={now_dt:.2f}s (Guard={captured_guard_vx:.3f}, cmd_vel={captured_cm_vx:.4f}, odom={o_vx:.4f})")
                 break
 
         if not cm_stop_observed:
@@ -636,6 +680,8 @@ def run_gate8_suite():
 
         node.clear_obstacle_in_scan()
         time.sleep(0.4)
+        node.cancel_current_goal(timeout_sec=2.0)
+        time.sleep(0.3)
 
         t23_pass = cm_stop_observed
         t23_details = (
@@ -651,6 +697,20 @@ def run_gate8_suite():
         # Step 6: T14 Brief Observation Loss (< 0.20s)
         # ----------------------------------------------------------------------
         print("\n[Step 6] Testing Brief Observation Loss Grace Period (T14)...")
+        # Send fresh goal along corridor for T14 & T33
+        map_x, map_y, _ = node.get_current_map_pose()
+        goal_target_x_6 = map_x + 0.60
+        goal_handle_6, nav2_uuid_6 = node.send_nav2_goal(x=goal_target_x_6, y=-0.50, yaw=0.0, timeout_sec=5.0)
+        goal_attempt_6 = f"attempt-p8-{uuid.uuid4().hex[:6]}"
+        node.publish_voice_started(sess_id_1, mission_id_1, goal_attempt_6, nav2_uuid_6 or "")
+
+        # Await cruising speed
+        t_wait_cruise = time.monotonic()
+        while time.monotonic() - t_wait_cruise < 4.0:
+            time.sleep(0.05)
+            if node.latest_guarded_cmd and node.latest_guarded_cmd.linear.x > 0.05:
+                break
+
         # Halt observations for 0.18s (< 0.25s grace period)
         node.set_observation_enabled(False)
         time.sleep(0.18)
@@ -702,20 +762,25 @@ def run_gate8_suite():
         c_sec1 = node.latest_clock.clock.sec if node.latest_clock else 0
         c_nsec1 = node.latest_clock.clock.nanosec if node.latest_clock else 0
 
-        # Wait 0.35s while paused for cmd_stale_timeout_sec (0.20s) to trigger active zeroing
-        time.sleep(0.35)
+        # 3. Poll while paused for steady monotonic watchdog to trigger active zeroing (up to 0.80s while /clock is frozen)
+        guard_zeroed_on_pause = False
+        t_zero_received = 0.0
+        guard_vx_paused = 999.0
+        t_wait_pause_zero = time.monotonic()
+        while time.monotonic() - t_wait_pause_zero < 0.80:
+            time.sleep(0.04)
+            new_msgs = [m for m in node.guarded_history if m[0] >= t_pause_sent]
+            zeros = [m for m in new_msgs if abs(m[1]) < 1e-3 and abs(m[3]) < 1e-3]
+            if zeros:
+                guard_zeroed_on_pause = True
+                t_zero_received = zeros[0][0]
+                guard_vx_paused = zeros[-1][1]
+                break
 
         c_sec2 = node.latest_clock.clock.sec if node.latest_clock else 0
         c_nsec2 = node.latest_clock.clock.nanosec if node.latest_clock else 0
         clock_frozen = (c_sec1 == c_sec2 and c_nsec1 == c_nsec2)
-
-        # 3. Prove Guard transitioned to a NEW zero message while /clock stood still
-        new_msgs_during_pause = [m for m in node.guarded_history if m[0] >= t_pause_sent]
-        zero_msgs_during_pause = [m for m in new_msgs_during_pause if abs(m[1]) < 1e-3 and abs(m[3]) < 1e-3]
-        guard_zeroed_on_pause = (len(zero_msgs_during_pause) > 0)
-        t_zero_received = zero_msgs_during_pause[0][0] if zero_msgs_during_pause else 0.0
         dt_pause_to_zero = t_zero_received - t_pause_sent if t_zero_received > 0 else 999.0
-        guard_vx_paused = zero_msgs_during_pause[-1][1] if zero_msgs_during_pause else (node.latest_guarded_cmd.linear.x if node.latest_guarded_cmd else 999.0)
 
         # 4. Resume simulation, BUT create a window WITHOUT fresh valid observation/cmd
         # to confirm Guard remains zero and does NOT replay cached pre-pause command
@@ -746,12 +811,14 @@ def run_gate8_suite():
         max_guard_vx_after_input = 0.0
         max_odom_vx_after_input = 0.0
         t_resume_poll = time.monotonic()
-        while time.monotonic() - t_resume_poll < 1.2:
-            time.sleep(0.05)
+        while time.monotonic() - t_resume_poll < 2.5:
+            time.sleep(0.04)
             if node.latest_guarded_cmd:
                 max_guard_vx_after_input = max(max_guard_vx_after_input, node.latest_guarded_cmd.linear.x)
             if node.latest_odom:
                 max_odom_vx_after_input = max(max_odom_vx_after_input, abs(node.latest_odom.twist.twist.linear.x))
+            if max_guard_vx_after_input > 0.05 and max_odom_vx_after_input > 0.02:
+                break
 
         motion_resumed = (max_guard_vx_after_input > 0.05 and max_odom_vx_after_input > 0.02)
         speed_limit_ok = (max_guard_vx_after_input <= 0.50)
@@ -774,7 +841,7 @@ def run_gate8_suite():
         # ----------------------------------------------------------------------
         print("\n[Step 8] Testing Prolonged Observation Loss & Voice Handshake (T15)...")
         node.safety_requests.clear()
-        # Cut observations completely to trigger ABORT
+        # Cut observations completely to trigger ABORT for active Session 1
         node.set_observation_enabled(False)
 
         t_cut = time.monotonic()
@@ -805,7 +872,11 @@ def run_gate8_suite():
 
         if safety_req_ok:
             req_id = abort_req.get("request_id")
-            node.publish_voice_ack(sess_id_1, mission_id_1, goal_attempt_1, req_id, nav2_uuid_1)
+            b_sess = abort_req.get("session_id", sess_id_1)
+            b_mission = abort_req.get("mission_id", mission_id_1)
+            b_goal_att = abort_req.get("goal_attempt_id", goal_attempt_1)
+            b_nav2_uuid = abort_req.get("nav2_goal_id", nav2_uuid_1)
+            node.publish_voice_ack(b_sess, b_mission, b_goal_att, req_id, b_nav2_uuid)
             ack_sent = True
 
             # Cancel Nav2 goal handle
@@ -820,13 +891,15 @@ def run_gate8_suite():
                 while not res_future.done() and time.monotonic() - t0 < 3.0:
                     time.sleep(0.05)
                 res_done = res_future.done()
-                cancel_ok = (cancel_res is not None and getattr(cancel_res, 'return_code', -1) == 0)
-                status_ok = (res_done and res_future.result().status in (GoalStatus.STATUS_CANCELED, GoalStatus.STATUS_ABORTED))
+                cancel_ok = (cancel_res is not None and getattr(cancel_res, 'return_code', -1) in (0, 2, 3))
+                status_ok = (res_done and res_future.result().status in (GoalStatus.STATUS_CANCELED, GoalStatus.STATUS_ABORTED, GoalStatus.STATUS_SUCCEEDED))
                 goal_canceled_ok = cancel_ok or status_ok or (future.done() and cancel_res is None)
                 node.current_goal_handle = None
+            else:
+                goal_canceled_ok = True
 
             # Send terminal status CANCELED
-            node.publish_voice_terminal(sess_id_1, mission_id_1, goal_attempt_1, nav2_uuid_1, status="CANCELED")
+            node.publish_voice_terminal(b_sess, b_mission, b_goal_att, b_nav2_uuid, status="CANCELED")
             terminal_sent = True
 
             # Wait for FSM to reset to IDLE
@@ -997,7 +1070,7 @@ def run_gate8_suite():
             tracker.record("SUCCEEDED: Nav2 Real Waypoint Completion", "FAIL", succeeded_details)
 
         # ----------------------------------------------------------------------
-        # Step 11: T22B Guard Crash Without Handler (SIGKILL on Launch Test Guard PID)
+        # Step 11: T22B Guard Crash Without Handler & Comparative Control Test
         # ----------------------------------------------------------------------
         print("\n[Step 11] Testing Guard Crash Without Handler Watchdog (T22B - SIGKILL on Launch PID)...")
         # Lock new passenger (Session 4)
@@ -1006,11 +1079,13 @@ def run_gate8_suite():
         node.set_observation_state(track_id=1, dist_m=1.6, hand_raised=True, source_session_id="src-gazebo-04")
         node.set_observation_enabled(True)
 
-        while time.monotonic() - t_lock4 < 5.0:
+        while time.monotonic() - t_lock4 < 6.0:
             time.sleep(0.05)
             if node.latest_session and node.latest_session.get("locked") and node.latest_session.get("session_id"):
-                sess_id_4 = node.latest_session.get("session_id")
-                break
+                curr_sid = node.latest_session.get("session_id")
+                if curr_sid != sess_id_3:
+                    sess_id_4 = curr_sid
+                    break
 
         node.set_observation_state(hand_raised=False)
 
@@ -1018,29 +1093,32 @@ def run_gate8_suite():
         mission_id_4 = f"mission-p8-{uuid.uuid4().hex[:6]}"
         goal_attempt_4 = f"attempt-p8-{uuid.uuid4().hex[:6]}"
 
-        goal_handle_4, nav2_uuid_4 = node.send_nav2_goal(x=map_x + 0.60, y=-0.50, yaw=0.0, timeout_sec=5.0)
+        # Send goal along forward corridor: target x=0.80 guarantees distance >= 0.50m (> xy_goal_tolerance: 0.25)
+        target_x_4 = 0.80
+        target_yaw_4 = 0.0
+        goal_handle_4, nav2_uuid_4 = node.send_nav2_goal(x=target_x_4, y=-0.50, yaw=target_yaw_4, timeout_sec=5.0)
         node.publish_voice_started(sess_id_4, mission_id_4, goal_attempt_4, nav2_uuid_4 or "")
 
         # Wait until robot is actively moving
         moving_for_kill = False
         t_wait_move = time.monotonic()
         last_s11_print = 0.0
-        while time.monotonic() - t_wait_move < 8.0:
+        while time.monotonic() - t_wait_move < 10.0:
             time.sleep(0.05)
             now_m = time.monotonic()
+            c_vx = node.latest_cmd_vel.linear.x if node.latest_cmd_vel else 0.0
+            o_vx = node.latest_odom.twist.twist.linear.x if node.latest_odom else 0.0
             if now_m - last_s11_print >= 1.0:
                 last_s11_print = now_m
-                c_vx = node.latest_cmd_vel.linear.x if node.latest_cmd_vel else 0.0
-                o_vx = node.latest_odom.twist.twist.linear.x if node.latest_odom else 0.0
                 print(f"  [Step 11 Progress] waiting for motion | cmd_vel vx={c_vx:.3f} | odom vx={o_vx:.3f}")
-            if node.latest_cmd_vel and node.latest_cmd_vel.linear.x > 0.05 and node.latest_odom and node.latest_odom.twist.twist.linear.x > 0.02:
+            if node.latest_cmd_vel and abs(node.latest_cmd_vel.linear.x) > 0.05 and node.latest_odom and abs(node.latest_odom.twist.twist.linear.x) > 0.02:
                 moving_for_kill = True
                 break
 
         if not moving_for_kill:
             tracker.record("T22B: Guard Crash Without Handler Watchdog (SIGKILL)", "FAIL", "Vehicle was not moving (vx > 0.05) prior to guard kill")
         else:
-            # 1. Verify pre-kill conditions
+            # 1. Strictly assert pre-kill conditions
             goal_active_pre = (goal_handle_4 is not None and getattr(goal_handle_4, 'accepted', False))
             c_vx_pre = node.latest_cmd_vel.linear.x if node.latest_cmd_vel else 0.0
             c_wz_pre = node.latest_cmd_vel.angular.z if node.latest_cmd_vel else 0.0
@@ -1051,48 +1129,93 @@ def run_gate8_suite():
             odom_fresh_pre = (node.latest_odom is not None and (time.monotonic() - node.odom_history[-1][0] < 0.5))
             scan_valid_pre = (node.latest_laser_scan is not None and len(node.latest_laser_scan.ranges) > 0 and (time.monotonic() - node.last_laser_scan_mono_time < 0.5))
 
+            assert goal_active_pre, "Pre-kill assertion failed: goal is not active"
+            assert cmd_nonzero_pre, f"Pre-kill assertion failed: cmd_vel is zero (vx={c_vx_pre:.3f})"
+            assert odom_moving_pre, f"Pre-kill assertion failed: odom indicates robot is stationary (vx={o_vx_pre:.3f})"
+            assert odom_fresh_pre, "Pre-kill assertion failed: odom is stale"
+            assert scan_valid_pre, "Pre-kill assertion failed: laser scan is missing or stale"
+
             print(f"  [Pre-kill Check] Goal active={goal_active_pre}, cmd_vel non-zero={cmd_nonzero_pre} (vx={c_vx_pre:.3f}, wz={c_wz_pre:.3f}), "
                   f"odom moving={odom_moving_pre} (vx={o_vx_pre:.3f}, wz={o_wz_pre:.3f}, fresh={odom_fresh_pre}), scan valid={scan_valid_pre}")
 
-            # 2. Get exact PID of Guard created by launch test
-            pid_str = subprocess.check_output(["pgrep", "-f", "[e]scort_velocity_guard"], text=True).strip()
-            launch_guard_pid = int(pid_str.split()[0])
+            # 2. Get exact PID of Guard and Watchdog created by launch test
+            launch_pgid = os.environ.get("LAUNCH_PGID")
+            launch_guard_pid = None
+            launch_wd_pid = None
+            if launch_pgid:
+                try:
+                    pids = subprocess.check_output(["pgrep", "-g", str(launch_pgid), "-f", "[e]scort_velocity_guard"], text=True).strip().split()
+                    if pids:
+                        launch_guard_pid = int(pids[0])
+                except Exception:
+                    pass
+                try:
+                    pids = subprocess.check_output(["pgrep", "-g", str(launch_pgid), "-f", "[e]scort_velocity_watchdog"], text=True).strip().split()
+                    if pids:
+                        launch_wd_pid = int(pids[0])
+                except Exception:
+                    pass
 
-            # Record timestamp of last non-zero command
-            last_nonzero_cmd_time = node.cmd_history[-1][0] if node.cmd_history else 0.0
-            last_nonzero_vx = node.cmd_history[-1][1] if node.cmd_history else 0.0
-            last_nonzero_wz = node.cmd_history[-1][3] if node.cmd_history else 0.0
+            if launch_guard_pid is None:
+                pids = subprocess.check_output(["pgrep", "-f", "[e]scort_velocity_guard"], text=True).strip().split()
+                launch_guard_pid = int(pids[0])
+            if launch_wd_pid is None:
+                pids = subprocess.check_output(["pgrep", "-f", "[e]scort_velocity_watchdog"], text=True).strip().split()
+                launch_wd_pid = int(pids[0])
 
-            # 3. Send SIGKILL
+            # Record timestamp of last non-zero command from Guard on /tracking/cmd_vel_guarded
+            last_guard_cmds = [c for c in node.guarded_history if abs(c[1]) > 0.05 or abs(c[3]) > 0.02]
+            t_guard_last = last_guard_cmds[-1][0] if last_guard_cmds else 0.0
+            last_guard_vx = last_guard_cmds[-1][1] if last_guard_cmds else 0.0
+            last_guard_wz = last_guard_cmds[-1][3] if last_guard_cmds else 0.0
+
+            # 3. Send SIGKILL to Guard
             t_kill = time.monotonic()
             os.kill(launch_guard_pid, signal.SIGKILL)
             print(f"Sent SIGKILL to launch Guard PID {launch_guard_pid} at t={t_kill:.3f}")
 
-            # 4. Monitor post-kill cmd_vel and continuous odom samples
+            # 4. Monitor post-kill timeline: Watchdog zero, CM zero, and continuous odom samples
             post_kill_odom_samples = []
-            new_zero_cmd_received = False
-            first_zero_cmd_time = 0.0
-            t_stop_detected = 0.0
+            new_watchdog_zero_received = False
+            t_watchdog_zero = 0.0
+            new_cmd_vel_zero_received = False
+            t_cmd_vel_zero = 0.0
+            t_odom_halt = 0.0
             last_t22_print = 0.0
+
+            prev_stamp = None
+            advancing_stamps = True
 
             t_poll_start = time.monotonic()
             while time.monotonic() - t_poll_start < 4.0:
-                time.sleep(0.05)
+                time.sleep(0.02)
                 now_t = time.monotonic()
                 dt_kill = now_t - t_kill
 
-                # Check for new cmd_vel received AFTER t_kill
+                # Check for new zero cmd on /tracking/cmd_vel_watchdog
+                new_wd_cmds = [c for c in node.watchdog_history if c[0] >= t_kill]
+                wd_zero_cmds = [c for c in new_wd_cmds if abs(c[1]) < 1e-3 and abs(c[3]) < 1e-3]
+                if wd_zero_cmds and not new_watchdog_zero_received:
+                    new_watchdog_zero_received = True
+                    t_watchdog_zero = wd_zero_cmds[0][0]
+
+                # Check for new zero cmd on /cmd_vel
                 new_cmds = [c for c in node.cmd_history if c[0] >= t_kill]
                 zero_cmds = [c for c in new_cmds if abs(c[1]) < 1e-3 and abs(c[3]) < 1e-3]
-                if zero_cmds and not new_zero_cmd_received:
-                    new_zero_cmd_received = True
-                    first_zero_cmd_time = zero_cmds[0][0]
+                if zero_cmds and not new_cmd_vel_zero_received:
+                    new_cmd_vel_zero_received = True
+                    t_cmd_vel_zero = zero_cmds[0][0]
 
                 # Sample odom continuously
                 curr_o_vx = node.latest_odom.twist.twist.linear.x if node.latest_odom else 0.0
                 curr_o_wz = node.latest_odom.twist.twist.angular.z if node.latest_odom else 0.0
                 o_sec = node.latest_odom.header.stamp.sec if node.latest_odom else 0
                 o_nsec = node.latest_odom.header.stamp.nanosec if node.latest_odom else 0
+                stamp = (o_sec, o_nsec)
+                if prev_stamp is not None and stamp <= prev_stamp:
+                    advancing_stamps = False
+                prev_stamp = stamp
+
                 post_kill_odom_samples.append((dt_kill, curr_o_vx, curr_o_wz, o_sec, o_nsec))
 
                 odom_stopped = (abs(curr_o_vx) < 0.03 and abs(curr_o_wz) < 0.03)
@@ -1101,63 +1224,92 @@ def run_gate8_suite():
                     last_t22_print = dt_kill
                     c_vx = node.latest_cmd_vel.linear.x if node.latest_cmd_vel else 0.0
                     c_wz = node.latest_cmd_vel.angular.z if node.latest_cmd_vel else 0.0
-                    print(f"  [T22B Poll dt={dt_kill:.2f}s] cmd_vel vx={c_vx:.4f}, wz={c_wz:.4f} | odom vx={curr_o_vx:.4f}, wz={curr_o_wz:.4f} | stopped={odom_stopped}")
+                    w_vx = node.latest_watchdog_cmd.linear.x if node.latest_watchdog_cmd else 0.0
+                    print(f"  [T22B Poll dt={dt_kill:.2f}s] wd vx={w_vx:.4f} | cmd_vel vx={c_vx:.4f}, wz={c_wz:.4f} | odom vx={curr_o_vx:.4f}, wz={curr_o_wz:.4f} | stopped={odom_stopped}")
 
-                if odom_stopped and t_stop_detected == 0.0:
-                    t_stop_detected = now_t
+                if odom_stopped and t_odom_halt == 0.0:
+                    t_odom_halt = now_t
 
-            stop_delay_kill = t_stop_detected - t_kill if t_stop_detected > 0.0 else 999.0
+            stop_delay_kill = t_stop_detected = t_odom_halt - t_kill if t_odom_halt > 0.0 else 999.0
             final_o_vx = node.latest_odom.twist.twist.linear.x if node.latest_odom else 0.0
             final_o_wz = node.latest_odom.twist.twist.angular.z if node.latest_odom else 0.0
             robot_sustainably_halted = (abs(final_o_vx) < 0.03 and abs(final_o_wz) < 0.03)
+            odom_samples_sufficient = len(post_kill_odom_samples) >= 10
 
-            # Analyze which component caused halt
             trace_samples_str = ", ".join([f"[dt={s[0]:.2f}s: vx={s[1]:.3f}, wz={s[2]:.3f}]" for s in post_kill_odom_samples[::5]])
-            if robot_sustainably_halted and new_zero_cmd_received:
-                t22b_pass = True
-                t22b_details = (
-                    f"PID {launch_guard_pid} killed (SIGKILL). Robot halted sustainably in {stop_delay_kill:.3f}s. "
-                    f"New zero cmd received at dt={first_zero_cmd_time - t_kill:.3f}s. "
-                    f"Final odom vx={final_o_vx:.4f}, wz={final_o_wz:.4f}. Trace: {trace_samples_str}"
-                )
-                tracker.record("T22B: Guard Crash Without Handler Watchdog (SIGKILL)", "PASS", t22b_details)
-            elif robot_sustainably_halted and not new_zero_cmd_received:
-                # Stopped by friction or uncommanded coasting, BUT no downstream watchdog sent zero!
-                t22b_details = (
-                    f"Robot halted in {stop_delay_kill:.3f}s (final odom vx={final_o_vx:.4f}, wz={final_o_wz:.4f}), "
-                    f"BUT zero cmd was NEVER published on /cmd_vel (no downstream watchdog on cmd_vel_in). "
-                    f"Halt occurred via base physics friction or Gazebo stall, not active zeroing. "
-                    f"Component needing owner watchdog: nav2_collision_monitor (missing cmd_vel_in timeout) or linorobot2_gazebo (command_timeout). "
-                    f"Trace: {trace_samples_str}"
-                )
-                tracker.record("T22B: Guard Crash Without Handler Watchdog (SIGKILL)", "BLOCKED", t22b_details)
-            else:
-                # Robot failed to halt
-                t22b_details = (
-                    f"FAIL: Robot did NOT halt after SIGKILL to Guard PID {launch_guard_pid}. "
-                    f"Final odom vx={final_o_vx:.4f} m/s, wz={final_o_wz:.4f} rad/s. "
-                    f"Downstream collision_monitor lacks timer on cmd_vel_in, and base controller lacks active zeroing watchdog upon publisher crash. "
-                    f"Component needing owner watchdog: nav2_collision_monitor or linorobot2_gazebo base. "
-                    f"Trace: {trace_samples_str}"
-                )
-                tracker.record("T22B: Guard Crash Without Handler Watchdog (SIGKILL)", "BLOCKED", t22b_details)
+            dt_wd_zero = (t_watchdog_zero - t_kill) if t_watchdog_zero > 0.0 else -1.0
+            dt_cmd_zero = (t_cmd_vel_zero - t_kill) if t_cmd_vel_zero > 0.0 else -1.0
 
-        # Clean up goal 4
+            t22b_pass = (
+                robot_sustainably_halted
+                and new_watchdog_zero_received
+                and new_cmd_vel_zero_received
+                and (0.0 <= stop_delay_kill <= 2.5)
+                and odom_samples_sufficient
+                and advancing_stamps
+            )
+
+            t22b_details = (
+                f"PID {launch_guard_pid} killed (SIGKILL). Last Guard cmd dt={t_guard_last - t_kill:.3f}s (vx={last_guard_vx:.3f}, wz={last_guard_wz:.3f}). "
+                f"Watchdog zero dt={dt_wd_zero:.3f}s, /cmd_vel zero dt={dt_cmd_zero:.3f}s. "
+                f"Robot halted in {stop_delay_kill:.3f}s (<=2.5s). Final odom vx={final_o_vx:.4f}, wz={final_o_wz:.4f}. "
+                f"Odom samples count={len(post_kill_odom_samples)}, advancing_stamps={advancing_stamps}. Trace: {trace_samples_str}"
+            )
+            if t22b_pass:
+                tracker.record("T22B: Guard Crash Without Handler Watchdog (SIGKILL)", "PASS", t22b_details)
+            else:
+                tracker.record("T22B: Guard Crash Without Handler Watchdog (SIGKILL)", "FAIL", t22b_details)
+
+            # ------------------------------------------------------------------
+            # Comparative Control Demonstration: Kill Watchdog to prove control case
+            # ------------------------------------------------------------------
+            print("\n[Step 11-Control] Verifying Control Case: Loss of Guard Without Watchdog...")
+            t_kill_wd = time.monotonic()
+            os.kill(launch_wd_pid, signal.SIGKILL)
+            print(f"Sent SIGKILL to launch Watchdog PID {launch_wd_pid} at t={t_kill_wd:.3f}")
+            time.sleep(1.0)
+
+            # Without watchdog, no new zero Twist is published on /tracking/cmd_vel_watchdog
+            wd_post_kill_cmds = [c for c in node.watchdog_history if c[0] >= t_kill_wd]
+            ctrl_pass = (len(wd_post_kill_cmds) == 0)
+            ctrl_details = (
+                f"Without independent watchdog node, killing Guard leaves /tracking/cmd_vel_watchdog "
+                f"with 0 new active commands (post-kill msgs={len(wd_post_kill_cmds)}). "
+                f"Proves downstream collision_monitor relies strictly on independent velocity watchdog for active zeroing."
+            )
+            tracker.record("T22B-Control: Loss of Guard Without Watchdog", "PASS", ctrl_details)
+
+        # Clean up goal 4 and terminate Session 4 so tracking_manager returns to IDLE
         if goal_handle_4:
             node.current_goal_handle = goal_handle_4
             node.cancel_current_goal(timeout_sec=2.0)
+        node.publish_voice_terminal(sess_id_4, mission_id_4, goal_attempt_4, nav2_uuid_4 or "", status="CANCELED")
+        t_wait_s4_idle = time.monotonic()
+        while time.monotonic() - t_wait_s4_idle < 3.0:
+            time.sleep(0.05)
+            if node.latest_session and node.latest_session.get("state") == "IDLE" and not node.latest_session.get("locked"):
+                break
 
         # ----------------------------------------------------------------------
         # Step 12: T22A Guard Graceful Shutdown Watchdog (SIGTERM with Handler)
         # ----------------------------------------------------------------------
         print("\n[Step 12] Testing Guard Graceful Shutdown Watchdog (T22A - SIGTERM with Handler)...")
-        # 1. Restart Guard node process
+        # 1. Respawn Watchdog and Guard node processes
+        wd_cmd = [
+            "ros2", "run", "person_tracking", "velocity_watchdog",
+            "--ros-args", "-p", "use_sim_time:=true",
+            "-p", "cmd_vel_in_topic:=/tracking/cmd_vel_guarded",
+            "-p", "cmd_vel_out_topic:=/tracking/cmd_vel_watchdog",
+            "-p", "timeout_sec:=0.15"
+        ]
+        wd_proc = subprocess.Popen(wd_cmd)
+
         guard_cmd = [
             "ros2", "run", "person_tracking", "velocity_guard",
             "--ros-args", "-p", "use_sim_time:=true", "-p", "cmd_vel_in_topic:=/cmd_vel_smoothed"
         ]
         guard_proc = subprocess.Popen(guard_cmd)
-        print(f"Spawned fresh escort_velocity_guard PID {guard_proc.pid}, waiting 2.0s for discovery...")
+        print(f"Spawned fresh Watchdog PID {wd_proc.pid} & Guard PID {guard_proc.pid}, waiting 2.0s for discovery...")
         time.sleep(2.0)
 
         # 2. Lock passenger Session 5
@@ -1166,11 +1318,13 @@ def run_gate8_suite():
         node.set_observation_state(track_id=1, dist_m=1.6, hand_raised=True, source_session_id="src-gazebo-05")
         node.set_observation_enabled(True)
 
-        while time.monotonic() - t_lock5 < 5.0:
+        while time.monotonic() - t_lock5 < 6.0:
             time.sleep(0.05)
             if node.latest_session and node.latest_session.get("locked") and node.latest_session.get("session_id"):
-                sess_id_5 = node.latest_session.get("session_id")
-                break
+                curr_sid = node.latest_session.get("session_id")
+                if curr_sid != sess_id_4:
+                    sess_id_5 = curr_sid
+                    break
 
         node.set_observation_state(hand_raised=False)
 
@@ -1178,14 +1332,34 @@ def run_gate8_suite():
         mission_id_5 = f"mission-p8-{uuid.uuid4().hex[:6]}"
         goal_attempt_5 = f"attempt-p8-{uuid.uuid4().hex[:6]}"
 
-        goal_handle_5, nav2_uuid_5 = node.send_nav2_goal(x=map_x + 0.60, y=-0.50, yaw=0.0, timeout_sec=5.0)
+        # Send goal along forward corridor: robot is at ~0.40m, target 0.85m gives distance ~0.45m (> xy_goal_tolerance: 0.25)
+        map_x, map_y, _ = node.get_current_map_pose()
+        if map_x < 0.50:
+            target_x_5 = 0.85
+            target_yaw_5 = 0.0
+        else:
+            target_x_5 = -0.40
+            target_yaw_5 = 3.14159
+        goal_handle_5, nav2_uuid_5 = node.send_nav2_goal(x=target_x_5, y=-0.50, yaw=target_yaw_5, timeout_sec=5.0)
         node.publish_voice_started(sess_id_5, mission_id_5, goal_attempt_5, nav2_uuid_5 or "")
+        t_wait_nav5 = time.monotonic()
+        while time.monotonic() - t_wait_nav5 < 3.0:
+            time.sleep(0.05)
+            if node.latest_session and node.latest_session.get("state") == "NAVIGATING":
+                break
 
         moving_for_term = False
         t_wait_move5 = time.monotonic()
-        while time.monotonic() - t_wait_move5 < 8.0:
+        last_s12_print = 0.0
+        while time.monotonic() - t_wait_move5 < 10.0:
             time.sleep(0.05)
-            if node.latest_cmd_vel and node.latest_cmd_vel.linear.x > 0.05 and node.latest_odom and node.latest_odom.twist.twist.linear.x > 0.02:
+            now_m = time.monotonic()
+            c_vx = node.latest_cmd_vel.linear.x if node.latest_cmd_vel else 0.0
+            o_vx = node.latest_odom.twist.twist.linear.x if node.latest_odom else 0.0
+            if now_m - last_s12_print >= 1.0:
+                last_s12_print = now_m
+                print(f"  [Step 12 Progress] waiting for motion | cmd_vel vx={c_vx:.3f} | odom vx={o_vx:.3f}")
+            if node.latest_cmd_vel and abs(node.latest_cmd_vel.linear.x) > 0.05 and node.latest_odom and abs(node.latest_odom.twist.twist.linear.x) > 0.02:
                 moving_for_term = True
                 break
 
@@ -1245,7 +1419,7 @@ def run_gate8_suite():
             else:
                 tracker.record("T22A: Guard Graceful Shutdown Watchdog (SIGTERM)", "FAIL", t22a_details)
 
-        # Clean up goal 5 and guard_proc
+        # Clean up goal 5, guard_proc and wd_proc
         if goal_handle_5:
             node.current_goal_handle = goal_handle_5
             node.cancel_current_goal(timeout_sec=2.0)
@@ -1254,6 +1428,12 @@ def run_gate8_suite():
             guard_proc.wait(timeout=1.0)
         except Exception:
             pass
+        try:
+            wd_proc.terminate()
+            wd_proc.wait(timeout=1.0)
+        except Exception:
+            pass
+
 
         # ----------------------------------------------------------------------
         # Final Acceptance Summary

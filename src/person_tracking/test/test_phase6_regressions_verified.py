@@ -495,3 +495,80 @@ def test_restart_with_unresolved_old_goal_blocks_locking_until_terminal():
     finally:
         if rclpy.ok():
             rclpy.shutdown()
+
+
+def test_restart_terminal_with_mismatched_goal_or_session_remains_blocked():
+    """A.2 Strict: Terminal with wrong goal_attempt_id or wrong session_id MUST NOT clear unconfirmed_terminal."""
+    rclpy.init()
+    try:
+        node = TrackingManagerNode()
+        assert node.manager.state == TrackingState.IDLE
+        assert node.manager.unconfirmed_terminal is False
+
+        # 1. Startup latched message with unresolved goal
+        latched_status = json.dumps({
+            "session_id": "sess-alpha-123",
+            "mission_id": "mission-alpha-123",
+            "goal_attempt_id": "attempt-alpha-123",
+            "status": "NAVIGATING",
+            "nav_event": "EXECUTING",
+            "is_terminal": False,
+        })
+        node._on_voice_status(String(data=latched_status))
+        assert node.manager.unconfirmed_terminal is True
+
+        # 2. Terminal with matching session_id but WRONG goal_attempt_id
+        wrong_goal_term = json.dumps({
+            "session_id": "sess-alpha-123",
+            "mission_id": "mission-alpha-123",
+            "goal_attempt_id": "attempt-WRONG-999",
+            "status": "CANCELED",
+            "nav_event": "GOAL_COMPLETED",
+            "is_terminal": True,
+        })
+        node._on_voice_status(String(data=wrong_goal_term))
+        # Must still be blocked!
+        assert node.manager.unconfirmed_terminal is True
+        assert node.manager.reason_code == "UNRESOLVED_GOAL_ON_STARTUP"
+
+        # 3. Terminal with WRONG session_id but matching goal_attempt_id
+        wrong_sess_term = json.dumps({
+            "session_id": "sess-WRONG-999",
+            "mission_id": "mission-alpha-123",
+            "goal_attempt_id": "attempt-alpha-123",
+            "status": "CANCELED",
+            "nav_event": "GOAL_COMPLETED",
+            "is_terminal": True,
+        })
+        node._on_voice_status(String(data=wrong_sess_term))
+        # Must still be blocked!
+        assert node.manager.unconfirmed_terminal is True
+        assert node.manager.reason_code == "UNRESOLVED_GOAL_ON_STARTUP"
+
+        # 4. Terminal with missing goal_attempt_id
+        missing_goal_term = json.dumps({
+            "session_id": "sess-alpha-123",
+            "mission_id": "mission-alpha-123",
+            "status": "CANCELED",
+            "nav_event": "GOAL_COMPLETED",
+            "is_terminal": True,
+        })
+        node._on_voice_status(String(data=missing_goal_term))
+        assert node.manager.unconfirmed_terminal is True
+
+        # 5. Terminal with BOTH matching session_id AND goal_attempt_id
+        correct_term = json.dumps({
+            "session_id": "sess-alpha-123",
+            "mission_id": "mission-alpha-123",
+            "goal_attempt_id": "attempt-alpha-123",
+            "status": "CANCELED",
+            "nav_event": "GOAL_COMPLETED",
+            "is_terminal": True,
+        })
+        node._on_voice_status(String(data=correct_term))
+        assert node.manager.unconfirmed_terminal is False
+        assert node.manager.reason_code == "NO_LOCK"
+
+        node.destroy_node()
+    finally:
+        rclpy.shutdown()

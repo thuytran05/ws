@@ -36,6 +36,7 @@ from std_msgs.msg import String
 from person_tracking.velocity_guard_node import VelocityGuardNode
 from person_tracking.tracking_manager_node import TrackingManagerNode
 from person_tracking.velocity_guard import VelocityGuard, GuardLimits
+from person_tracking.velocity_watchdog_node import VelocityWatchdogNode
 
 
 # ==============================================================================
@@ -130,7 +131,7 @@ class MockCollisionMonitor(Node):
     Subscribes to /tracking/cmd_vel_guarded, monitors laser scan, publishes to /cmd_vel.
     """
 
-    def __init__(self, in_topic: str = '/tracking/cmd_vel_guarded', out_topic: str = '/cmd_vel'):
+    def __init__(self, in_topic: str = '/tracking/cmd_vel_watchdog', out_topic: str = '/cmd_vel'):
         super().__init__('mock_collision_monitor')
         self.sub_guarded = self.create_subscription(Twist, in_topic, self._on_guarded_cmd, 10)
         self.sub_scan = self.create_subscription(LaserScan, '/scan', self._on_scan, 10)
@@ -235,11 +236,12 @@ class CmdVelSubscriber(Node):
         self.received_msgs.append(msg)
 
 
-def _spin_all(nodes: List[Node], duration_sec: float = 0.25, step_sec: float = 0.02):
+def _spin_all(nodes: List[Node], duration_sec: float = 0.25, step_sec: float = 0.001):
     start = time.monotonic()
     while time.monotonic() - start < duration_sec:
         for n in nodes:
             rclpy.spin_once(n, timeout_sec=step_sec)
+        time.sleep(0.002)
 
 
 # ==============================================================================
@@ -247,23 +249,32 @@ def _spin_all(nodes: List[Node], duration_sec: float = 0.25, step_sec: float = 0
 # ==============================================================================
 
 def test_phase8_audit_velocity_chain_and_sole_publisher():
-    """Safety Audit: Verify complete velocity topic chain and that Collision Monitor
-    is the SOLE publisher on /cmd_vel. Strictly ZERO /cmd_vel publishers in person_tracking.
+    """Safety Audit: Verify complete velocity topic chain (Guard -> Watchdog -> CM -> /cmd_vel)
+    and that Collision Monitor is the SOLE publisher on /cmd_vel. Strictly ZERO /cmd_vel publishers in person_tracking.
     """
     rclpy.init()
     try:
         guard = VelocityGuardNode()
-        cm = MockCollisionMonitor()
+        watchdog = VelocityWatchdogNode(cmd_vel_in_topic='/tracking/cmd_vel_guarded', cmd_vel_out_topic='/tracking/cmd_vel_watchdog')
+        cm = MockCollisionMonitor(in_topic='/tracking/cmd_vel_watchdog', out_topic='/cmd_vel')
         listener = CmdVelSubscriber('/cmd_vel')
-        all_nodes = [guard, cm, listener]
+        all_nodes = [guard, watchdog, cm, listener]
         _spin_all(all_nodes, duration_sec=0.15)
 
         # Audit publishers on /cmd_vel:
-        # In this clean architecture, MockCollisionMonitor is the sole publisher.
-        # Ensure Guard publishes to /tracking/cmd_vel_guarded, NOT /cmd_vel!
-        pub_topics = [p.topic_name for p in guard.publishers]
-        assert '/cmd_vel' not in pub_topics
-        assert '/tracking/cmd_vel_guarded' in pub_topics
+        # Guard publishes to /tracking/cmd_vel_guarded, NOT /cmd_vel!
+        guard_pub_topics = [p.topic_name for p in guard.publishers]
+        assert '/cmd_vel' not in guard_pub_topics
+        assert '/tracking/cmd_vel_guarded' in guard_pub_topics
+
+        # Watchdog publishes to /tracking/cmd_vel_watchdog, NOT /cmd_vel!
+        wd_pub_topics = [p.topic_name for p in watchdog.publishers]
+        assert '/cmd_vel' not in wd_pub_topics
+        assert '/tracking/cmd_vel_watchdog' in wd_pub_topics
+
+        # MockCollisionMonitor is the sole publisher on /cmd_vel!
+        cm_pub_topics = [p.topic_name for p in cm.publishers]
+        assert '/cmd_vel' in cm_pub_topics
 
         for n in all_nodes:
             n.destroy_node()
@@ -279,13 +290,14 @@ def test_phase8_t09_normal_escort_pass_through():
     rclpy.init()
     try:
         guard = VelocityGuardNode()
-        cm = MockCollisionMonitor()
+        watchdog = VelocityWatchdogNode(cmd_vel_in_topic='/tracking/cmd_vel_guarded', cmd_vel_out_topic='/tracking/cmd_vel_watchdog')
+        cm = MockCollisionMonitor(in_topic='/tracking/cmd_vel_watchdog', out_topic='/cmd_vel')
         obs_pub = MockObservationPublisher()
         voice = MockVoiceNavOwner()
         listener = CmdVelSubscriber('/cmd_vel')
         smoother_pub = guard.create_publisher(Twist, '/tracking/cmd_vel_smoothed', 10)
 
-        all_nodes = [guard, cm, obs_pub, voice, listener]
+        all_nodes = [guard, watchdog, cm, obs_pub, voice, listener]
 
         # 1. Start mission via Mock Voice
         sess_id = "sess-p8-001"
@@ -300,11 +312,12 @@ def test_phase8_t09_normal_escort_pass_through():
             "person_distance_m": 1.5,
             "depth_proven": True,
             "obs_fresh": True,
+            "source_session_id": "src-sim-1",
         }, now_mono=time.monotonic())
 
         # 2. Publish valid observation and allow DDS graph discovery to settle
         obs_pub.publish_obs(track_id=1, dist_m=1.5, offset_x=0.0, depth_valid=True, stamp_sec=1, stamp_nanosec=0)
-        _spin_all(all_nodes, duration_sec=0.25)
+        _spin_all(all_nodes, duration_sec=0.20)
 
         # 3. Nav2 smoother sends cmd_vel in 20 Hz loop
         cmd = Twist()
@@ -312,9 +325,23 @@ def test_phase8_t09_normal_escort_pass_through():
         cmd.angular.z = 0.05
 
         listener.received_msgs.clear()
-        for _ in range(5):
+        sec = 1
+        for _ in range(15):
+            sec += 1
+            guard.guard.update_session_state({
+                "schema_version": "1.0",
+                "session_id": sess_id,
+                "state": "NAVIGATING",
+                "locked": True,
+                "person_track_id": 1,
+                "person_distance_m": 1.5,
+                "depth_proven": True,
+                "obs_fresh": True,
+                "source_session_id": "src-sim-1",
+            }, now_mono=time.monotonic())
+            obs_pub.publish_obs(track_id=1, dist_m=1.5, offset_x=0.0, depth_valid=True, stamp_sec=sec, stamp_nanosec=0)
             smoother_pub.publish(cmd)
-            _spin_all(all_nodes, duration_sec=0.10)
+            _spin_all(all_nodes, duration_sec=0.05)
 
         assert len(listener.received_msgs) > 0
         # Find latest non-zero message
@@ -471,19 +498,21 @@ def test_phase8_t23_collision_monitor_priority_over_guard():
     rclpy.init()
     try:
         guard = VelocityGuardNode()
-        cm = MockCollisionMonitor(in_topic='/tracking/cmd_vel_guarded', out_topic='/cmd_vel')
+        watchdog = VelocityWatchdogNode(cmd_vel_in_topic='/tracking/cmd_vel_guarded', cmd_vel_out_topic='/tracking/cmd_vel_watchdog')
+        cm = MockCollisionMonitor(in_topic='/tracking/cmd_vel_watchdog', out_topic='/cmd_vel')
         obs_pub = MockObservationPublisher()
         scan_pub = MockScanPublisher()
         listener = CmdVelSubscriber('/cmd_vel')
         smoother_pub = guard.create_publisher(Twist, '/tracking/cmd_vel_smoothed', 10)
 
-        all_nodes = [guard, cm, obs_pub, scan_pub, listener]
+        all_nodes = [guard, watchdog, cm, obs_pub, scan_pub, listener]
 
         # 1. Normal state: clear scan (obstacle at 5.0m)
         scan_pub.publish_scan(min_range=5.0)
         guard.guard.update_session_state({
             "schema_version": "1.0", "session_id": "s1", "state": "NAVIGATING", "locked": True,
-            "person_track_id": 1, "person_distance_m": 1.5, "depth_proven": True, "obs_fresh": True
+            "person_track_id": 1, "person_distance_m": 1.5, "depth_proven": True, "obs_fresh": True,
+            "source_session_id": "src-sim-1",
         }, now_mono=time.monotonic())
 
         # Nav2 sends cmd -> passed through
@@ -493,6 +522,11 @@ def test_phase8_t23_collision_monitor_priority_over_guard():
         t_start = time.monotonic()
         while time.monotonic() - t_start < 1.0:
             sec += 1
+            guard.guard.update_session_state({
+                "schema_version": "1.0", "session_id": "s1", "state": "NAVIGATING", "locked": True,
+                "person_track_id": 1, "person_distance_m": 1.5, "depth_proven": True, "obs_fresh": True,
+                "source_session_id": "src-sim-1",
+            }, now_mono=time.monotonic())
             obs_pub.publish_obs(track_id=1, dist_m=1.5, offset_x=0.0, depth_valid=True, stamp_sec=sec)
             smoother_pub.publish(cmd)
             _spin_all(all_nodes, duration_sec=0.05)
@@ -508,6 +542,11 @@ def test_phase8_t23_collision_monitor_priority_over_guard():
         t_obs = time.monotonic()
         while time.monotonic() - t_obs < 1.0:
             sec += 1
+            guard.guard.update_session_state({
+                "schema_version": "1.0", "session_id": "s1", "state": "NAVIGATING", "locked": True,
+                "person_track_id": 1, "person_distance_m": 1.5, "depth_proven": True, "obs_fresh": True,
+                "source_session_id": "src-sim-1",
+            }, now_mono=time.monotonic())
             obs_pub.publish_obs(track_id=1, dist_m=1.5, offset_x=0.0, depth_valid=True, stamp_sec=sec)
             smoother_pub.publish(cmd)
             _spin_all(all_nodes, duration_sec=0.05)
@@ -528,16 +567,18 @@ def test_phase8_t23_collision_monitor_priority_over_guard():
 
 
 def test_phase8_t22_guard_process_termination_watchdog():
-    """T22 (Critical Watchdog Test): Kill Guard process while car is moving -> Collision Monitor
-    source_timeout triggers and zeroes /cmd_vel to stop the robot.
+    """T22 (Critical Watchdog Test): Kill Guard process while car is moving -> Independent
+    VelocityWatchdog detects timeout (0.15s), actively zeroes /tracking/cmd_vel_watchdog,
+    and Collision Monitor outputs strictly zero to /cmd_vel to stop the robot.
     """
     rclpy.init()
     try:
         guard = VelocityGuardNode()
-        cm = MockCollisionMonitor(in_topic='/tracking/cmd_vel_guarded', out_topic='/cmd_vel')
+        watchdog = VelocityWatchdogNode(cmd_vel_in_topic='/tracking/cmd_vel_guarded', cmd_vel_out_topic='/tracking/cmd_vel_watchdog', timeout_sec=0.15)
+        cm = MockCollisionMonitor(in_topic='/tracking/cmd_vel_watchdog', out_topic='/cmd_vel')
         listener = CmdVelSubscriber('/cmd_vel')
         smoother_pub = guard.create_publisher(Twist, '/tracking/cmd_vel_smoothed', 10)
-        all_nodes = [guard, cm, listener]
+        all_nodes = [guard, watchdog, cm, listener]
 
         # Put into NAVIGATING
         guard.guard.update_session_state({"session_id": "s1", "state": "NAVIGATING", "locked": True, "person_track_id": 1, "person_distance_m": 1.5, "depth_proven": True, "obs_fresh": True}, now_mono=time.monotonic())
@@ -548,20 +589,21 @@ def test_phase8_t22_guard_process_termination_watchdog():
         smoother_pub.publish(cmd)
         _spin_all(all_nodes, duration_sec=0.10)
 
-        # KILL GUARD NODE
+        # KILL GUARD NODE (Simulating sudden SIGKILL crash)
         guard.destroy_node()
 
-        # Spin remaining nodes past Collision Monitor source_timeout (1.0s)
+        # Spin remaining nodes past Watchdog timeout (0.15s)
         listener.received_msgs.clear()
-        _spin_all([cm, listener], duration_sec=1.15)
+        _spin_all([watchdog, cm, listener], duration_sec=0.30)
 
-        # Collision monitor must output strictly zero!
+        # Watchdog must actively zero and Collision Monitor must output strictly zero on /cmd_vel!
         assert len(listener.received_msgs) > 0
         latest = listener.received_msgs[-1]
         assert latest.linear.x == 0.0
         assert latest.linear.y == 0.0
         assert latest.angular.z == 0.0
 
+        watchdog.destroy_node()
         cm.destroy_node()
         listener.destroy_node()
     finally:

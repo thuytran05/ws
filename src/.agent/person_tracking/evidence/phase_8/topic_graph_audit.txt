@@ -7,5 +7,26 @@ Subscribers (2):
   - Node: //gate8_real_gazebo_test_driver, Type: geometry_msgs/msg/Twist
 
 Topic: /tracking/cmd_vel_guarded
-Publishers (1):
+Publishers (8):
+  - Node: _NODE_NAMESPACE_UNKNOWN_/_NODE_NAME_UNKNOWN_, Type: geometry_msgs/msg/Twist
+  - Node: _NODE_NAMESPACE_UNKNOWN_/_NODE_NAME_UNKNOWN_, Type: geometry_msgs/msg/Twist
+  - Node: _NODE_NAMESPACE_UNKNOWN_/_NODE_NAME_UNKNOWN_, Type: geometry_msgs/msg/Twist
+  - Node: _NODE_NAMESPACE_UNKNOWN_/_NODE_NAME_UNKNOWN_, Type: geometry_msgs/msg/Twist
   - Node: //escort_velocity_guard, Type: geometry_msgs/msg/Twist
+  - Node: _NODE_NAMESPACE_UNKNOWN_/_NODE_NAME_UNKNOWN_, Type: geometry_msgs/msg/Twist
+  - Node: _NODE_NAMESPACE_UNKNOWN_/_NODE_NAME_UNKNOWN_, Type: geometry_msgs/msg/Twist
+  - Node: _NODE_NAMESPACE_UNKNOWN_/_NODE_NAME_UNKNOWN_, Type: geometry_msgs/msg/Twist
+
+Topic: /tracking/cmd_vel_watchdog
+Publishers (8):
+  - Node: _NODE_NAMESPACE_UNKNOWN_/_NODE_NAME_UNKNOWN_, Type: geometry_msgs/msg/Twist
+  - Node: _NODE_NAMESPACE_UNKNOWN_/_NODE_NAME_UNKNOWN_, Type: geometry_msgs/msg/Twist
+  - Node: _NODE_NAMESPACE_UNKNOWN_/_NODE_NAME_UNKNOWN_, Type: geometry_msgs/msg/Twist
+  - Node: _NODE_NAMESPACE_UNKNOWN_/_NODE_NAME_UNKNOWN_, Type: geometry_msgs/msg/Twist
+  - Node: //escort_velocity_watchdog, Type: geometry_msgs/msg/Twist
+  - Node: _NODE_NAMESPACE_UNKNOWN_/_NODE_NAME_UNKNOWN_, Type: geometry_msgs/msg/Twist
+  - Node: _NODE_NAMESPACE_UNKNOWN_/_NODE_NAME_UNKNOWN_, Type: geometry_msgs/msg/Twist
+  - Node: _NODE_NAMESPACE_UNKNOWN_/_NODE_NAME_UNKNOWN_, Type: geometry_msgs/msg/Twist
+Subscribers (2):
+  - Node: //collision_monitor, Type: geometry_msgs/msg/Twist
+  - Node: //gate8_real_gazebo_test_driver, Type: geometry_msgs/msg/Twist

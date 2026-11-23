@@ -38,6 +38,7 @@ setup(
             'person_detector = person_tracking.person_detector_node:main',
             'tracking_manager = person_tracking.tracking_manager_node:main',
             'velocity_guard = person_tracking.velocity_guard_node:main',
+            'velocity_watchdog = person_tracking.velocity_watchdog_node:main',
         ],
     },
 )

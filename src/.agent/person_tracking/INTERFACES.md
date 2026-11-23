@@ -174,6 +174,7 @@
     "session_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
     "mission_id": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
     "goal_attempt_id": "11223344-5566-7788-99aa-bbccddeeff00",
+    "nav2_uuid": "0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d",
     "destination_id": "gate_1",
     "status": "SUCCEEDED",
     "nav_event": "GOAL_COMPLETED",

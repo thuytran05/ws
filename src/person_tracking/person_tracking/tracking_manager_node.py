@@ -195,8 +195,15 @@ class TrackingManagerNode(Node):
                 self._publish_session_state(snapshot)
                 return
             elif is_terminal and self.manager.unconfirmed_terminal:
+                unres_session = getattr(self, "unresolved_goal_session_id", None)
                 unres_goal = getattr(self, "unresolved_goal_attempt_id", None)
-                if not unres_goal or unres_goal == status_data.get("goal_attempt_id") or session_id == getattr(self, "unresolved_goal_session_id", None):
+                req_session = status_data.get("session_id")
+                req_goal = status_data.get("goal_attempt_id")
+
+                session_matches = (not unres_session) or (req_session == unres_session)
+                goal_matches = (not unres_goal) or (req_goal == unres_goal)
+
+                if session_matches and goal_matches and (req_session or req_goal or (not unres_session and not unres_goal)):
                     self.get_logger().info(
                         f"Terminal received for unresolved startup goal (status={status_val}). Unblocking locking."
                     )
@@ -208,6 +215,11 @@ class TrackingManagerNode(Node):
                     snapshot = self.manager._make_snapshot(now.sec, now.nanosec, now_mono)
                     self.last_snapshot = snapshot
                     self._publish_session_state(snapshot)
+                    return
+                else:
+                    self.get_logger().warn(
+                        f"Terminal rejected for unresolved startup goal: expected (session={unres_session}, goal={unres_goal}), got (session={req_session}, goal={req_goal}). Locking remains blocked."
+                    )
                     return
 
         # 3. Check if destination acceptance event

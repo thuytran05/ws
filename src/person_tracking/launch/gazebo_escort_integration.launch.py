@@ -4,7 +4,7 @@
 import os
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, GroupAction
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node, SetRemap
 from launch_ros.substitutions import FindPackageShare
@@ -28,6 +28,7 @@ def generate_launch_description():
     ekf_config_path = PathJoinSubstitution([pkg_tracking, 'config', 'ekf.yaml'])
     default_map_path = PathJoinSubstitution([pkg_linorobot2_nav, 'maps', 'turtlebot3_world.yaml'])
     guard_nav_params_path = PathJoinSubstitution([pkg_tracking, 'config', 'navigation_guard.yaml'])
+    test_nav_params_path = PathJoinSubstitution([pkg_tracking, 'config', 'navigation_guard_test.yaml'])
 
     # Use tracking overlay URDF with clean MecanumDrive (no duplicate/spiking OdometryPublisher)
     urdf_path = PathJoinSubstitution([pkg_tracking, 'urdf', 'robots', 'mecanum.urdf.xacro'])
@@ -45,6 +46,16 @@ def generate_launch_description():
             name='sim',
             default_value='true',
             description='Enable use_sim_time'
+        ),
+        DeclareLaunchArgument(
+            name='enable_watchdog',
+            default_value='true',
+            description='Enable independent velocity watchdog node'
+        ),
+        DeclareLaunchArgument(
+            name='enable_test_scan',
+            default_value='false',
+            description='Enable test scan in collision monitor sources'
         ),
         DeclareLaunchArgument(
             name='gui',
@@ -165,7 +176,7 @@ def generate_launch_description():
                     launch_arguments={
                         'map': map_yaml,
                         'use_sim_time': use_sim_time,
-                        'params_file': guard_nav_params_path,
+                        'params_file': PythonExpression(["'", test_nav_params_path, "' if '", LaunchConfiguration('enable_test_scan'), "' == 'true' else '", guard_nav_params_path, "'"]),
                         'autostart': 'true',
                         'initial_pose_x': LaunchConfiguration('initial_pose_x'),
                         'initial_pose_y': LaunchConfiguration('initial_pose_y'),
@@ -197,5 +208,21 @@ def generate_launch_description():
                 'session_state_topic': '/tracking/session_state',
                 'observation_topic': '/tracking/observation',
             }]
+        ),
+
+        # 9. Velocity Watchdog Node (Independent Process Active Zeroing)
+        Node(
+            package='person_tracking',
+            executable='velocity_watchdog',
+            name='escort_velocity_watchdog',
+            output='screen',
+            parameters=[{
+                'use_sim_time': use_sim_time,
+                'cmd_vel_in_topic': '/tracking/cmd_vel_guarded',
+                'cmd_vel_out_topic': '/tracking/cmd_vel_watchdog',
+                'timeout_sec': 0.15,
+                'control_rate_hz': 20.0,
+            }],
+            condition=IfCondition(LaunchConfiguration('enable_watchdog'))
         ),
     ])

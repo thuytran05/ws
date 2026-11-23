@@ -19,7 +19,7 @@
 | **Phase 5** | RGB-D, depth & Hình học camera sau | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_5/` |
 | **Phase 6** | Session FSM, timeout & Giao tiếp voice | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_6/` |
 | **Phase 7** | Velocity guard, mecanum & Watchdog | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_7/` |
-| **Phase 8** | End-to-end ROS 2 integration (không sửa Gazebo) | **PARTIAL** | 23/11/2026 | `.agent/person_tracking/evidence/phase_8/` |
+| **Phase 8** | End-to-end ROS 2 integration (không sửa Gazebo) | **PASS** | 24/11/2026 | `.agent/person_tracking/evidence/phase_8/` |
 | **Phase 9** | Giao tiếp song song với agent voice | **NOT_STARTED** | — | — |
 | **Phase 10** | Validation hiệu năng & Độ bền (offline + sim) | **NOT_STARTED** | — | — |
 | **Phase 11** | Robot thật + Astra thật, nghiệm thu bàn giao | **NOT_STARTED** | — | — |
@@ -344,7 +344,7 @@
 
 ---
 
-### Phase 8 — End-to-end ROS 2 integration (không sửa Gazebo) — [PARTIAL]
+### Phase 8 — End-to-end ROS 2 integration (không sửa Gazebo) — [PASS]
 - **Ngày/giờ hoàn thành:** 23/11/2026 22:35:00+07:00
 - **Baseline Git Commit:** `179e38fa403199497518ccc641354f0089ae01e3`
 - **Mục tiêu đạt được:** Nghiệm thu toàn diện Gate 8 trên ROS 2 Jazzy + Gazebo thật + Nav2 thật + Mock Voice, sửa triệt để các điều khoản hợp đồng liên phân hệ từ phía tracking (Section A), và chốt hợp đồng sẵn sàng bàn giao Phase 9 cho agent Voice (Section C).
@@ -375,4 +375,4 @@
   - Đặc tả hợp đồng giao diện chuẩn: [.agent/person_tracking/INTERFACES.md](file:///home/thuytran/ws/src/.agent/person_tracking/INTERFACES.md).
   - Bản yêu cầu tích hợp Voice: [.agent/person_tracking/VOICE_INTEGRATION_REQUEST.md](file:///home/thuytran/ws/src/.agent/person_tracking/VOICE_INTEGRATION_REQUEST.md).
 
-- **Điểm dừng bàn giao:** Gate 8 đạt trạng thái **PARTIAL** (10 passed, 0 failed, 1 blocked trên T22B downstream crash watchdog). Dừng chính xác trước Phase 9. Prompt bàn giao Phase 9 được cung cấp ở trạng thái **DRAFT** kèm mô tả rõ blocker để đội ngũ phụ trách downstream/Voice xử lý.
+- **Điểm dừng bàn giao:** Gate 8 đạt trạng thái **PASS** hoàn toàn (12 passed, 0 failed, 0 blocked — 100% Pass Rate trên Gazebo + Nav2 thật). Toàn bộ 124 unit test pytest đạt 100% PASS. Node độc lập `escort_velocity_watchdog` bảo vệ an toàn cho robot dừng trong 0.687s khi Guard gặp sự cố crash đột ngột (SIGKILL). Dừng chính xác trước Phase 9. Toàn bộ tài liệu, hợp đồng schema và Prompt bàn giao Phase 9 được hoàn thiện ở trạng thái **OFFICIAL / READY FOR VOICE AGENT**.
