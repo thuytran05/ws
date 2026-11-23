@@ -20,20 +20,20 @@
 | **T06** | Người khác cắt ngang người đang khóa | Phase 3 | Video Replay / Synthetic | ByteTrack gán track ID riêng; phát hiện mơ hồ (is_ambiguous = True) khi IoU > 0.35. Code sẵn sàng, chờ video người thật từ user để nghiệm thu hình ảnh. | `phase_3/multi_person_crossing_trace.log` | **PARTIAL / CODE_READY** |
 | **T07** | Voice gửi đích khi chưa khóa | Phase 6 | Mock Voice | Bị chặn ở giao diện; Voice nhận cờ `locked == false` và từ chối. | `phase_6/phase_6_fsm_mock_voice.log` | **PASS** |
 | **T08** | Voice gửi đích sau khi đã khóa | Phase 6 | Mock Voice | Hợp lệ; Nav2 goal được chấp nhận; FSM chuyển sang `NAVIGATING`. | `phase_6/phase_6_fsm_mock_voice.log` | **PASS** |
-| **T09** | Khách ở giữa ảnh, cự ly chuẩn (1.5m) | Phase 7 | Fake Obs + Nav2 | Cho phép Nav2 đi đúng tốc độ tính toán (trong giới hạn an toàn). | `phase_7/t09_normal_escort.log` | NOT_STARTED |
-| **T10** | Khách tụt lại xa (> 2.0m) | Phase 7 | Fake Obs + Nav2 | Giảm dần trần tốc độ `linear.x`; nếu > 2.5m thì dừng chờ; không tăng tốc vượt Nav2. | `phase_7/t10_distance_clamp.log` | NOT_STARTED |
-| **T11** | Khách tiến lại gần robot (< 1.2m) | Phase 7 | Fake Obs + Nav2 | Giữ nguyên tốc độ Nav2; tuyệt đối không tự lùi xe hoặc tăng tốc dãn cách. | `phase_7/t11_close_passenger.log` | NOT_STARTED |
-| **T12** | Khách lệch sang mép ảnh | Phase 7 | Fake Obs + Nav2 | Bổ sung `angular.z` nhẹ có giới hạn; dấu quay đúng đưa khách về giữa ảnh. | `phase_7/t12_yaw_trimming.log` | NOT_STARTED |
+| **T09** | Khách ở giữa ảnh, cự ly chuẩn (1.5m) | Phase 7 | Fake Obs + Nav2 | Cho phép Nav2 đi đúng tốc độ tính toán (trong giới hạn an toàn). | `phase_7/t09_normal_escort.log` | **PASS** |
+| **T10** | Khách tụt lại xa (> 2.0m) | Phase 7 | Fake Obs + Nav2 | Giảm dần trần tốc độ `linear.x`; nếu > 2.5m thì dừng chờ; có hysteresis; không tăng tốc vượt Nav2. | `phase_7/t10_distance_clamp.log` | **PASS** |
+| **T11** | Khách tiến lại gần robot (< 1.2m) | Phase 7 | Fake Obs + Nav2 | Giữ nguyên tốc độ Nav2; tuyệt đối không tự lùi xe hoặc tăng tốc dãn cách. | `phase_7/t11_close_passenger.log` | **PASS** |
+| **T12** | Khách lệch sang mép ảnh | Phase 7 | Fake Obs + Nav2 | Bổ sung `angular.z` nhẹ có giới hạn; dấu quay đúng (CCW/CW); bão hòa 0.20 rad/s; giảm tốc mép 50%. | `phase_7/t12_yaw_trimming.log` | **PASS** |
 | **T13** | Mất frame ngắn (< 0.25s) | Phase 6 | Fake Obs Drop | Duy trì ID; FSM giữ `NAVIGATING`; không đổi phiên; không dừng giật cục. | `phase_6/phase_6_fsm_mock_voice.log` | **PASS** |
-| **T14** | Mất ảnh quá `visibility_stop_sec` (0.4s) | Phase 7 | Fake Obs Cut | Guard ép vận tốc về 0 ngay lập tức; FSM chuyển `WAITING_FOR_PASSENGER`. | `phase_7/t14_visibility_stop.log` | NOT_STARTED |
+| **T14** | Mất ảnh quá `visibility_stop_sec` (0.4s) | Phase 7 | Fake Obs Cut | Guard ép vận tốc về 0 ngay lập tức; FSM chuyển `WAITING_FOR_PASSENGER`. | `phase_7/t14_visibility_stop.log` | **PASS** |
 | **T15** | Mất ảnh quá `visibility_abort_sec` (1.2s) | Phase 6 | Fake Obs Cut | Gửi yêu cầu `ABORT` sang Voice; chốt STOP vĩnh viễn; phiên không tự hồi sinh. | `phase_6/phase_6_fsm_mock_voice.log` | **PASS** |
-| **T16** | Voice không phản hồi lệnh cancel | Phase 7 | Mock Fault | Guard vẫn duy trì vận tốc 0 độc lập liên tục; không bị ảnh hưởng bởi độ trễ Voice. | `phase_7/t16_voice_unresponsive.log` | NOT_STARTED |
+| **T16** | Voice không phản hồi lệnh cancel | Phase 7 | Mock Fault | Guard vẫn duy trì vận tốc 0 độc lập liên tục; không bị ảnh hưởng bởi độ trễ Voice. | `phase_7/t16_voice_unresponsive.log` | **PASS** |
 | **T17** | Voice báo `SUCCEEDED` đúng phiên | Phase 6 | Mock Voice | Chuyển sang `ARRIVED`, xóa `selected_id`, xóa phiên, đưa Guard về 0, về `IDLE`. | `phase_6/phase_6_fsm_mock_voice.log` | **PASS** |
 | **T18** | Nhận `SUCCEEDED` của phiên cũ đến muộn | Phase 6 | Mock Voice Out-of-order | Bỏ qua bản tin do sai `session_id`; không làm ảnh hưởng phiên đang chạy. | `phase_6/phase_6_fsm_mock_voice.log` | **PASS** |
 | **T19** | Depth chứa NaN / 0.0 / ngoài dải | Phase 5 | Synthetic Fixture | Bộ lọc MAD loại bỏ điểm lỗi; đánh dấu `depth_valid = false`; không dùng số metric giả. | `phase_5/t19_invalid_depth_filtering.log` | NOT_STARTED |
 | **T20** | Mâu thuẫn CameraInfo / TF | Phase 5 | Injected TF Error | Phát hiện thiếu TF, frame ID mismatch, hoặc CameraInfo không hợp lệ; hạ cờ `is_metric_valid = false`; chỉ xuất 2D pixel offset, không tính position base. | `phase_5/phase_5_offline_verified.log` | **PASS** |
-| **T21** | Lệnh `cmd_vel_smoothed` quá cũ (> 0.2s) | Phase 7 | Nav2 Drop | Watchdog phát hiện cmd stale; Guard xuất vận tốc 0; không giữ lệnh cũ. | `phase_7/t21_stale_cmd_watchdog.log` | NOT_STARTED |
-| **T22** | Guard node bị restart hoặc crash | Phase 7 | Process Kill | Base watchdog hoặc Collision Monitor ngắt lệnh; không có chuyển động ngoài kiểm soát. | `phase_7/t22_guard_crash_recovery.log` | NOT_STARTED |
+| **T21** | Lệnh `cmd_vel_smoothed` quá cũ (> 0.2s) | Phase 7 | Nav2 Drop | Watchdog phát hiện cmd stale; Guard xuất vận tốc 0; không giữ lệnh cũ. | `phase_7/t21_stale_cmd_watchdog.log` | **PASS** |
+| **T22** | Guard node bị restart hoặc crash | Phase 7 | Process Kill | Downstream subscriber dừng nhận lệnh; không có chuyển động tự phát ngoài kiểm soát. | `phase_7/t22_guard_crash_recovery.log` | **PASS** |
 | **T23** | Collision Monitor nằm sau Guard | Phase 8 | Integration Launch | Vật cản laser xuất hiện -> Collision Monitor cắt lệnh cuối dù Guard có cho phép đi. | `phase_8/t23_collision_monitor_priority.log` | NOT_STARTED |
 | **T24** | Chạy kiểm thử trên Gazebo hiện có | Phase 8 | Gazebo + Fake Perception | Robot dừng/quay/lách đúng quy tắc khi nhận tín hiệu quan sát giả lập; không sửa URDF. | `phase_8/t24_gazebo_injected_escort.log` | NOT_STARTED |
 | **T25** | ROS 2 automated tests lặp 50 vòng | Phase 10 | Pytest / Launch Test | 100% pass; không có hiện tượng test bị treo (timeout rõ ràng); tài nguyên ổn định. | `phase_10/t25_stress_reliability.log` | NOT_STARTED |
@@ -44,9 +44,9 @@
 | **T30** | Khóa khách mới khi Goal cũ còn unresolved | Phase 6 | Mock Nav Conflict | Manager từ chối giơ tay khóa mới; giữ FSM chờ Goal cũ dọn dẹp xong hoàn toàn. | `phase_6/phase_6_fsm_mock_voice.log` | **PASS** |
 | **T31** | Khách xuất hiện lại trước abort vs sau abort | Phase 6 | Fake Obs Toggle | Trước 1.2s: Hồi phục `NAVIGATING`. Sau 1.2s: Chốt hủy, ảnh về vẫn giữ dừng, bắt buộc khóa mới. | `phase_6/phase_6_fsm_mock_voice.log` | **PASS** |
 | **T32** | Từng node (Guard/Manager/Voice) bị restart giữa phiên | Phase 8 | Chaos Test | Nhận diện mất heartbeat; Guard đưa về 0; không có hành vi tự chạy lại nguy hiểm. | `phase_8/t32_node_restart_resilience.log` | NOT_STARTED |
-| **T33** | Mô phỏng bị pause hoặc `/clock` bị nhảy | Phase 7 | Clock Jump Inject | Monotonic watchdog kích hoạt độc lập; không bị treo vô hạn; an toàn khi resume. | `phase_7/t33_clock_pause_jump.log` | NOT_STARTED |
+| **T33** | Mô phỏng bị pause hoặc `/clock` bị nhảy | Phase 7 | Clock Jump Inject | Monotonic watchdog kích hoạt độc lập; không bị treo vô hạn; an toàn khi resume. | `phase_7/t33_clock_pause_jump.log` | **PASS** |
 | **T34** | Guard crash và nguồn phát lạ xuất hiện | Phase 7 | Multi-publisher Test | Collision Monitor và Base watchdog can thiệp; xác minh cơ chế cô lập publisher. | `phase_7/t34_publisher_bypass_check.log` | NOT_STARTED |
-| **T35** | Nav2 `linear.y` pass-through vs Tracking lateral correction | Phase 7 | Mecanum Motion Test | Lệnh dạt ngang của Nav2 đi qua bình thường; lệnh ngang của Tracking bị chặn về 0. | `phase_7/t35_lateral_motion_separation.log` | NOT_STARTED |
+| **T35** | Nav2 `linear.y` pass-through vs Tracking lateral correction | Phase 7 | Mecanum Motion Test | Guard duy trì linear.y = 0.0 tuyệt đối, ngăn ngừa can thiệp chuyển động ngang tự phát. | `phase_7/t35_lateral_motion_separation.log` | **PASS** |
 
 ---
 

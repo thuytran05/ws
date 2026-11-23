@@ -1,0 +1,11 @@
+=== TEST RUN EVIDENCE: t35_lateral_motion_separation (test_guard_ros2_pass_through_and_active_zeroing) ===\nExit code: 0\n\n============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-7.4.4, pluggy-1.4.0 -- /usr/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/ws/src/person_tracking
+plugins: ament-flake8-0.17.5, launch-testing-3.4.11, ament-lint-0.17.5, ament-xmllint-0.17.5, ament-copyright-0.17.5, launch-testing-ros-0.26.12, ament-pep257-0.17.5, typeguard-4.1.5, colcon-core-0.21.3
+collecting ... collected 95 items / 94 deselected / 1 selected
+
+src/person_tracking/test/test_velocity_guard_ros.py::test_guard_ros2_pass_through_and_active_zeroing PASSED
+
+======================= 1 passed, 94 deselected in 1.76s =======================
+\n[STDERR]\n[INFO] [1795430999.851783672] [escort_velocity_guard]: VelocityGuardNode initialized (in: /tracking/cmd_vel_smoothed, out: /tracking/cmd_vel_guarded, rate: 20.0 Hz).

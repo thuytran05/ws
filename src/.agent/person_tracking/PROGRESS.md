@@ -18,7 +18,7 @@
 | **Phase 4** | Giơ tay, chọn khách gần nhất & Khóa phiên | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_4/` |
 | **Phase 5** | RGB-D, depth & Hình học camera sau | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_5/` |
 | **Phase 6** | Session FSM, timeout & Giao tiếp voice | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_6/` |
-| **Phase 7** | Velocity guard, mecanum & Watchdog | **NOT_STARTED** | — | — |
+| **Phase 7** | Velocity guard, mecanum & Watchdog | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_7/` |
 | **Phase 8** | End-to-end ROS 2 integration (không sửa Gazebo) | **NOT_STARTED** | — | — |
 | **Phase 9** | Giao tiếp song song với agent voice | **NOT_STARTED** | — | — |
 | **Phase 10** | Validation hiệu năng & Độ bền (offline + sim) | **NOT_STARTED** | — | — |
@@ -291,3 +291,53 @@
   - Bản yêu cầu tích hợp Voice: [.agent/person_tracking/VOICE_INTEGRATION_REQUEST.md](file:///home/thuytran/ws/src/.agent/person_tracking/VOICE_INTEGRATION_REQUEST.md).
 
 - **Điểm dừng bàn giao:** Dừng chính xác trước Phase 7 (Velocity guard, mecanum & Watchdog). User tự commit và push lên Git.
+
+
+---
+
+### Phase 7 — Velocity guard, mecanum & Watchdog — [PASS]
+- **Ngày/giờ hoàn thành:** 23/11/2026 17:50:00+07:00
+- **Baseline Git Commit:** `e6d3d8ce9504bd99d85be27c6a7997e925f9191f`
+- **Mục tiêu đạt được:** Sửa triệt để các hồi quy về quyền chạy xe của Phase 6, triển khai Cổng an toàn vận tốc độc lập `escort_velocity_guard` (`ADR-04`), chuẩn hóa chuỗi topic `cmd_vel_smoothed -> escort_velocity_guard -> cmd_vel_guarded -> Collision Monitor -> base`, cơ chế Active Continuous Zeroing 20 Hz, điều khiển cự ly dãn cách có hysteresis, hiệu chỉnh góc quay có bão hòa (ADR-10), và bộ kiểm thử an toàn tự động 100% PASS.
+
+- **Các nội dung kỹ thuật đã hoàn thành:**
+  1. **Sửa Hồi quy Phase 6 trước khi xuất vận tốc (Section A):**
+     - *Kiểm tra deadline mất khách trước khi nhận frame quay lại:* Nếu khách đã mất $\ge 1.20$s, khi frame mới có ID khớp đến trước tick watchdog, FSM vẫn bắt buộc chuyển sang `ABORTING` (`VISIBILITY_TIMEOUT_ABORT`), không được phục hồi.
+     - *Chốt dừng vĩnh viễn (Latched Stop) trong ABORTING:* Sau khi đã vào `ABORTING`, đổi `source_session_id`, cùng ID quay lại hoặc frame cũ đều bị chặn tuyệt đối, không được tự ý unlatch hoặc reset về `IDLE`. Chỉ duy nhất bản tin Terminal hợp lệ từ Voice mới được phép dọn dẹp phiên.
+     - *Phân biệt chớp/mất tạm thời vs OUT_OF_FOV được xác nhận:* Khách ở gần mép ảnh (`near_edge == true`) rồi biến mất ở frame tiếp theo được xác nhận `OUT_OF_FOV` $\implies$ lập tức chuyển sang `ABORTING` (`reason_code = "OUT_OF_FOV"`). Nếu khách ở giữa ảnh và biến mất tạm thời $\implies$ vào grace period (0.25s), không dừng đột ngột.
+     - *Chuẩn hóa kiểm tra tính hợp lệ & thời gian của Observation:* Từ chối stamp thiếu, nanoseconds ngoài dải $[0, 10^9)$, kiểu dữ liệu sai (bool/str). Stamp 0/0, stamp thiếu, hoặc stamp đi lùi tuyệt đối không được gia hạn độ mới quan sát của khách đã khóa. Frame đầu tiên của `source_session_id` mới có timestamp bắt đầu lại từ 0/epoch được khởi tạo sequence baseline mới, không bị loại nhầm là `is_old_frame`, trong khi bản tin muộn của phiên nguồn cũ bị loại bỏ hoàn toàn.
+     - *Siết chặt hợp đồng Mock Voice:* Lệnh `START` (`on_destination_accepted`) bắt buộc phải mang đầy đủ `session_id`, `mission_id`, và `goal_attempt_id`; loại bỏ hoàn toàn fallback tự điền `session_id`. Bản tin `ACK` bắt buộc phải khớp `request_id`, `session_id`, và `goal_attempt_id`; `ACK` chỉ có tác dụng dừng vòng lặp retry. Kích hoạt bộ đếm hạn chót Terminal riêng (`terminal_timeout_sec = 3.0s`) sau khi nhận `ACK`. Hết 3 lần retry không có `ACK` hoặc quá 3.0s không nhận được Terminal $\implies$ chuyển sang `FAULT`, đánh dấu `unconfirmed_terminal = true`, chốt dừng 0 và chặn tuyệt đối không cho mở phiên mới. Bản tin Terminal mang trạng thái `status: "UNKNOWN"` hoặc sai goal ID bị từ chối tuyệt đối.
+  2. **Triển khai Phân hệ Velocity Guard, Mecanum & Watchdog (Section B):**
+     - *Chuỗi Topic Chuẩn:* `/tracking/cmd_vel_smoothed` $\to$ `escort_velocity_guard` $\to$ `/tracking/cmd_vel_guarded` $\to$ Collision Monitor $\to$ `/cmd_vel` $\to$ Base. Không dùng `twist_mux` để trộn yaw; Guard KHÔNG publish trực tiếp vào `/cmd_vel`.
+     - *Cơ chế Active Continuous Zeroing:* Mặc định xuất `Twist` toàn 0 ở tần số 20 Hz độc lập. Bất kỳ vi phạm an toàn nào hoặc khi trạng thái khác `NAVIGATING` (`IDLE`, `LOCKED_WAIT_DESTINATION`, `WAITING_FOR_PASSENGER`, `ABORTING`, `ARRIVED`, `FAULT`) đều lập tức ép vận tốc về 0, bỏ qua smoothing.
+     - *Watchdog Độc lập 20 Hz:* Chạy bằng thời gian đơn điệu `time.monotonic()`, hoàn toàn miễn nhiễm với việc dừng hoặc nhảy lùi của `/clock` mô phỏng.
+     - *Điều kiện Mở Cổng Di chuyển (Motion Gate):* Chỉ pass-through khi FSM ở `NAVIGATING`, `locked == true`, heartbeat `session_state` $\le 1.0$s, khách quan sát còn mới $\le 0.40$s (`obs_fresh == true`), chỉ dùng depth đã xác nhận (`depth_valid == true` và `depth_proven == true`), và nhận được lệnh `cmd_vel_smoothed` mới ($\le 0.20$s) sau thời điểm mở cổng di chuyển.
+     - *Chế độ Degraded khi Depth chưa xác nhận:* Khi `data_quality == UNVERIFIED_ALIGNMENT` (hoặc thiếu depth / depth lỗi), chế độ degraded lập tức ép toàn bộ vận tốc về 0. Giữ `linear.y = 0.0` tuyệt đối.
+     - *Đường cong Điều khiển Cự ly & Hysteresis:*
+       * Dải an toàn $[1.2m, 2.0m]$: Cho phép Nav2 chạy đúng tốc độ tính toán ($v_x = v_{x, \text{in}}$).
+       * Dải dãn cách $(2.0m, 2.5m]$: Giảm dần trần tốc độ tuyến tính $\text{scale} = 1.0 - (d - 2.0) / 0.5$.
+       * Vượt quá $2.5m$: Dừng hẳn ($v_x = 0$), chốt cờ dừng cự ly (`distance_stop_latched = true`).
+       * Hysteresis: Trong khi chốt dừng, chỉ cho phép chạy lại khi khách tiến lại gần $\le 2.2m$.
+       * Dưới $1.2m$: An toàn cự ly gần, duy trì tốc độ Nav2, tuyệt đối không tăng tốc dãn cách và không lùi xe vào người ($v_x \ge 0$).
+     - *Hiệu chỉnh Góc quay $\Delta \omega$ (Angular Trimming):*
+       * Vùng chết (Deadband): $|center\_offset\_x\_norm| \le 0.08 \implies \Delta \omega = 0.0$.
+       * Quy ước dấu quang học ADR-10: Khách lệch phải ảnh ($e_x > 0$) $\implies$ quay CCW ($\omega > 0$). Khách lệch trái ($e_x < 0$) $\implies$ quay CW ($\omega < 0$).
+       * Bão hòa góc quay: $|\Delta \omega| \le 0.20$ rad/s. Trần góc quay tổng: $0.40$ rad/s.
+       * Giảm tốc mép ảnh: $|e_x| > 0.70 \implies$ giảm 50% tốc độ tiến ($v_x = 0.5 v_x$).
+       * Bất biến Zero Nav2: Lệnh Nav2 bằng 0 thì xuất 0 (tuyệt đối không tự quay khi Nav2 đứng yên).
+       * Giải quyết xung đột góc quay: Nếu lệnh quay Nav2 đối nghịch với việc giữ khách trong ảnh ở mép, ưu tiên dừng chờ (`NAV2_EDGE_TURNING_CONFLICT_STOP`).
+  3. **Kết quả Kiểm thử Toàn diện (100% PASS):**
+     - Toàn bộ **95/95 tests** của phân hệ `person_tracking` đều PASS trong 13.13s (ROS 2 Jazzy, ROS_DOMAIN_ID=42).
+     - Đã kiểm chứng đầy đủ các ca kiểm thử Phase 7: T09, T10, T11, T12, T14, T16, T21, T22, T33, T35.
+     - Khẳng định **ZERO `/cmd_vel` publishers** trên toàn bộ các node của phân hệ `person_tracking`. Phân hệ Voice tiếp tục là chủ sở hữu duy nhất của `NavigateToPose`.
+     - Kiểm chứng hành vi kill Guard: Khi node `escort_velocity_guard` bị hủy, subscriber phía sau lập tức ngừng nhận bản tin, không có lệnh dư thừa tự phát.
+
+- **Bằng chứng kỹ thuật:**
+  - Build overlay: [.agent/person_tracking/evidence/phase_7/colcon_build.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_7/colcon_build.log).
+  - Kết quả kiểm thử pytest tổng thể: [.agent/person_tracking/evidence/phase_7/pytest_results.txt](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_7/pytest_results.txt).
+  - Trace các ca kiểm thử: T09, T10, T11, T12, T14, T16, T21, T22, T33, T35 trong [.agent/person_tracking/evidence/phase_7/](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_7/).
+  - Log kiểm thử hồi quy Phase 6: [.agent/person_tracking/evidence/phase_7/phase6_regressions.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_7/phase6_regressions.log).
+  - Đặc tả hợp đồng giao diện: [.agent/person_tracking/INTERFACES.md](file:///home/thuytran/ws/src/.agent/person_tracking/INTERFACES.md).
+  - Bản yêu cầu tích hợp Voice: [.agent/person_tracking/VOICE_INTEGRATION_REQUEST.md](file:///home/thuytran/ws/src/.agent/person_tracking/VOICE_INTEGRATION_REQUEST.md).
+
+- **Điểm dừng bàn giao:** Dừng chính xác trước Phase 8 (End-to-end ROS 2 integration). User tự commit và push lên Git.

@@ -1,0 +1,10 @@
+=== TEST RUN EVIDENCE: t14_visibility_stop (test_t14_stale_observation_clamps_to_zero) ===\nExit code: 0\n\n============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-7.4.4, pluggy-1.4.0 -- /usr/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/ws/src/person_tracking
+plugins: ament-flake8-0.17.5, launch-testing-3.4.11, ament-lint-0.17.5, ament-xmllint-0.17.5, ament-copyright-0.17.5, launch-testing-ros-0.26.12, ament-pep257-0.17.5, typeguard-4.1.5, colcon-core-0.21.3
+collecting ... collected 95 items / 94 deselected / 1 selected
+
+src/person_tracking/test/test_velocity_guard.py::test_t14_stale_observation_clamps_to_zero PASSED
+
+======================= 1 passed, 94 deselected in 1.17s =======================

@@ -161,13 +161,24 @@ Phân hệ Tracking yêu cầu **tách riêng rẽ bản tin ACK và bản tin K
 
 1. **Bản tin đến muộn từ phiên cũ (Stale Goal Status):**
    Nếu Voice phát bản tin mang `session_id` cũ hoặc `is_terminal == true` nhưng không trùng `session_id` hiện tại của Tracking, Tracking **hoàn toàn bỏ qua**, không cho phép kết quả cũ làm xóa nhầm phiên đang chạy.
-2. **Goal chưa xác nhận kết thúc (Unconfirmed Terminal Timeout):**
-   Nếu lệnh `ABORT` sau 3 lần retry vẫn không nhận được ACK/Terminal từ Voice, Tracking đánh dấu `unconfirmed_terminal = true`, chuyển sang `FAULT` và **chặn tuyệt đối không cho bất kỳ khách hàng nào khác khóa phiên mới**.
-3. **Mất dấu tạm thời (Grace Period 0.25s & Wait 0.40s):**
+2. **Khởi hành Nghiêm ngặt (Strict Start Contract):**
+   Bản tin `NAVIGATION_STARTED` từ Voice bắt buộc phải mang đầy đủ `session_id`, `mission_id`, và `goal_attempt_id`. Bỏ hoàn toàn fallback tự điền `session_id`. Nếu thiếu định danh hoặc `session_id` không khớp, Tracking từ chối khởi hành.
+3. **Bắt tay ACK & Hạn chót Xác nhận Terminal (Handshake & Terminal Deadline):**
+   - Khi nhận `safety_request` (ABORT), Voice gửi ACK `CANCEL_ACKNOWLEDGED` với cùng `request_id`, `session_id` và `goal_attempt_id`.
+   - Tracking giữ nguyên `request_id` qua toàn bộ các lần retry (tối đa 3 lần sau mỗi 200 ms).
+   - ACK **chỉ có tác dụng dừng gửi lại retry**, robot vẫn duy trì dừng vận tốc 0 (`ABORTING`).
+   - Sau khi nhận ACK, Tracking kích hoạt bộ đếm hạn chót xác nhận Terminal (`terminal_timeout_sec = 3.0s`).
+   - Nếu hết 3 lần retry không có ACK, HOẶC sau ACK quá 3.0s mà không nhận được bản tin Terminal: Tracking chuyển sang `FAULT`, đánh dấu `unconfirmed_terminal = true`, chốt dừng 0 và **chặn tuyệt đối không cho bất kỳ khách hàng nào khóa phiên mới**.
+4. **Kiểm tra Tính hợp lệ của Kết quả Terminal:**
+   - Trạng thái `status: "UNKNOWN"` bị từ chối tuyệt đối (không coi là kết thúc hợp lệ).
+   - Chỉ chấp nhận các trạng thái chuẩn: `SUCCEEDED`, `CANCELED`, `ABORTED`.
+   - `mission_id` và `goal_attempt_id` trong bản tin Terminal phải khớp với Goal đang được dẫn đường.
+5. **Mất dấu tạm thời vs OUT_OF_FOV được xác nhận:**
    - Mất khách $< 0.25$s: Tracking giữ `NAVIGATING` (`LOCKED_TARGET_GRACE_PERIOD`), không gây xáo trộn.
    - Mất khách $> 0.40$s: Tracking chuyển `WAITING_FOR_PASSENGER` (vận tốc ép về 0).
    - Nếu khách quay lại trước 1.20s: Tracking tự phục hồi về `NAVIGATING` mà không cần hủy Goal.
    - Quá 1.20s: Lập tức `ABORT` sang Voice. Sau khi đã `ABORT`, việc khách quay lại **tuyệt đối không được mở khóa lại**.
+   - Nếu khách ở gần mép ảnh (`near_edge == true`) rồi biến mất ở frame tiếp theo: Xác nhận `OUT_OF_FOV` $\implies$ lập tức chuyển sang `ABORTING` (`reason_code = "OUT_OF_FOV"`), không chờ qua grace period.
 
 ---
 

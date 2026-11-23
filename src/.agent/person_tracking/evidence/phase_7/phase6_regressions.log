@@ -1,0 +1,22 @@
+=== TEST RUN EVIDENCE: phase6_regressions (test_phase6_regressions_verified) ===\nExit code: 0\n\n============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-7.4.4, pluggy-1.4.0 -- /usr/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/ws/src/person_tracking
+plugins: ament-flake8-0.17.5, launch-testing-3.4.11, ament-lint-0.17.5, ament-xmllint-0.17.5, ament-copyright-0.17.5, launch-testing-ros-0.26.12, ament-pep257-0.17.5, typeguard-4.1.5, colcon-core-0.21.3
+collecting ... collected 95 items / 87 deselected / 8 selected
+
+src/person_tracking/test/test_phase6_regressions_verified.py::test_returning_passenger_after_1_2s_deadline_enters_aborting PASSED
+src/person_tracking/test/test_phase6_regressions_verified.py::test_once_in_aborting_source_switch_or_candidate_cannot_unlatch PASSED
+src/person_tracking/test/test_phase6_regressions_verified.py::test_out_of_fov_immediate_abort_vs_center_flicker_grace PASSED
+src/person_tracking/test/test_phase6_regressions_verified.py::test_timestamp_validations_and_freshness_invariants PASSED
+src/person_tracking/test/test_phase6_regressions_verified.py::test_first_frame_new_source_session_from_epoch_not_dropped PASSED
+src/person_tracking/test/test_phase6_regressions_verified.py::test_strict_voice_start_contract_requires_all_goal_identifiers PASSED
+src/person_tracking/test/test_phase6_regressions_verified.py::test_terminal_status_unknown_rejected_and_mismatched_goal_rejected PASSED
+src/person_tracking/test/test_phase6_regressions_verified.py::test_terminal_timeout_after_ack_triggers_fault_and_unconfirmed_terminal PASSED
+
+======================= 8 passed, 87 deselected in 1.23s =======================
+\n[STDERR]\n[INFO] [1795431002.604956780] [escort_tracking_manager]: TrackingManagerNode initialized (gesture: 1.5s, stop: 0.4s, abort: 1.2s).
+[WARN] [1795431002.605487857] [escort_tracking_manager]: Initiating escort abort for session e30c4759-e11b-4894-b73f-c0499f035217 (request_id=75402a4a-b9dc-4ffb-bcad-b436bc72668c).
+[INFO] [1795431002.605873960] [escort_tracking_manager]: Received matching ACK for abort request: 75402a4a-b9dc-4ffb-bcad-b436bc72668c
+[INFO] [1795431002.606173965] [escort_tracking_manager]: Voice nav_status handled: STATUS_UPDATE_CANCEL_ACKNOWLEDGED (ABORTING -> ABORTING)
+[ERROR] [1795431002.606560405] [escort_tracking_manager]: Terminal confirmation timed out (3.0s) after ACK! Marking UNCONFIRMED_TERMINAL and FAULT.

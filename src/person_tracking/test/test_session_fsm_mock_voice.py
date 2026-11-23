@@ -72,6 +72,8 @@ class MockVoiceAgent(Node):
             "stamp": {"sec": 1, "nanosec": 0},
             "request_id": request_id,
             "session_id": session_id,
+            "mission_id": getattr(self, "last_mission_id", "mission-123"),
+            "goal_attempt_id": getattr(self, "last_goal_attempt_id", "goal-456"),
             "status": "CANCELING",
             "nav_event": "CANCEL_ACKNOWLEDGED",
             "is_terminal": False,
@@ -79,11 +81,21 @@ class MockVoiceAgent(Node):
         }
         self.pub_nav_status.publish(String(data=json.dumps(payload)))
 
-    def send_start_navigation(self, session_id: str, destination_id: str = "gate_1"):
+    def send_start_navigation(
+        self,
+        session_id: str,
+        mission_id: str = "mission-123",
+        goal_attempt_id: str = "goal-456",
+        destination_id: str = "gate_1",
+    ):
+        self.last_mission_id = mission_id
+        self.last_goal_attempt_id = goal_attempt_id
         payload = {
             "schema_version": "1.0",
             "stamp": {"sec": 1, "nanosec": 0},
             "session_id": session_id,
+            "mission_id": mission_id,
+            "goal_attempt_id": goal_attempt_id,
             "destination_id": destination_id,
             "status": "NAVIGATING",
             "nav_event": "NAVIGATION_STARTED",
@@ -92,11 +104,19 @@ class MockVoiceAgent(Node):
         }
         self.pub_nav_status.publish(String(data=json.dumps(payload)))
 
-    def send_terminal_result(self, session_id: str, status: str = "SUCCEEDED"):
+    def send_terminal_result(
+        self,
+        session_id: str,
+        status: str = "SUCCEEDED",
+        mission_id: Optional[str] = None,
+        goal_attempt_id: Optional[str] = None,
+    ):
         payload = {
             "schema_version": "1.0",
             "stamp": {"sec": 1, "nanosec": 0},
             "session_id": session_id,
+            "mission_id": mission_id or getattr(self, "last_mission_id", "mission-123"),
+            "goal_attempt_id": goal_attempt_id or getattr(self, "last_goal_attempt_id", "goal-456"),
             "status": status,
             "nav_event": "GOAL_COMPLETED",
             "is_terminal": True,
@@ -203,7 +223,7 @@ def test_fsm_brief_loss_grace_wait_and_resume():
     sess_id = manager.session_id
 
     # 2. Voice accepts destination -> FSM transitions to NAVIGATING
-    ok, reason = manager.on_destination_accepted(sess_id, current_time_sec=1.5)
+    ok, reason = manager.on_destination_accepted(sess_id, mission_id="mission-123", goal_attempt_id="goal-456", current_time_sec=1.5)
     assert ok is True
     assert manager.state == TrackingState.NAVIGATING
 
@@ -254,7 +274,7 @@ def test_fsm_abort_safety_request_retry_and_terminal_cleanup():
         manager.process_observation({"source_session_id": "sess-abort", "candidates": [cand], "stamp": {"sec": sec, "nanosec": nsec}}, current_time_sec=t)
 
     sess_id = manager.session_id
-    manager.on_destination_accepted(sess_id, current_time_sec=1.5)
+    manager.on_destination_accepted(sess_id, mission_id="mission-123", goal_attempt_id="goal-456", current_time_sec=1.5)
     assert manager.state == TrackingState.NAVIGATING
 
     # 2. Target lost for 1.25s (> 1.20s abort threshold)
@@ -299,7 +319,7 @@ def test_fsm_goal_completion_succeeded_vs_late_stale_goal():
         manager.process_observation({"source_session_id": "sess-suc", "candidates": [cand], "stamp": {"sec": sec, "nanosec": nsec}}, current_time_sec=t)
 
     session_a = manager.session_id
-    manager.on_destination_accepted(session_a, current_time_sec=1.5)
+    manager.on_destination_accepted(session_a, mission_id="mission-a", goal_attempt_id="goal-a1", current_time_sec=1.5)
     assert manager.state == TrackingState.NAVIGATING
 
     # 1. Late status from OLD session X arrives: must be IGNORED!

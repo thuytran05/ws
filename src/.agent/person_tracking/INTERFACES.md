@@ -256,7 +256,29 @@
 ### 2.5. Giao diện Chuỗi Vận tốc: `cmd_vel_smoothed` -> `cmd_vel_guarded` -> `cmd_vel`
 - **Kiểu bản tin:** `geometry_msgs/msg/Twist`
 - **Luồng dữ liệu:**
-  1. `cmd_vel_smoothed`: Do Nav2 `velocity_smoother` xuất ở 20 Hz.
-  2. `cmd_vel_guarded`: Do `escort_velocity_guard` xuất ở 20 Hz sang Collision Monitor.
-  3. `cmd_vel`: Do `collision_monitor` xuất ở 20 Hz tới Base Motor Controller / Gazebo Bridge.
-- **Ràng buộc an toàn:** Collision Monitor luôn là khâu cuối cùng tiếp nhận lệnh để đảm bảo laser scan có quyền phủ quyết va chạm tối cao.
+  1. `/tracking/cmd_vel_smoothed`: Do Nav2 `velocity_smoother` xuất ở 20 Hz.
+  2. `/tracking/cmd_vel_guarded`: Do `escort_velocity_guard` xuất ở 20 Hz sang Collision Monitor.
+  3. `/cmd_vel`: Do `collision_monitor` xuất ở 20 Hz tới Base Motor Controller / Gazebo Bridge.
+- **Ràng buộc an toàn tuyệt đối:**
+  1. **Strictly Zero /cmd_vel publishers:** Toàn bộ phân hệ `person_tracking` KHÔNG bao giờ tạo publisher trực tiếp lên topic `/cmd_vel`. Quyền phát lệnh cuối thuộc về Collision Monitor.
+  2. **Active Continuous Zeroing:** `escort_velocity_guard` mặc định xuất Twist toàn 0 ở tần số 20 Hz. Bất kỳ vi phạm an toàn, mất khách, lỗi heartbeat, hoặc trạng thái không phải `NAVIGATING` đều lập tức ép vận tốc về 0.
+  3. **Quy tắc Gating Chuyển động (Motion Gate):**
+     - FSM ở trạng thái `NAVIGATING` và `locked == true`.
+     - Nhịp tim `session_state` còn mới ($\le 1.0$s).
+     - Khách còn nhìn thấy ($\le 0.40$s) và `obs_fresh == true`.
+     - Chỉ dùng số đo depth đã xác nhận (`depth_valid == true` và `depth_proven == true`). Khi `UNVERIFIED_ALIGNMENT`, chế độ degraded ép vận tốc về 0.
+     - Lệnh `cmd_vel_smoothed` còn mới ($\le 0.20$s) và được nhận **sau** thời điểm cổng di chuyển mở.
+  4. **Điều khiển Cự ly & Hysteresis:**
+     - Dải an toàn $[1.2m, 2.0m]$: Duy trì vận tốc Nav2 ($v_x = v_{x, \text{in}}$).
+     - Dải dãn cách $(2.0m, 2.5m]$: Giảm dần trần tốc độ tuyến tính $\text{scale} = 1.0 - (d - 2.0) / 0.5$.
+     - Vượt quá $2.5m$: Dừng hẳn ($v_x = 0$), chốt cờ dừng cự ly (`distance_stop_latched = true`).
+     - Hysteresis: Trong khi chốt dừng, chỉ cho phép chạy lại khi cự ly rút ngắn về $\le 2.2m$.
+     - Dưới $1.2m$: An toàn cự ly gần, giữ vận tốc Nav2, không tăng tốc và tuyệt đối không lùi xe vào người ($v_x \ge 0$).
+     - Giữ `linear.y = 0.0` tuyệt đối.
+  5. **Hiệu chỉnh Góc quay (Angular Trimming):**
+     - Dấu quay ADR-10: Khách lệch phải ảnh ($e_x > 0$) $\implies$ quay CCW ($\omega > 0$). Khách lệch trái ($e_x < 0$) $\implies$ quay CW ($\omega < 0$).
+     - Vùng chết (Deadband): $|e_x| \le 0.08 \implies \Delta \omega = 0.0$.
+     - Bão hòa: $|\Delta \omega| \le 0.20$ rad/s.
+     - Giảm tốc mép ảnh: $|e_x| > 0.70 \implies$ giảm 50% tốc độ tiến ($v_x = 0.5 v_x$).
+     - Zero Nav2 Invariance: Lệnh Nav2 bằng 0 thì xuất 0 (tuyệt đối không tự quay khi Nav2 đứng yên).
+     - Xung đột hướng quay: Nếu lệnh quay Nav2 đối nghịch với việc giữ khách trong ảnh ở mép, ưu tiên dừng chờ.

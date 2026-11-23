@@ -99,6 +99,16 @@ class PassengerLockManager:
         # 2) last_locked_passenger_seen_mono_time: when the LOCKED passenger was specifically seen
         self.last_locked_passenger_stamp: Dict[str, int] = {"sec": 0, "nanosec": 0}
         self.last_locked_passenger_seen_mono_time: float = 0.0
+        self.last_locked_passenger_near_edge: bool = False
+
+        # Source session tracking for isolating replay/switch
+        self.current_source_session_id: str = ""
+        self.past_source_session_ids: set = set()
+
+        # Voice goal binding
+        self.bound_mission_id: Optional[str] = None
+        self.bound_goal_attempt_id: Optional[str] = None
+        self.bound_nav2_uuid: Optional[str] = None
 
     def reset_session(self, reason: str = "SESSION_RESET"):
         """Reset lock and return to IDLE state."""
@@ -113,6 +123,10 @@ class PassengerLockManager:
         self.reason_code = reason
         self.last_locked_passenger_seen_mono_time = 0.0
         self.last_locked_passenger_stamp = {"sec": 0, "nanosec": 0}
+        self.last_locked_passenger_near_edge = False
+        self.bound_mission_id = None
+        self.bound_goal_attempt_id = None
+        self.bound_nav2_uuid = None
         self.gesture_state.clear()
         self.gesture_raise_start.clear()
 
@@ -211,6 +225,14 @@ class PassengerLockManager:
             current_time_sec = time.monotonic()
 
         self.sequence_num += 1
+
+        # Invariant: If unconfirmed terminal, block all new sessions and observations!
+        if self.unconfirmed_terminal:
+            self.reason_code = "UNCONFIRMED_TERMINAL_BLOCK"
+            stamp_dict = obs_payload.get("stamp", {})
+            s_sec = stamp_dict.get("sec", 0) if isinstance(stamp_dict, dict) else 0
+            s_nsec = stamp_dict.get("nanosec", 0) if isinstance(stamp_dict, dict) else 0
+            return self._make_snapshot(s_sec, s_nsec, current_time_sec)
         stamp_sec = obs_payload.get("stamp", {}).get("sec", 0)
         stamp_nanosec = obs_payload.get("stamp", {}).get("nanosec", 0)
         source_session_id = obs_payload.get("source_session_id", "")
@@ -221,23 +243,40 @@ class PassengerLockManager:
             isinstance(stamp_dict, dict) and
             isinstance(stamp_dict.get("sec"), int) and
             isinstance(stamp_dict.get("nanosec"), int) and
+            not isinstance(stamp_dict.get("sec"), bool) and
+            not isinstance(stamp_dict.get("nanosec"), bool) and
             stamp_dict["sec"] >= 0 and
-            stamp_dict["nanosec"] >= 0
+            0 <= stamp_dict["nanosec"] < 1_000_000_000
         )
         if has_valid_stamp:
             stamp_sec = stamp_dict["sec"]
             stamp_nanosec = stamp_dict["nanosec"]
             t_obs = stamp_sec + stamp_nanosec * 1e-9
+            is_zero_stamp = (stamp_sec == 0 and stamp_nanosec == 0)
         else:
             stamp_sec = 0
             stamp_nanosec = 0
             t_obs = -1.0  # Invalid stamp marker
+            is_zero_stamp = True
+
+        # Handle source session tracking:
+        if source_session_id != self.current_source_session_id:
+            if source_session_id in self.past_source_session_ids:
+                # Late frame from old source session: drop completely
+                return self._make_snapshot(stamp_sec, stamp_nanosec, current_time_sec)
+            else:
+                if self.current_source_session_id:
+                    self.past_source_session_ids.add(self.current_source_session_id)
+                self.current_source_session_id = source_session_id
+                # Reset sequence baseline with sentinel so frame 1 (even at 0/epoch) is not dropped as old
+                self.last_observation_stamp = {"sec": -1, "nanosec": -1}
 
         # Check old or duplicate observation
         last_t = self.last_observation_stamp["sec"] + self.last_observation_stamp["nanosec"] * 1e-9
-        is_old_frame = (has_valid_stamp and last_t > 0.0 and t_obs <= last_t)
+        is_old_frame = (has_valid_stamp and last_t >= 0.0 and t_obs <= last_t)
 
-        if has_valid_stamp and not is_old_frame:
+        # Invariant A.2: Stamp 0/0, missing, or backwards stamp CANNOT extend observation freshness
+        if has_valid_stamp and not is_old_frame and not is_zero_stamp:
             self.last_observation_stamp = {"sec": stamp_sec, "nanosec": stamp_nanosec}
             self.last_observation_mono_time = current_time_sec
 
@@ -245,6 +284,10 @@ class PassengerLockManager:
         # 1. ALREADY LOCKED
         # -------------------------------------------------------------
         if self.locked:
+            # Latched stop in ABORTING: cannot be unlatched or reset by new frames, matching ID, or source switch!
+            if self.state == TrackingState.ABORTING:
+                return self._make_snapshot(stamp_sec, stamp_nanosec, current_time_sec)
+
             # Source session switch or reset during active lock
             if self.locked_source_session_id and source_session_id != self.locked_source_session_id:
                 if self.state in (TrackingState.NAVIGATING, TrackingState.WAITING_FOR_PASSENGER):
@@ -255,24 +298,30 @@ class PassengerLockManager:
                     self.reset_session(reason="SOURCE_RESET_DISCONNECT")
                     return self._make_snapshot(stamp_sec, stamp_nanosec, current_time_sec)
 
-            # If already in ABORTING: latched! Reappearance of passenger cannot unlatch
-            if self.state == TrackingState.ABORTING:
-                return self._make_snapshot(stamp_sec, stamp_nanosec, current_time_sec)
+            # Invariant A.1: Check lost passenger deadline using previous seen time BEFORE accepting returning frame
+            if self.state in (TrackingState.NAVIGATING, TrackingState.WAITING_FOR_PASSENGER):
+                time_since_last_seen = current_time_sec - self.last_locked_passenger_seen_mono_time if self.last_locked_passenger_seen_mono_time > 0.0 else 999.0
+                if time_since_last_seen >= self.visibility_abort_sec:
+                    self.state = TrackingState.ABORTING
+                    self.reason_code = "VISIBILITY_TIMEOUT_ABORT"
+                    return self._make_snapshot(stamp_sec, stamp_nanosec, current_time_sec)
 
-            # Search for locked candidate in fresh frame
+            # Search for locked candidate in valid, fresh frame
             matched_cand = None
-            if not is_old_frame:
+            if has_valid_stamp and not is_old_frame:
                 for cand in candidates:
                     if cand.get("track_id") == self.locked_track_id:
-                        if not cand.get("is_ambiguous", False):
+                        if not cand.get("is_ambiguous", False) and cand.get("is_confirmed", True):
                             matched_cand = cand
                         break
 
-            if matched_cand is not None:
-                # Update observation of locked passenger
+            if matched_cand is not None and not is_zero_stamp:
+                # Update observation of locked passenger (stamp 0/0 cannot extend passenger freshness)
                 self.last_locked_passenger_seen_mono_time = current_time_sec
                 self.last_locked_passenger_stamp = {"sec": stamp_sec, "nanosec": stamp_nanosec}
                 self.locked_confidence = matched_cand.get("confidence", 0.0)
+                self.last_locked_passenger_near_edge = bool(matched_cand.get("near_edge", False))
+
                 if matched_cand.get("depth_valid", False):
                     self.locked_distance_m = matched_cand.get("torso_depth_m")
                     self.locked_depth_proven = True
@@ -290,8 +339,13 @@ class PassengerLockManager:
                     self.reason_code = "LOCKED_TRACKING_ACTIVE"
             else:
                 # Candidate not seen, ambiguous, or old frame:
-                # self.last_locked_passenger_seen_mono_time is NOT updated!
-                pass
+                # Check confirmed OUT_OF_FOV vs momentary flicker
+                lost_ids = obs_payload.get("lost_track_ids", [])
+                if self.last_locked_passenger_near_edge and (self.locked_track_id in lost_ids or len(candidates) == 0 or matched_cand is None):
+                    if self.state in (TrackingState.NAVIGATING, TrackingState.WAITING_FOR_PASSENGER):
+                        self.state = TrackingState.ABORTING
+                        self.reason_code = "OUT_OF_FOV"
+                        return self._make_snapshot(stamp_sec, stamp_nanosec, current_time_sec)
 
             self._update_watchdog(current_time_sec)
             return self._make_snapshot(stamp_sec, stamp_nanosec, current_time_sec)
@@ -433,6 +487,7 @@ class PassengerLockManager:
         self.locked_confidence = cand.get("confidence", 0.0)
         self.last_locked_passenger_seen_mono_time = current_time_sec
         self.last_locked_passenger_stamp = {"sec": stamp_sec, "nanosec": stamp_nanosec}
+        self.last_locked_passenger_near_edge = bool(cand.get("near_edge", False))
 
         if cand.get("depth_valid", False):
             self.locked_distance_m = cand.get("torso_depth_m")
@@ -443,8 +498,15 @@ class PassengerLockManager:
 
         self.reason_code = reason
 
-    def on_destination_accepted(self, session_id: str, current_time_sec: Optional[float] = None) -> Tuple[bool, str]:
-        """Handle event: Voice accepts destination for the current session."""
+    def on_destination_accepted(
+        self,
+        session_id: str,
+        mission_id: Optional[str] = None,
+        goal_attempt_id: Optional[str] = None,
+        nav2_uuid: Optional[str] = None,
+        current_time_sec: Optional[float] = None,
+    ) -> Tuple[bool, str]:
+        """Handle event: Voice accepts destination for the current session with strict goal binding."""
         if current_time_sec is None:
             current_time_sec = time.monotonic()
 
@@ -452,17 +514,22 @@ class PassengerLockManager:
             return False, f"INVALID_STATE_{self.state.value}"
         if not self.session_id or self.session_id != session_id:
             return False, "SESSION_ID_MISMATCH"
+        if not mission_id or not goal_attempt_id:
+            return False, "MISSING_GOAL_IDENTIFIERS"
         if self.unconfirmed_terminal:
             return False, "UNCONFIRMED_TERMINAL_BLOCK"
         if not self.is_observation_fresh(current_time_sec):
             return False, "OBSERVATION_NOT_FRESH"
 
+        self.bound_mission_id = mission_id
+        self.bound_goal_attempt_id = goal_attempt_id
+        self.bound_nav2_uuid = nav2_uuid
         self.state = TrackingState.NAVIGATING
         self.reason_code = "DESTINATION_ACCEPTED_START"
         return True, "OK"
 
     def on_voice_nav_status(self, status_payload: dict, current_time_sec: Optional[float] = None) -> Tuple[bool, str]:
-        """Handle status updates from /voice/nav_status."""
+        """Handle status updates from /voice/nav_status with strict terminal verification."""
         if current_time_sec is None:
             current_time_sec = time.monotonic()
 
@@ -476,6 +543,17 @@ class PassengerLockManager:
         nav_event = str(status_payload.get("nav_event", "")).upper()
 
         if is_terminal:
+            if status == "UNKNOWN":
+                return False, "TERMINAL_STATUS_UNKNOWN_REJECTED"
+
+            # Check goal identifiers if bound
+            m_id = status_payload.get("mission_id")
+            g_id = status_payload.get("goal_attempt_id")
+            if self.bound_mission_id and m_id and m_id != self.bound_mission_id:
+                return False, "MISMATCHED_MISSION_ID"
+            if self.bound_goal_attempt_id and g_id and g_id != self.bound_goal_attempt_id:
+                return False, "MISMATCHED_GOAL_ATTEMPT_ID"
+
             if status == "SUCCEEDED":
                 self.state = TrackingState.ARRIVED
                 self.reason_code = "GOAL_SUCCEEDED"
@@ -487,9 +565,7 @@ class PassengerLockManager:
                 self.reset_session(reason=f"GOAL_{status}_CLEANUP")
                 return True, f"TERMINAL_{status}"
             else:
-                self.unconfirmed_terminal = False
-                self.reset_session(reason="TERMINAL_UNKNOWN_CLEANUP")
-                return True, "TERMINAL_OTHER"
+                return False, f"TERMINAL_INVALID_STATUS_{status}"
 
         return True, f"STATUS_UPDATE_{nav_event or status}"
 
