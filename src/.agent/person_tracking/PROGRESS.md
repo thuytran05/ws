@@ -15,7 +15,7 @@
 | **Phase 1** | Quy tắc, skill, thiết kế & Kế hoạch kiểm thử | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_1/audit_addendum_commands.log` |
 | **Phase 2** | Source adapters, offline dataset & Test infrastructure | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_2/` |
 | **Phase 3** | Multi-person perception, pose & Tracking ID | **PARTIAL / CODE_READY** | 23/11/2026 | `.agent/person_tracking/evidence/phase_3/` |
-| **Phase 4** | Giơ tay, chọn khách gần nhất & Khóa phiên | **NOT_STARTED** | — | — |
+| **Phase 4** | Giơ tay, chọn khách gần nhất & Khóa phiên | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_4/` |
 | **Phase 5** | RGB-D, depth & Hình học camera sau | **NOT_STARTED** | — | — |
 | **Phase 6** | Session FSM, timeout & Giao tiếp voice | **NOT_STARTED** | — | — |
 | **Phase 7** | Velocity guard, mecanum & Watchdog | **NOT_STARTED** | — | — |
@@ -142,4 +142,52 @@
 - **Trạng thái Gate 3 & Bàn giao:**
   - Trạng thái kỹ thuật: **PARTIAL / CODE_READY**. Code perception, tracking và an toàn đã sẵn sàng 100%. Gate 3 để mở chờ người dùng cung cấp video người thật để nghiệm thu trực quan visual tracking.
   - Topic `/cmd_vel`: **Publisher count: 0** trong toàn bộ runtime Phase 3.
-  - DỪNG TRƯỚC PHASE 4 theo đúng quy định.
+  - Hoàn tất kiểm thử hồi quy Phase 3 và bàn giao sang Phase 4.
+
+---
+
+### Phase 4 — Giơ tay, chọn khách gần nhất & Khóa phiên — [PASS]
+- **Ngày/giờ hoàn thành:** 23/11/2026 15:00:00+07:00
+- **Baseline Git Commit:** `5f0fb1f187d468d412e2f7988dc42cc0f692f586`
+- **Mục tiêu đạt được:** Phân quyền khóa và sinh phiên duy nhất (`ADR-01`), nhận diện cử chỉ giơ một tay giữ đủ thời gian (1.5s), chọn người gần nhất, khóa phiên FSM (`LOCKED_WAIT_DESTINATION`), và cô lập phiên theo nguồn.
+
+- **Các thành phần đã triển khai (100% trong allowlist):**
+  1. `passenger_lock_manager.py`:
+     - Phân tích 17 body keypoints: kiểm tra cổ tay (wrist idx 9/10) cao hơn vai cùng bên (shoulder idx 5/6) với `min_keypoint_conf >= 0.35`.
+     - Bộ đếm thời gian giữ cử chỉ: ngưỡng `gesture_hold_time_sec = 1.5s`. Giơ tay < 1.5s không khóa, hạ tay reset bộ đếm về 0.0s (`T02`).
+     - Chốt khóa phiên (`T03`): Đủ 1.5s liên tục chuyển FSM `IDLE` -> `LOCKED_WAIT_DESTINATION`, `locked = true`, cấp UUID `session_id`. Khách hạ tay sau khi khóa vẫn giữ nguyên phiên.
+     - Chọn người gần nhất (`T04`): Khi 2 người cùng giơ tay đủ điều kiện, ưu tiên chọn người có `torso_depth_m` nhỏ nhất (gần camera hơn) khi `depth_valid == true`.
+     - Chống khóa mơ hồ (`T05`): Khi thiếu depth hoặc depth không hợp lệ (`depth_valid == false`) mà kích thước bbox gần bằng nhau (chênh lệch diện tích $\le 30\%$) hoặc có cờ `is_ambiguous == true`, từ chối khóa tùy tiện, giữ `IDLE`, báo `AMBIGUOUS_GESTURE`.
+     - Cô lập phiên theo nguồn: Khi `source_session_id` thay đổi (đổi nguồn hoặc video replay lặp vòng mới), phiên cũ tự hủy về `IDLE` (`SOURCE_RESET_DISCONNECT`), tuyệt đối không chuyển khóa sang người có cùng `track_id` ở vòng mới.
+  2. `tracking_manager_node.py` (`escort_tracking_manager`):
+     - Node ROS 2 nhận `/tracking/observation`, xuất `/tracking/session_state` (QoS `TRANSIENT_LOCAL`, nhịp tim 5 Hz + event-driven khi đổi trạng thái).
+     - Đăng ký console script `tracking_manager` trong `setup.py`.
+     - **An toàn chuyển động:** Kiểm tra `get_publisher_names_and_types_by_node` xác nhận số lượng publisher `/cmd_vel` = 0.
+  3. `test_tracking_manager.py`:
+     - 7 ca kiểm thử tự động hóa phủ toàn bộ ma trận T02, T03, T04, T05, cô lập phiên và hợp đồng Mock Voice.
+
+- **Kiểm chứng Hợp đồng Giao tiếp với Voice (Mock Voice Contract):**
+  - Khi mock voice nhận yêu cầu xuất phát (chọn điểm đến):
+    - Nếu `/tracking/session_state` có `locked == false` hoặc trạng thái khác `LOCKED_WAIT_DESTINATION`: Voice từ chối khởi hành (`departure_allowed = false`).
+    - Khi `locked == true` và `state == "LOCKED_WAIT_DESTINATION"`: Voice chấp nhận điểm đến và cho phép gửi Goal sang Nav2 (`departure_allowed = true`).
+
+- **Phân định Rõ ràng Giữa Dữ liệu Kiểm thử Giả lập & Nghiệm thu Thực tế:**
+  - **Đã kiểm chứng đạt 100% bằng dữ liệu giả lập (PASS):**
+    - Logic nhận diện hình học giơ tay (wrist cao hơn shoulder).
+    - Ngưỡng thời gian giữ 1.5s và cơ chế reset bộ đếm khi hạ tay trước ngưỡng.
+    - Duy trì khóa sau khi hạ tay.
+    - Thuật toán so sánh depth chọn người gần nhất và từ chối khóa khi mơ hồ thiếu depth.
+    - Cơ chế cô lập ID và phiên khi đổi nguồn / lặp vòng.
+    - Hợp đồng chặn xuất phát của Mock Voice.
+    - Toàn bộ **39/39 tests** (Phase 2 + Phase 3 + Phase 4) đều PASS trong 7.30s.
+  - **Mục còn chờ nghiệm thu thực tế (Live Hardware Pending):**
+    - Nghiệm thu trên người thật trước camera Astra trong điều kiện ánh sáng, trang phục và dáng đứng thực tế tại nhà ga sân bay (thuộc phạm vi Phase 11).
+
+- **Bằng chứng kỹ thuật:**
+  - Log nghiệm thu Phase 4: [.agent/person_tracking/evidence/phase_4/gesture_locking_verified.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_4/gesture_locking_verified.log).
+  - Kết quả kiểm thử pytest tổng hợp: [.agent/person_tracking/evidence/phase_4/pytest_results.txt](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_4/pytest_results.txt).
+
+- **Trạng thái phân hệ & Điểm dừng:**
+  - Phân hệ Voice tiếp tục sở hữu duy nhất `NavigateToPose`.
+  - Phân hệ Tracking không phát bất kỳ lệnh `/cmd_vel` hay mục tiêu di chuyển nào.
+  - DỪNG TRƯỚC PHASE 5 theo đúng quy định.

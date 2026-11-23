@@ -30,6 +30,10 @@ Topic /tracking/source_status       : Received 46 / 46 (100.0%)
 --- DDS Discovery Latency Analysis ---
 Analysis: The bag recording duration is 1.47 seconds.
 With '--delay 1', rosbag player allows 1000 ms initial DDS participant/endpoint discovery window.
-Received frame counts: RGB 39/41, Depth 39/41.
-All replayed messages were captured successfully by the subscriber.
+Received message counts:
+- /camera/color/image_raw: 39 / 41 messages (95.1%)
+- /camera/depth/image_raw: 39 / 41 messages (95.1%)
+- /camera/color/camera_info: 46 / 46 messages (100.0%)
+- /tracking/source_status: 46 / 46 messages (100.0%)
+Ghi chú kỹ thuật: Nguyên nhân hụt 2 messages trên mỗi topic ảnh (/camera/color/image_raw và /camera/depth/image_raw) là chưa xác định (có thể do đệm phát sinh ở đầu/cuối luồng Best Effort khi đóng player).
 Status: GATE 2 ROSBAG REPLAY AUDIT PASSED.

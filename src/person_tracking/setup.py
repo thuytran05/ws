@@ -34,6 +34,7 @@ setup(
             'person_follower = person_tracking.person_follower:main',
             'perception_source = person_tracking.perception_source_node:main',
             'person_detector = person_tracking.person_detector_node:main',
+            'tracking_manager = person_tracking.tracking_manager_node:main',
         ],
     },
 )

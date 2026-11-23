@@ -116,18 +116,21 @@ class PerceptionSourceNode(Node):
         reset_event = False
 
         if self.source_mode == SourceMode.VIDEO_REPLAY.value and self.video_adapter is not None:
-            if getattr(self.video_adapter, 'just_looped', False):
-                self.loop_count = self.video_adapter.loop_count
-                self.video_adapter.just_looped = False
-                reset_event = True
-                self.get_logger().info(f"Video replay looped (loop_count={self.loop_count}).")
-
             obs_frame = self.video_adapter.read_frame(current_ros_time=current_time_tuple)
             if obs_frame is None and self.video_adapter.eof:
                 self.is_eof = True
                 self._publish_status(eof=True, quality="EOF", reason="Video replay reached EOF.")
                 self.get_logger().info("Video replay reached EOF.")
                 return
+
+            if getattr(self.video_adapter, 'just_looped', False):
+                self.loop_count = self.video_adapter.loop_count
+                self.video_adapter.just_looped = False
+                reset_event = True
+                self.source_session_id = str(uuid.uuid4())
+                self.get_logger().info(
+                    f"Video replay looped (loop_count={self.loop_count}, new session_id={self.source_session_id})."
+                )
 
         elif self.source_mode == SourceMode.SYNTHETIC_FIXTURE.value:
             obs_frame = self._generate_synthetic_frame(current_time_tuple)
@@ -145,7 +148,17 @@ class PerceptionSourceNode(Node):
             obs_frame.source_session_id = self.source_session_id
         self.frame_count += 1
 
-        # 1. Publish RGB Image
+        # 1. Publish Source Status FIRST (so subscribers receive boundary metadata before image)
+        self._publish_status(
+            eof=False,
+            quality=obs_frame.data_quality,
+            reason=obs_frame.error_reason,
+            stamp_sec=obs_frame.stamp_sec,
+            stamp_nanosec=obs_frame.stamp_nanosec,
+            reset_event=reset_event,
+        )
+
+        # 2. Publish RGB Image
         try:
             rgb_msg = self.bridge.cv2_to_imgmsg(obs_frame.rgb, encoding='bgr8')
             rgb_msg.header.stamp.sec = obs_frame.stamp_sec
@@ -155,7 +168,7 @@ class PerceptionSourceNode(Node):
         except Exception as exc:
             self.get_logger().error(f"Error publishing RGB image: {exc}")
 
-        # 2. Publish Depth Image (if present)
+        # 3. Publish Depth Image (if present)
         if obs_frame.depth_raw is not None:
             try:
                 depth_msg = self.bridge.cv2_to_imgmsg(obs_frame.depth_raw, encoding='16UC1')
@@ -166,22 +179,12 @@ class PerceptionSourceNode(Node):
             except Exception as exc:
                 self.get_logger().error(f"Error publishing depth image: {exc}")
 
-        # 3. Publish CameraInfo
+        # 4. Publish CameraInfo
         if obs_frame.camera_info is not None:
             obs_frame.camera_info.header.stamp.sec = obs_frame.stamp_sec
             obs_frame.camera_info.header.stamp.nanosec = obs_frame.stamp_nanosec
             obs_frame.camera_info.header.frame_id = obs_frame.frame_id
             self.info_pub.publish(obs_frame.camera_info)
-
-        # 4. Publish Source Status
-        self._publish_status(
-            eof=False,
-            quality=obs_frame.data_quality,
-            reason=obs_frame.error_reason,
-            stamp_sec=obs_frame.stamp_sec,
-            stamp_nanosec=obs_frame.stamp_nanosec,
-            reset_event=reset_event,
-        )
 
     def _generate_synthetic_frame(self, stamp: tuple) -> ObservationFrame:
         if self.synthetic_case == 'empty_scene':

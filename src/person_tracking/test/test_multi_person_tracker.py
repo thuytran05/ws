@@ -86,6 +86,7 @@ def test_ambiguity_flag():
 def test_edge_proximity_flag():
     tracker = MultiPersonTracker.__new__(MultiPersonTracker)
     tracker.edge_margin_ratio = 0.08
+    tracker.device = "cpu" 
 
     # Image size 640x480
     w, h = 640, 480
@@ -200,3 +201,52 @@ def test_tracker_reset_allows_continued_tracking():
     obs2 = tracker.process_frame(frame2)
     assert len(obs2.candidates) == 0
     assert obs2.processing_time_ms > 0.0
+
+
+def test_inference_immediately_after_reset_with_detection():
+    """Verify tracker cleanly resets trackers list and runs inference immediately on detection."""
+    tracker = MultiPersonTracker.__new__(MultiPersonTracker)
+    tracker.edge_margin_ratio = 0.08
+    tracker.device = "cpu" 
+    tracker.previous_track_ids = {10, 20}
+    tracker.total_processed_frames = 5
+
+    # Mock ultralytics model with predictor.trackers
+    class FakeTracker:
+        def __init__(self):
+            self.was_reset = False
+        def reset(self):
+            self.was_reset = True
+
+    class FakePredictor:
+        def __init__(self):
+            self.trackers = [FakeTracker(), FakeTracker()]
+
+    class FakeModel:
+        def __init__(self):
+            self.predictor = FakePredictor()
+
+    tracker.model = FakeModel()
+    tracker.reset()
+
+    # Assert trackers list was cleared and previous tracks cleared
+    assert len(tracker.previous_track_ids) == 0
+    assert tracker.model.predictor.trackers == []
+    assert tracker.total_processed_frames == 0
+
+    # Test processing immediately after reset with mock candidate
+    cand = PersonDetection(
+        bbox_xyxy=[100.0, 50.0, 250.0, 350.0],
+        confidence=0.92,
+        keypoints=[],
+        track_id=1,
+        is_confirmed=True,
+    )
+    tracker.mock_backend_candidates = [cand]
+    obs_frame = SyntheticFixtureGenerator.generate_empty_scene()
+    obs = tracker.process_frame(obs_frame)
+
+    assert len(obs.candidates) == 1
+    assert obs.candidates[0].track_id == 1
+    assert 1 in obs.active_track_ids
+    assert len(obs.lost_track_ids) == 0

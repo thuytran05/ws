@@ -51,6 +51,7 @@ class ObservationFrame:
     data_quality: str
     error_reason: str = ""
     source_session_id: str = ""
+    loop_count: int = 0
 
     @property
     def has_depth(self) -> bool:

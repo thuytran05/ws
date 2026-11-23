@@ -13,10 +13,10 @@
 |---|---|---|---|---|---|---|
 | **T01A** | Khung hình không có người (Adapter & Source Check) | Phase 2 | Video / Synthetic | Khởi tạo ObservationFrame rỗng chuẩn; data_quality VALID_RGBD; tuyệt đối không phát /cmd_vel; chuẩn bị bàn giao cho Phase 3. | `phase_2/launch_smoke_test.log` | **PASS** |
 | **T01B** | Khung hình không có người (FSM & Guard Logic) | Phase 6/7 | Video / Synthetic | FSM giữ `IDLE`; xuất vận tốc 0 liên tục (20 Hz); từ chối nhận điểm đến khi không có người. | `phase_6/t01b_empty_scene_fsm.log` | NOT_STARTED |
-| **T02** | 1 người giơ tay < 1.5s | Phase 4 | Video / Replay | Không khóa ID; FSM giữ `IDLE`; hạ tay bộ đếm reset. | `phase_4/t02_short_gesture.log` | NOT_STARTED |
-| **T03** | 1 người giơ tay $\ge$ 1.5s | Phase 4 | Video / Replay | Khóa đúng ID; cấp `session_id`; hạ tay vẫn giữ khóa; robot đứng yên. | `phase_4/t03_valid_lock.log` | NOT_STARTED |
-| **T04** | 2 người cùng giơ tay, khác depth | Phase 4 | Synthetic / Bag | Khóa người có depth nhỏ nhất (gần camera nhất); bỏ qua người ở xa. | `phase_4/t04_nearest_depth.log` | NOT_STARTED |
-| **T05** | 2 người giơ tay, thiếu depth, kích thước gần bằng nhau | Phase 4 | Synthetic / Video | Không khóa tùy tiện; báo `AMBIGUOUS_GESTURE`; giữ `IDLE` chờ xác định rõ. | `phase_4/t05_ambiguity_no_depth.log` | NOT_STARTED |
+| **T02** | 1 người giơ tay < 1.5s | Phase 4 | Video / Replay | Không khóa ID; FSM giữ `IDLE`; hạ tay bộ đếm reset về 0. | `phase_4/gesture_locking_verified.log` | **PASS** |
+| **T03** | 1 người giơ tay $\ge$ 1.5s | Phase 4 | Video / Replay | Khóa đúng ID; cấp `session_id`; hạ tay vẫn giữ khóa; robot đứng yên. | `phase_4/gesture_locking_verified.log` | **PASS** |
+| **T04** | 2 người cùng giơ tay, khác depth | Phase 4 | Synthetic / Bag | Khóa người có depth nhỏ nhất (gần camera nhất); bỏ qua người ở xa. | `phase_4/gesture_locking_verified.log` | **PASS** |
+| **T05** | 2 người giơ tay, thiếu depth, kích thước gần bằng nhau | Phase 4 | Synthetic / Video | Không khóa tùy tiện; báo `AMBIGUOUS_GESTURE`; giữ `IDLE` chờ xác định rõ. | `phase_4/gesture_locking_verified.log` | **PASS** |
 | **T06** | Người khác cắt ngang người đang khóa | Phase 3 | Video Replay / Synthetic | ByteTrack gán track ID riêng; phát hiện mơ hồ (is_ambiguous = True) khi IoU > 0.35. Code sẵn sàng, chờ video người thật từ user để nghiệm thu hình ảnh. | `phase_3/multi_person_crossing_trace.log` | **PARTIAL / CODE_READY** |
 | **T07** | Voice gửi đích khi chưa khóa | Phase 6 | Mock Voice | Bị chặn ở giao diện; Voice nhận cờ `locked == false` và từ chối. | `phase_6/t07_gate_no_lock.log` | NOT_STARTED |
 | **T08** | Voice gửi đích sau khi đã khóa | Phase 6 | Mock Voice | Hợp lệ; Nav2 goal được chấp nhận; FSM chuyển sang `NAVIGATING`. | `phase_6/t08_gate_locked_start.log` | NOT_STARTED |

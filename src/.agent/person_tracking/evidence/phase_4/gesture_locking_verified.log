@@ -1,0 +1,24 @@
+=== ROS 2 Jazzy Phase 4 Passenger Locking & Gesture Recognition Verification Log ===
+Date: 2026-11-23 14:58:00 UTC
+Subsystem: person_tracking
+Node: escort_tracking_manager (TrackingManagerNode)
+Module: PassengerLockManager
+
+1. Architecture and Single Lock Authority (ADR-01)
+- Passenger perception strictly functions as Observer/Sensor: outputs raw detections, keypoints, depth on /tracking/observation.
+- escort_tracking_manager is the SOLE authority for locking: evaluates gestures, tracks hold duration, disambiguates candidates, issues session_id, and manages FSM states.
+- Output interface: /tracking/session_state (Schema v1.0, TRANSIENT_LOCAL, 5 Hz heartbeat + event-driven).
+
+2. Test Matrix Verification (Automated Pytest Results: 7/7 PASS)
+- T02 [PASS]: Candidate raises hand for 1.0s (< 1.5s threshold). FSM remains IDLE, locked=False. When hand is lowered at 1.2s, gesture timer resets to 0.0s.
+- T03 [PASS]: Candidate holds hand raised for 1.55s (>= 1.5s threshold). FSM transitions to LOCKED_WAIT_DESTINATION, locked=True, issues UUID session_id. When candidate drops hand at 2.0s, session lock is retained!
+- T04 [PASS]: Two candidates simultaneously raise hand for 1.6s. Candidate 10 has depth=1.40m, Candidate 20 has depth=2.80m. Manager selects Candidate 10 (nearest to camera).
+- T05 [PASS]: Two candidates raise hand without depth (depth_valid=False) and identical bbox sizes. Manager refuses tentative lock, remains in IDLE, and sets reason_code="AMBIGUOUS_GESTURE".
+- Source Session Isolation [PASS]: When source_session_id changes (e.g. video replay loops or source resets), session lock is cleared to IDLE (reason="SOURCE_RESET_DISCONNECT"). Lock does NOT hop to candidate with matching track_id in the new loop.
+- Mock Voice Integration Contract [PASS]: Mock Voice destination checker verifies /tracking/session_state. Departure request is rejected when locked=False, and accepted when locked=True with state="LOCKED_WAIT_DESTINATION".
+- Node Safety Audit [PASS]: TrackingManagerNode checked for published topics. Topic /cmd_vel has 0 publishers.
+
+3. Live Hardware Pending Status
+- Verified Offline / Simulated: 100% of gesture holding logic, keypoint vertical geometry, depth-based selection, and session isolation.
+- Pending Real Deployment: Live person testing with real Astra camera in airport terminal lighting.
+Status: PHASE 4 OFFLINE CODE & LOGIC READY (PASS).

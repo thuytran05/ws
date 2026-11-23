@@ -125,6 +125,7 @@ class MultiPersonTracker:
 
         self.previous_track_ids = set()
         self.total_processed_frames = 0
+        self.mock_backend_candidates: Optional[List[PersonDetection]] = None
 
     def reset(self):
         """Reset tracker state on source switch, video loop, or stream reset."""
@@ -147,78 +148,112 @@ class MultiPersonTracker:
         rgb = obs_frame.rgb
         h, w = rgb.shape[:2]
 
-        # Run ByteTrack with Ultralytics
-        results = self.model.track(
-            source=rgb,
-            persist=True,
-            verbose=False,
-            device=self.device,
-            conf=self.conf_threshold,
-            iou=self.iou_threshold,
-            tracker=self.tracker_config,
-        )
-
         detected_persons: List[PersonDetection] = []
         current_track_ids = set()
 
-        if results and len(results) > 0:
-            res = results[0]
-            boxes = res.boxes
-            keypoints_data = res.keypoints
+        if self.mock_backend_candidates is not None:
+            # Deterministic / mock inference path for reproducible contract testing
+            for cand in self.mock_backend_candidates:
+                box = cand.bbox_xyxy
+                x1, y1, x2, y2 = box
+                kp_list = cand.keypoints
+                box_cx = (x1 + x2) / 2.0
+                center_offset_norm = float(np.clip((box_cx - (w / 2.0)) / (w / 2.0), -1.0, 1.0))
+                near_edge = (
+                    x1 < self.edge_margin_ratio * w or
+                    x2 > (1.0 - self.edge_margin_ratio) * w or
+                    y1 < self.edge_margin_ratio * h or
+                    y2 > (1.0 - self.edge_margin_ratio) * h
+                )
+                torso_depth_m, depth_valid = self._measure_torso_depth(
+                    obs_frame, box, kp_list, h, w
+                )
+                is_conf = cand.is_confirmed or (cand.track_id is not None and cand.track_id > 0)
+                if is_conf and cand.track_id:
+                    current_track_ids.add(cand.track_id)
+                person = PersonDetection(
+                    bbox_xyxy=box,
+                    confidence=cand.confidence,
+                    keypoints=kp_list,
+                    track_id=cand.track_id,
+                    is_confirmed=is_conf,
+                    is_ambiguous=cand.is_ambiguous,
+                    torso_depth_m=torso_depth_m if cand.torso_depth_m is None else cand.torso_depth_m,
+                    depth_valid=depth_valid,
+                    center_offset_x_norm=center_offset_norm,
+                    near_edge=near_edge,
+                )
+                detected_persons.append(person)
+        else:
+            # Run ByteTrack with Ultralytics
+            results = self.model.track(
+                source=rgb,
+                persist=True,
+                verbose=False,
+                device=self.device,
+                conf=self.conf_threshold,
+                iou=self.iou_threshold,
+                tracker=self.tracker_config,
+            )
 
-            if boxes is not None and len(boxes) > 0:
-                xyxy_arr = boxes.xyxy.cpu().numpy()
-                conf_arr = boxes.conf.cpu().numpy()
-                ids_arr = boxes.id.cpu().numpy() if boxes.id is not None else None
+            if results and len(results) > 0:
+                res = results[0]
+                boxes = res.boxes
+                keypoints_data = res.keypoints
 
-                kp_data = keypoints_data.data.cpu().numpy() if keypoints_data is not None else None
+                if boxes is not None and len(boxes) > 0:
+                    xyxy_arr = boxes.xyxy.cpu().numpy()
+                    conf_arr = boxes.conf.cpu().numpy()
+                    ids_arr = boxes.id.cpu().numpy() if boxes.id is not None else None
 
-                for i in range(len(boxes)):
-                    box = xyxy_arr[i].tolist()
-                    conf = float(conf_arr[i])
-                    x1, y1, x2, y2 = box
+                    kp_data = keypoints_data.data.cpu().numpy() if keypoints_data is not None else None
 
-                    # Track ID
-                    track_id = int(ids_arr[i]) if (ids_arr is not None and ids_arr[i] is not None) else None
-                    is_confirmed = track_id is not None and track_id > 0
-                    if is_confirmed:
-                        current_track_ids.add(track_id)
+                    for i in range(len(boxes)):
+                        box = xyxy_arr[i].tolist()
+                        conf = float(conf_arr[i])
+                        x1, y1, x2, y2 = box
 
-                    # Keypoints
-                    kp_list = []
-                    if kp_data is not None and i < len(kp_data):
-                        kp_list = kp_data[i].tolist()  # 17x3
+                        # Track ID
+                        track_id = int(ids_arr[i]) if (ids_arr is not None and ids_arr[i] is not None) else None
+                        is_confirmed = track_id is not None and track_id > 0
+                        if is_confirmed:
+                            current_track_ids.add(track_id)
 
-                    # Center offset normalized to [-1.0, 1.0]
-                    box_cx = (x1 + x2) / 2.0
-                    center_offset_norm = float(np.clip((box_cx - (w / 2.0)) / (w / 2.0), -1.0, 1.0))
+                        # Keypoints
+                        kp_list = []
+                        if kp_data is not None and i < len(kp_data):
+                            kp_list = kp_data[i].tolist()  # 17x3
 
-                    # Edge proximity check
-                    near_edge = (
-                        x1 < self.edge_margin_ratio * w or
-                        x2 > (1.0 - self.edge_margin_ratio) * w or
-                        y1 < self.edge_margin_ratio * h or
-                        y2 > (1.0 - self.edge_margin_ratio) * h
-                    )
+                        # Center offset normalized to [-1.0, 1.0]
+                        box_cx = (x1 + x2) / 2.0
+                        center_offset_norm = float(np.clip((box_cx - (w / 2.0)) / (w / 2.0), -1.0, 1.0))
 
-                    # Measure torso depth if depth image is available
-                    torso_depth_m, depth_valid = self._measure_torso_depth(
-                        obs_frame, box, kp_list, h, w
-                    )
+                        # Edge proximity check
+                        near_edge = (
+                            x1 < self.edge_margin_ratio * w or
+                            x2 > (1.0 - self.edge_margin_ratio) * w or
+                            y1 < self.edge_margin_ratio * h or
+                            y2 > (1.0 - self.edge_margin_ratio) * h
+                        )
 
-                    person = PersonDetection(
-                        bbox_xyxy=box,
-                        confidence=conf,
-                        keypoints=kp_list,
-                        track_id=track_id,
-                        is_confirmed=is_confirmed,
-                        is_ambiguous=False,
-                        torso_depth_m=torso_depth_m,
-                        depth_valid=depth_valid,
-                        center_offset_x_norm=center_offset_norm,
-                        near_edge=near_edge,
-                    )
-                    detected_persons.append(person)
+                        # Measure torso depth if depth image is available
+                        torso_depth_m, depth_valid = self._measure_torso_depth(
+                            obs_frame, box, kp_list, h, w
+                        )
+
+                        person = PersonDetection(
+                            bbox_xyxy=box,
+                            confidence=conf,
+                            keypoints=kp_list,
+                            track_id=track_id,
+                            is_confirmed=is_confirmed,
+                            is_ambiguous=False,
+                            torso_depth_m=torso_depth_m,
+                            depth_valid=depth_valid,
+                            center_offset_x_norm=center_offset_norm,
+                            near_edge=near_edge,
+                        )
+                        detected_persons.append(person)
 
         # Detect spatial ambiguity (overlapping bboxes with IoU > 0.35)
         self._flag_ambiguities(detected_persons)

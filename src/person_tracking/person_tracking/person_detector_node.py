@@ -110,47 +110,54 @@ class PersonDetectorNode(Node):
         self.processed_frames = 0
         self.current_session_id = str(uuid.uuid4())
         self.last_loop_count = 0
+        self.has_seen_status = False
+        self.status_by_stamp = {}
+        self.latest_status = None
+        self.last_reset_boundary = None
+        self.last_frame_timestamp = -1.0
+        self.pending_rgb_frames = []
         self.get_logger().info("PersonDetectorNode initialized and listening for perception streams.")
 
     def _on_status(self, msg: String):
         try:
             status_data = json.loads(msg.data)
+            self.has_seen_status = True
+            self.latest_status = status_data
+
+            stamp_dict = status_data.get('stamp', {})
+            sec = stamp_dict.get('sec', 0)
+            nanosec = stamp_dict.get('nanosec', 0)
+            self.status_by_stamp[(sec, nanosec)] = status_data
+
+            if len(self.status_by_stamp) > 100:
+                oldest_key = next(iter(self.status_by_stamp))
+                self.status_by_stamp.pop(oldest_key, None)
+
             session_id = status_data.get('source_session_id', '')
             loop_count = status_data.get('loop_count', 0)
             reset_event = status_data.get('reset_event', False)
-            fc = status_data.get('frame_count', 0)
+            boundary_key = (session_id, loop_count)
 
-            needs_reset = False
-            # Check 1: Session changed (source switch or restart)
-            if self.current_session_id is not None and session_id and session_id != self.current_session_id:
-                needs_reset = True
-            # Check 2: Loop count incremented
-            elif loop_count > self.last_loop_count:
-                needs_reset = True
-            # Check 3: Explicit reset event
-            elif reset_event:
-                needs_reset = True
-            # Check 4: Frame count decreased (fallback)
-            elif fc < self.last_frame_count:
-                needs_reset = True
+            # If status explicitly indicates a boundary reset and has not been executed yet
+            if reset_event or loop_count > self.last_loop_count or (self.current_session_id and session_id != self.current_session_id):
+                if boundary_key != self.last_reset_boundary:
+                    self.get_logger().info(
+                        f"Resetting perception pipeline on status boundary (session: {session_id}, loop: {loop_count})."
+                    )
+                    self._reset_pipeline()
+                    self.last_reset_boundary = boundary_key
+                    self.current_session_id = session_id
+                    self.last_loop_count = loop_count
 
-            if needs_reset:
-                self.get_logger().info(
-                    f"Resetting perception pipeline (session: {session_id}, loop: {loop_count})."
-                )
-                self._reset_pipeline()
-
-            if session_id:
-                self.current_session_id = session_id
-            self.last_loop_count = loop_count
-            self.last_frame_count = fc
+            self._drain_pending_frames()
         except Exception as exc:
             self.get_logger().warn(f"Error parsing source status: {exc}")
 
     def _reset_pipeline(self):
-        """Reset tracker, depth buffers, and clock history cleanly."""
+        # Reset tracker, depth buffers, and clock history cleanly
         self.tracker.reset()
         self.synchronizer.reset()
+        self.last_frame_timestamp = -1.0
 
     def _on_info(self, msg: CameraInfo):
         self.synchronizer.set_camera_info(msg)
@@ -169,6 +176,59 @@ class PersonDetectorNode(Node):
             self.get_logger().warn(f"Error decoding depth message: {exc}")
 
     def _on_rgb(self, msg: Image):
+        frame_stamp = (msg.header.stamp.sec, msg.header.stamp.nanosec)
+        # If we have seen status before, but status for this frame hasn't arrived yet, buffer briefly
+        if self.has_seen_status and frame_stamp not in self.status_by_stamp:
+            now_mono = time.monotonic()
+            self.pending_rgb_frames.append((now_mono, msg))
+            self._drain_pending_frames()
+            return
+
+        self._process_rgb_message(msg)
+
+    def _drain_pending_frames(self):
+        now_mono = time.monotonic()
+        remaining = []
+        for queue_time, frame_msg in self.pending_rgb_frames:
+            stamp = (frame_msg.header.stamp.sec, frame_msg.header.stamp.nanosec)
+            # If status arrived OR timeout expired (> 0.04s)
+            if stamp in self.status_by_stamp or (now_mono - queue_time) > 0.04:
+                self._process_rgb_message(frame_msg)
+            else:
+                remaining.append((queue_time, frame_msg))
+        self.pending_rgb_frames = remaining
+
+    def _process_rgb_message(self, msg: Image):
+        stamp = (msg.header.stamp.sec, msg.header.stamp.nanosec)
+        status_data = self.status_by_stamp.pop(stamp, None) or self.latest_status
+
+        if status_data:
+            session_id = status_data.get('source_session_id', '')
+            loop_count = status_data.get('loop_count', 0)
+            reset_event = status_data.get('reset_event', False)
+            boundary_key = (session_id, loop_count)
+
+            # Check if this frame is at a reset boundary and has NOT been reset yet
+            if reset_event or loop_count > self.last_loop_count or (self.current_session_id and session_id != self.current_session_id):
+                if boundary_key != self.last_reset_boundary:
+                    self.get_logger().info(
+                        f"Resetting perception pipeline BEFORE frame inference (session: {session_id}, loop: {loop_count})."
+                    )
+                    self._reset_pipeline()
+                    self.last_reset_boundary = boundary_key
+                    self.current_session_id = session_id
+                    self.last_loop_count = loop_count
+            elif session_id:
+                self.current_session_id = session_id
+        else:
+            # Fallback for live camera / bag without status:
+            t_curr = stamp[0] + stamp[1] * 1e-9
+            if self.last_frame_timestamp > 0 and t_curr < self.last_frame_timestamp - 0.5:
+                self.get_logger().info(f"Detected timestamp jump ({t_curr:.3f} < {self.last_frame_timestamp:.3f}). Resetting pipeline.")
+                self._reset_pipeline()
+                self.current_session_id = str(uuid.uuid4())
+            self.last_frame_timestamp = t_curr
+
         try:
             rgb_np = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         except Exception as exc:
@@ -176,7 +236,6 @@ class PersonDetectorNode(Node):
             return
 
         now_sec = self.get_clock().now().nanoseconds * 1e-9
-        stamp = (msg.header.stamp.sec, msg.header.stamp.nanosec)
 
         # Synchronize and normalize observation frame
         obs_frame = self.synchronizer.process_rgb(
@@ -185,7 +244,7 @@ class PersonDetectorNode(Node):
             frame_id=msg.header.frame_id,
             current_time_sec=now_sec,
         )
-        if not getattr(obs_frame, 'source_session_id', None) and self.current_session_id:
+        if self.current_session_id:
             obs_frame.source_session_id = self.current_session_id
 
         if obs_frame.data_quality == 'STALE':

@@ -1,3 +1,4 @@
+import numpy as np
 """Integration smoke test for person_detector_node in person_tracking Phase 3."""
 
 import json
@@ -234,6 +235,219 @@ def test_detector_pipeline_reset_on_source_loop():
         assert len(detector_node.tracker.previous_track_ids) == 0
 
         detector_node.destroy_node()
+    finally:
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+def test_two_loop_replay_boundary_reset_and_out_of_order_status():
+    """Verify reset occurs before first frame of new loop, only once per boundary, tolerating out-of-order status."""
+    if not rclpy.ok():
+        rclpy.init()
+    try:
+        detector_node = PersonDetectorNode()
+        test_sub = PerceptionObserverSubscriber()
+        status_pub = detector_node.create_publisher(String, '/tracking/source_status', 10)
+        rgb_pub = detector_node.create_publisher(Image, '/camera/color/image_raw', qos_profile_sensor_data)
+
+        bridge = detector_node.bridge
+        dummy_img = np.zeros((480, 640, 3), dtype=np.uint8)
+
+        # --- LOOP 0 ---
+        status_0 = {
+            "source_mode": "video_replay",
+            "source_session_id": "session-loop-0",
+            "loop_count": 0,
+            "reset_event": False,
+            "frame_count": 0,
+            "fps": 15.0,
+            "data_quality": "RGB_ONLY",
+            "eof": False,
+            "stamp": {"sec": 100, "nanosec": 0}
+        }
+        status_pub.publish(String(data=json.dumps(status_0)))
+        rclpy.spin_once(detector_node, timeout_sec=0.05)
+
+        img_msg_0 = bridge.cv2_to_imgmsg(dummy_img, encoding="bgr8")
+        img_msg_0.header.stamp.sec = 100
+        img_msg_0.header.stamp.nanosec = 0
+        img_msg_0.header.frame_id = "camera_color_optical_frame"
+        rgb_pub.publish(img_msg_0)
+        rclpy.spin_once(detector_node, timeout_sec=0.05)
+        rclpy.spin_once(test_sub, timeout_sec=0.05)
+
+        assert detector_node.current_session_id == "session-loop-0"
+        assert detector_node.last_loop_count == 0
+
+        # Simulate active tracks established in loop 0
+        detector_node.tracker.previous_track_ids = {101, 102}
+
+        # --- BOUNDARY 0 -> 1 (Status arrives AFTER Image: Out-of-order test) ---
+        # 1. Publish Image 1 (first frame of loop 1) BEFORE status arrives
+        img_msg_1 = bridge.cv2_to_imgmsg(dummy_img, encoding="bgr8")
+        img_msg_1.header.stamp.sec = 101
+        img_msg_1.header.stamp.nanosec = 0
+        img_msg_1.header.frame_id = "camera_color_optical_frame"
+        rgb_pub.publish(img_msg_1)
+        rclpy.spin_once(detector_node, timeout_sec=0.02)
+        # Image is queued in pending_rgb_frames waiting for matching status
+        assert len(detector_node.pending_rgb_frames) == 1
+
+        # 2. Now publish Status 1 with reset_event=True and new session
+        status_1 = {
+            "source_mode": "video_replay",
+            "source_session_id": "session-loop-1",
+            "loop_count": 1,
+            "reset_event": True,
+            "frame_count": 0,
+            "fps": 15.0,
+            "data_quality": "RGB_ONLY",
+            "eof": False,
+            "stamp": {"sec": 101, "nanosec": 0}
+        }
+        status_pub.publish(String(data=json.dumps(status_1)))
+        # Spin to trigger _on_status which drains pending_rgb_frames and resets BEFORE processing frame 1
+        rclpy.spin_once(detector_node, timeout_sec=0.05)
+        rclpy.spin_once(test_sub, timeout_sec=0.05)
+
+        assert detector_node.last_loop_count == 1
+        assert detector_node.current_session_id == "session-loop-1"
+        assert detector_node.last_reset_boundary == ("session-loop-1", 1)
+        # Verify tracker was reset (previous tracks cleared)
+        assert len(detector_node.tracker.previous_track_ids) == 0
+
+        # --- BOUNDARY 1 -> 2 (Status arrives BEFORE Image, with duplicate status) ---
+        status_2 = {
+            "source_mode": "video_replay",
+            "source_session_id": "session-loop-2",
+            "loop_count": 2,
+            "reset_event": True,
+            "frame_count": 0,
+            "fps": 15.0,
+            "data_quality": "RGB_ONLY",
+            "eof": False,
+            "stamp": {"sec": 102, "nanosec": 0}
+        }
+        status_pub.publish(String(data=json.dumps(status_2)))
+        rclpy.spin_once(detector_node, timeout_sec=0.05)
+
+        assert detector_node.last_loop_count == 2
+        assert detector_node.current_session_id == "session-loop-2"
+        assert detector_node.last_reset_boundary == ("session-loop-2", 2)
+
+        # Publish duplicate status_2; verify it does not trigger duplicate reset
+        status_pub.publish(String(data=json.dumps(status_2)))
+        rclpy.spin_once(detector_node, timeout_sec=0.05)
+        assert detector_node.last_reset_boundary == ("session-loop-2", 2)
+
+        # Publish Image 2
+        img_msg_2 = bridge.cv2_to_imgmsg(dummy_img, encoding="bgr8")
+        img_msg_2.header.stamp.sec = 102
+        img_msg_2.header.stamp.nanosec = 0
+        img_msg_2.header.frame_id = "camera_color_optical_frame"
+        rgb_pub.publish(img_msg_2)
+        rclpy.spin_once(detector_node, timeout_sec=0.05)
+        rclpy.spin_once(test_sub, timeout_sec=0.05)
+
+        assert detector_node.current_session_id == "session-loop-2"
+
+        detector_node.destroy_node()
+        test_sub.destroy_node()
+    finally:
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+def test_observation_payload_with_non_empty_candidates():
+    """Verify /tracking/observation schema with non-empty candidates and depth_valid=False when UNVERIFIED_ALIGNMENT."""
+    if not rclpy.ok():
+        rclpy.init()
+    try:
+        from person_tracking.multi_person_tracker import PersonDetection
+        detector_node = PersonDetectorNode()
+        test_sub = PerceptionObserverSubscriber()
+        status_pub = detector_node.create_publisher(String, '/tracking/source_status', 10)
+        rgb_pub = detector_node.create_publisher(Image, '/camera/color/image_raw', qos_profile_sensor_data)
+        depth_pub = detector_node.create_publisher(Image, '/camera/depth/image_raw', qos_profile_sensor_data)
+
+        # Configure tracker mock candidate
+        mock_cand = PersonDetection(
+            bbox_xyxy=[150.0, 80.0, 320.0, 420.0],
+            confidence=0.94,
+            keypoints=[[200.0, 100.0, 0.95]] * 17,
+            track_id=1,
+            is_confirmed=True,
+            is_ambiguous=False,
+        )
+        detector_node.tracker.mock_backend_candidates = [mock_cand]
+
+        now_msg = detector_node.get_clock().now().to_msg()
+        curr_sec = now_msg.sec
+        curr_nsec = now_msg.nanosec
+
+        # Publish status with UNVERIFIED_ALIGNMENT
+        status_msg = {
+            "source_mode": "video_replay",
+            "source_session_id": "session-test-candidates",
+            "loop_count": 0,
+            "reset_event": False,
+            "frame_count": 1,
+            "fps": 15.0,
+            "data_quality": "UNVERIFIED_ALIGNMENT",
+            "eof": False,
+            "stamp": {"sec": curr_sec, "nanosec": curr_nsec}
+        }
+        status_pub.publish(String(data=json.dumps(status_msg)))
+        rclpy.spin_once(detector_node, timeout_sec=0.05)
+
+        # Publish depth image (raw uint16 millimeters, e.g. 1500mm = 1.5m)
+        depth_arr = np.full((480, 640), 1500, dtype=np.uint16)
+        depth_msg = detector_node.bridge.cv2_to_imgmsg(depth_arr, encoding="16UC1")
+        depth_msg.header.stamp.sec = curr_sec
+        depth_msg.header.stamp.nanosec = curr_nsec
+        depth_msg.header.frame_id = "camera_color_optical_frame"
+        depth_pub.publish(depth_msg)
+        rclpy.spin_once(detector_node, timeout_sec=0.05)
+
+        # Publish RGB image
+        rgb_arr = np.zeros((480, 640, 3), dtype=np.uint8)
+        rgb_msg = detector_node.bridge.cv2_to_imgmsg(rgb_arr, encoding="bgr8")
+        rgb_msg.header.stamp.sec = curr_sec
+        rgb_msg.header.stamp.nanosec = curr_nsec
+        rgb_msg.header.frame_id = "camera_color_optical_frame"
+        rgb_pub.publish(rgb_msg)
+
+        # Spin to receive on test_sub
+        start = time.time()
+        while time.time() - start < 3.0:
+            rclpy.spin_once(detector_node, timeout_sec=0.05)
+            rclpy.spin_once(test_sub, timeout_sec=0.05)
+            if len(test_sub.received_obs) >= 1:
+                break
+
+        assert len(test_sub.received_obs) >= 1, "Failed to receive observation payload"
+        payload = json.loads(test_sub.received_obs[-1].data)
+
+        # 1. Non-empty candidates check
+        assert len(payload["candidates"]) == 1
+        cand = payload["candidates"][0]
+
+        # 2. Strict Depth Validity: depth_valid MUST BE FALSE when UNVERIFIED_ALIGNMENT
+        assert payload["data_quality"] == "UNVERIFIED_ALIGNMENT"
+        assert cand["depth_valid"] is False, "CRITICAL ERROR: depth_valid must be False when UNVERIFIED_ALIGNMENT"
+        assert cand["torso_depth_m"] is not None  # Raw measurement available for logging
+
+        # 3. Candidate fields and aliases
+        assert cand["track_id"] == 1
+        assert cand["is_confirmed"] is True
+        assert cand["confidence"] == 0.94
+        assert cand["bbox_xyxy"] == [150.0, 80.0, 320.0, 420.0]
+        assert cand["bbox"] == cand["bbox_xyxy"]
+        assert payload["persons"] == payload["candidates"]
+        assert payload["source_session_id"] == "session-test-candidates"
+
+        detector_node.destroy_node()
+        test_sub.destroy_node()
     finally:
         if rclpy.ok():
             rclpy.shutdown()
