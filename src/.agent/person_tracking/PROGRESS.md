@@ -19,7 +19,7 @@
 | **Phase 5** | RGB-D, depth & Hình học camera sau | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_5/` |
 | **Phase 6** | Session FSM, timeout & Giao tiếp voice | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_6/` |
 | **Phase 7** | Velocity guard, mecanum & Watchdog | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_7/` |
-| **Phase 8** | End-to-end ROS 2 integration (không sửa Gazebo) | **NOT_STARTED** | — | — |
+| **Phase 8** | End-to-end ROS 2 integration (không sửa Gazebo) | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_8/` |
 | **Phase 9** | Giao tiếp song song với agent voice | **NOT_STARTED** | — | — |
 | **Phase 10** | Validation hiệu năng & Độ bền (offline + sim) | **NOT_STARTED** | — | — |
 | **Phase 11** | Robot thật + Astra thật, nghiệm thu bàn giao | **NOT_STARTED** | — | — |
@@ -341,3 +341,46 @@
   - Bản yêu cầu tích hợp Voice: [.agent/person_tracking/VOICE_INTEGRATION_REQUEST.md](file:///home/thuytran/ws/src/.agent/person_tracking/VOICE_INTEGRATION_REQUEST.md).
 
 - **Điểm dừng bàn giao:** Dừng chính xác trước Phase 8 (End-to-end ROS 2 integration). User tự commit và push lên Git.
+
+---
+
+### Phase 8 — End-to-end ROS 2 integration (không sửa Gazebo) — [PASS]
+- **Ngày/giờ hoàn thành:** 23/11/2026 18:30:00+07:00
+- **Baseline Git Commit:** `6ed2287989b6e43fad60a4f8d03f55412ad500b8`
+- **Mục tiêu đạt được:** Sửa triệt để toàn bộ 4 lỗi Guard/FSM (Section A), thiết lập kịch bản launch tái lập được (Section B) trên ROS 2 Jazzy tích hợp Gazebo headless + Nav2 thật + Mock Voice + Velocity Guard + Collision Monitor, kiểm chứng chuỗi topic an toàn tuyệt đối không bypass `/cmd_vel`, và nghiệm thu 100% ma trận kiểm thử 11 ca tự động hóa.
+
+- **Các nội dung kỹ thuật đã hoàn thành:**
+  1. **Sửa Lỗi Guard / FSM (Section A):**
+     - *A.1 Observation Gating:* `VelocityGuard.update_observation()` xác thực strict stamp/sequence, session binding, `is_confirmed`, `is_ambiguous`, `depth_valid`. Frame rỗng, lặp stamp, khác source tuyệt đối không gia hạn seen time. Nếu không có observation hợp lệ từ đầu $\implies$ bắt buộc xuất zero.
+     - *A.2 Command Revocation & Boundary Stop:* Hủy quyền dùng `cmd_vel` cũ khi WAIT/ABORT/FAULT, stale obs, hoặc đổi session. Khi observation hồi phục từ stale, gate mở lại yêu cầu lệnh mới nhận sau thời điểm mở (`CMD_RECEIVED_BEFORE_GATE_OPENED`). Điều kiện biên $d \ge 2.5$ m: xe không được yaw/quay khi khoảng cách yêu cầu dừng ($v_x = 0, \omega = 0$). Kiểm tra NaN/Inf trên mọi trường điều khiển -> kẹp 0 an toàn.
+     - *A.3 Closed-loop Yaw Trimming Sign:* Kiểm chứng qua `test_closed_loop_rear_camera_yaw_geometry` dùng mô hình hình học camera sau thật (`RearCameraGeometry`): Khách lệch PHẢI ảnh ($e_x > 0$) $\implies$ trim CW ($\Delta \omega < 0$). Khách lệch TRÁI ảnh ($e_x < 0$) $\implies$ trim CCW ($\Delta \omega > 0$). Triệt tiêu offset ở cả 2 phía. Đảo conflict resolution tại mép: Nav2 quay ngược hướng trim -> stop/wait.
+     - *A.4 Steady Clock & ACK/Terminal ID Binding:* Sử dụng `Clock(clock_type=ClockType.STEADY_TIME)` cho Guard timer (20 Hz) và FSM heartbeat/watchdog (10 Hz), độc lập hoàn toàn với việc pause `/clock`. Phân biệt confirmed `OUT_OF_FOV` (ở mép + có trong `lost_track_ids` -> ABORT ngay) với suspected loss ở mép (chưa có trong `lost_track_ids` -> WAITING dừng sớm). Bỏ qua ACK/terminal sai ID. Khóa `unconfirmed_terminal` khi timeout sau ACK.
+
+  2. **Triển khai Tích hợp Phase 8 & Ma trận Kiểm thử (Section B):**
+     - *Cấu hình Overlay Nav2:* Tạo `src/person_tracking/config/navigation_guard.yaml` tái sử dụng toàn bộ thông số Nav2 của Linorobot2 nhưng cấu hình `collision_monitor` nhận đầu vào từ `/tracking/cmd_vel_guarded` và xuất sang `/cmd_vel`. Không chỉnh sửa file nguồn của Linorobot2.
+     - *Kịch bản Launch Tái lập được:* Tạo `src/person_tracking/launch/gazebo_escort_integration.launch.py` khởi chạy Gazebo headless + Nav2 + Tracking Manager + Velocity Guard với `ROS_DOMAIN_ID` cô lập.
+     - *Audit Chuỗi Điều khiển:* Xác nhận Collision Monitor là publisher DUY NHẤT trên topic `/cmd_vel`. Không có bất kỳ bypass nào từ Nav2 controller, Velocity Smoother, Velocity Guard, hay teleop.
+     - *Bộ Kiểm thử Nghiệm thu Phase 8 (`test_phase8_gazebo_nav2_integration.py`):*
+       * `test_phase8_audit_velocity_chain_and_sole_publisher`: PASS.
+       * `test_phase8_t09_normal_escort_pass_through`: PASS ($v_x = 0.35$ m/s, $\omega = 0.05$ rad/s).
+       * `test_phase8_t10_distance_scaling_and_hysteresis_stop`: PASS ($>2.0$m giảm tốc, $\ge 2.5$m dừng hẳn cả $v_x$ và $\omega$, $\le 2.2$m tiếp tục).
+       * `test_phase8_t11_close_passenger_safety`: PASS ($<1.2$m duy trì tốc độ, không vượt tốc, không lùi xe).
+       * `test_phase8_t12_rear_camera_yaw_trimming_and_conflict`: PASS (trim CW/CCW đúng dấu, giảm 50% ở mép, conflict stop khi Nav2 rẽ ngược).
+       * `test_phase8_t14_t15_loss_grace_and_abort_with_mock_voice_cancel`: PASS (mất $<0.40$s tiếp tục, mất $>1.20$s abort dừng xe + Mock Voice cancel).
+       * `test_phase8_t16_voice_unresponsive_independent_zero`: PASS (Mock Voice mất kết nối -> Guard giữ 0 độc lập).
+       * `test_phase8_t23_collision_monitor_priority_over_guard`: PASS (bơm vật cản laser scan $0.40$m -> Collision Monitor ngắt `/cmd_vel` về 0 ngay khi Guard đang phát 0.35 m/s).
+       * `test_phase8_t22_guard_process_termination_watchdog`: PASS (kill Guard -> Collision Monitor timeout ngắt `/cmd_vel`).
+       * `test_phase8_t33_clock_pause_monotonic_watchdog`: PASS (dừng `/clock` mô phỏng -> steady clock timeout kẹp 0).
+       * `test_phase8_t35_mecanum_lateral_stability`: PASS ($v_y = 0.0$ strictly).
+
+- **Kết quả Kiểm thử Toàn diện (100% PASS):**
+  - Toàn bộ **111/111 tests** của phân hệ `person_tracking` đều PASS trong 16.25s (ROS 2 Jazzy, ROS_DOMAIN_ID=42).
+  - Không có bất kỳ regression nào trong toàn bộ test suite.
+
+- **Bằng chứng kỹ thuật:**
+  - Build overlay: [.agent/person_tracking/evidence/phase_8/colcon_build.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_8/colcon_build.log).
+  - Kết quả kiểm thử pytest tổng thể: [.agent/person_tracking/evidence/phase_8/pytest_results.txt](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_8/pytest_results.txt).
+  - Biên bản audit topic graph: [.agent/person_tracking/evidence/phase_8/topic_graph_audit.txt](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_8/topic_graph_audit.txt).
+  - Tóm tắt bằng chứng nghiệm thu: [.agent/person_tracking/evidence/phase_8/evidence_summary.md](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_8/evidence_summary.md).
+
+- **Điểm dừng bàn giao:** Dừng chính xác trước Phase 9 (Giao tiếp song song với agent voice). User tự commit và push lên Git.

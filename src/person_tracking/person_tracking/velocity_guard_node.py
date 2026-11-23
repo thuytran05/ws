@@ -25,6 +25,7 @@ import time
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
+from rclpy.clock import Clock, ClockType
 from geometry_msgs.msg import Twist
 from std_msgs.msg import String
 
@@ -94,7 +95,7 @@ class VelocityGuardNode(Node):
         default_qos = 10
 
         # Subscriptions
-        self.sub_cmd_in = self.create_subscription(Twist, cmd_in_topic, self._on_cmd_vel_in, default_qos)
+        self.sub_cmd_in = self.create_subscription(Twist, cmd_in_topic, self._on_cmd_vel_in, 1)
         self.sub_session = self.create_subscription(String, session_topic, self._on_session_state, transient_qos)
         self.sub_obs = self.create_subscription(String, obs_topic, self._on_observation, reliable_qos)
 
@@ -103,7 +104,8 @@ class VelocityGuardNode(Node):
 
         # 20 Hz Monotonic Timer for active zeroing / watchdog
         timer_period = 1.0 / rate_hz if rate_hz > 0 else 0.05
-        self.timer = self.create_timer(timer_period, self._on_control_tick)
+        self.steady_clock = Clock(clock_type=ClockType.STEADY_TIME)
+        self.timer = self.create_timer(timer_period, self._on_control_tick, clock=self.steady_clock)
 
         self.get_logger().info(
             f"VelocityGuardNode initialized (in: {cmd_in_topic}, out: {cmd_out_topic}, rate: {rate_hz} Hz)."

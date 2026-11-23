@@ -339,13 +339,21 @@ class PassengerLockManager:
                     self.reason_code = "LOCKED_TRACKING_ACTIVE"
             else:
                 # Candidate not seen, ambiguous, or old frame:
-                # Check confirmed OUT_OF_FOV vs momentary flicker
+                # Distinguish confirmed OUT_OF_FOV from suspected edge loss
                 lost_ids = obs_payload.get("lost_track_ids", [])
-                if self.last_locked_passenger_near_edge and (self.locked_track_id in lost_ids or len(candidates) == 0 or matched_cand is None):
-                    if self.state in (TrackingState.NAVIGATING, TrackingState.WAITING_FOR_PASSENGER):
-                        self.state = TrackingState.ABORTING
-                        self.reason_code = "OUT_OF_FOV"
-                        return self._make_snapshot(stamp_sec, stamp_nanosec, current_time_sec)
+                if self.last_locked_passenger_near_edge:
+                    if self.locked_track_id in lost_ids:
+                        # Confirmed OUT_OF_FOV: was near edge and explicitly in lost_track_ids in next frame
+                        if self.state in (TrackingState.NAVIGATING, TrackingState.WAITING_FOR_PASSENGER):
+                            self.state = TrackingState.ABORTING
+                            self.reason_code = "OUT_OF_FOV"
+                            return self._make_snapshot(stamp_sec, stamp_nanosec, current_time_sec)
+                    else:
+                        # Missing or ambiguous near edge but not yet in lost_track_ids:
+                        # Suspected loss at edge -> early stop / wait
+                        if self.state == TrackingState.NAVIGATING:
+                            self.state = TrackingState.WAITING_FOR_PASSENGER
+                            self.reason_code = "EDGE_OCCLUSION_SUSPECTED"
 
             self._update_watchdog(current_time_sec)
             return self._make_snapshot(stamp_sec, stamp_nanosec, current_time_sec)
@@ -553,6 +561,9 @@ class PassengerLockManager:
                 return False, "MISMATCHED_MISSION_ID"
             if self.bound_goal_attempt_id and g_id and g_id != self.bound_goal_attempt_id:
                 return False, "MISMATCHED_GOAL_ATTEMPT_ID"
+            uuid_val = status_payload.get("nav2_uuid")
+            if self.bound_nav2_uuid and uuid_val and uuid_val != self.bound_nav2_uuid:
+                return False, "MISMATCHED_NAV2_UUID"
 
             if status == "SUCCEEDED":
                 self.state = TrackingState.ARRIVED

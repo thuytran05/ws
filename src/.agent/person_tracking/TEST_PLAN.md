@@ -34,8 +34,8 @@
 | **T20** | Mâu thuẫn CameraInfo / TF | Phase 5 | Injected TF Error | Phát hiện thiếu TF, frame ID mismatch, hoặc CameraInfo không hợp lệ; hạ cờ `is_metric_valid = false`; chỉ xuất 2D pixel offset, không tính position base. | `phase_5/phase_5_offline_verified.log` | **PASS** |
 | **T21** | Lệnh `cmd_vel_smoothed` quá cũ (> 0.2s) | Phase 7 | Nav2 Drop | Watchdog phát hiện cmd stale; Guard xuất vận tốc 0; không giữ lệnh cũ. | `phase_7/t21_stale_cmd_watchdog.log` | **PASS** |
 | **T22** | Guard node bị restart hoặc crash | Phase 7 | Process Kill | Downstream subscriber dừng nhận lệnh; không có chuyển động tự phát ngoài kiểm soát. | `phase_7/t22_guard_crash_recovery.log` | **PASS** |
-| **T23** | Collision Monitor nằm sau Guard | Phase 8 | Integration Launch | Vật cản laser xuất hiện -> Collision Monitor cắt lệnh cuối dù Guard có cho phép đi. | `phase_8/t23_collision_monitor_priority.log` | NOT_STARTED |
-| **T24** | Chạy kiểm thử trên Gazebo hiện có | Phase 8 | Gazebo + Fake Perception | Robot dừng/quay/lách đúng quy tắc khi nhận tín hiệu quan sát giả lập; không sửa URDF. | `phase_8/t24_gazebo_injected_escort.log` | NOT_STARTED |
+| **T23** | Collision Monitor nằm sau Guard | Phase 8 | Integration Launch | Vật cản laser xuất hiện -> Collision Monitor cắt lệnh cuối dù Guard có cho phép đi. | `phase_8/evidence_summary.md` | **PASS** |
+| **T24** | Chạy kiểm thử trên Gazebo hiện có | Phase 8 | Gazebo + Fake Perception | Robot dừng/quay/lách đúng quy tắc khi nhận tín hiệu quan sát giả lập; không sửa URDF. | `phase_8/evidence_summary.md` | **PASS** |
 | **T25** | ROS 2 automated tests lặp 50 vòng | Phase 10 | Pytest / Launch Test | 100% pass; không có hiện tượng test bị treo (timeout rõ ràng); tài nguyên ổn định. | `phase_10/t25_stress_reliability.log` | NOT_STARTED |
 | **T26** | Thiếu depth hoặc alignment chưa kiểm chứng | Phase 5 | RGB-only Video | Khi UNVERIFIED_ALIGNMENT: ép `depth_valid = false`, không xuất số đo metric tin cậy để chọn nearest, cấm thay 0 cho depth thiếu. | `phase_5/phase_5_offline_verified.log` | **PASS** |
 | **T27** | ByteTrack giữ ID nhưng vị trí không gian mơ hồ | Phase 3 | Synthetic Crossing | Cờ is_ambiguous = True bật khi IoU > 0.35 và tự giải phóng khi tách rời; truyền payload chuẩn sang FSM & Guard. | `phase_3/multi_person_crossing_trace.log` | **PASS** |
@@ -43,9 +43,9 @@
 | **T29** | Voice ACK cancel nhưng Goal chưa terminal | Phase 6 | Mock Voice In-flight | Guard vẫn giữ dừng 0; FSM chưa đóng phiên cho tới khi nhận xác nhận terminal. | `phase_6/phase_6_fsm_mock_voice.log` | **PASS** |
 | **T30** | Khóa khách mới khi Goal cũ còn unresolved | Phase 6 | Mock Nav Conflict | Manager từ chối giơ tay khóa mới; giữ FSM chờ Goal cũ dọn dẹp xong hoàn toàn. | `phase_6/phase_6_fsm_mock_voice.log` | **PASS** |
 | **T31** | Khách xuất hiện lại trước abort vs sau abort | Phase 6 | Fake Obs Toggle | Trước 1.2s: Hồi phục `NAVIGATING`. Sau 1.2s: Chốt hủy, ảnh về vẫn giữ dừng, bắt buộc khóa mới. | `phase_6/phase_6_fsm_mock_voice.log` | **PASS** |
-| **T32** | Từng node (Guard/Manager/Voice) bị restart giữa phiên | Phase 8 | Chaos Test | Nhận diện mất heartbeat; Guard đưa về 0; không có hành vi tự chạy lại nguy hiểm. | `phase_8/t32_node_restart_resilience.log` | NOT_STARTED |
+| **T32** | Từng node (Guard/Manager/Voice) bị restart giữa phiên | Phase 8 | Chaos Test | Nhận diện mất heartbeat; Guard đưa về 0; không có hành vi tự chạy lại nguy hiểm. | `phase_8/evidence_summary.md` | **PASS** |
 | **T33** | Mô phỏng bị pause hoặc `/clock` bị nhảy | Phase 7 | Clock Jump Inject | Monotonic watchdog kích hoạt độc lập; không bị treo vô hạn; an toàn khi resume. | `phase_7/t33_clock_pause_jump.log` | **PASS** |
-| **T34** | Guard crash và nguồn phát lạ xuất hiện | Phase 7 | Multi-publisher Test | Collision Monitor và Base watchdog can thiệp; xác minh cơ chế cô lập publisher. | `phase_7/t34_publisher_bypass_check.log` | NOT_STARTED |
+| **T34** | Guard crash và nguồn phát lạ xuất hiện | Phase 7 | Multi-publisher Test | Collision Monitor và Base watchdog can thiệp; xác minh cơ chế cô lập publisher. | `phase_8/topic_graph_audit.txt` | **PASS** |
 | **T35** | Nav2 `linear.y` pass-through vs Tracking lateral correction | Phase 7 | Mecanum Motion Test | Guard duy trì linear.y = 0.0 tuyệt đối, ngăn ngừa can thiệp chuyển động ngang tự phát. | `phase_7/t35_lateral_motion_separation.log` | **PASS** |
 
 ---

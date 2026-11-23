@@ -22,6 +22,7 @@ import uuid
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
+from rclpy.clock import Clock, ClockType
 from std_msgs.msg import String
 
 from person_tracking.passenger_lock_manager import (
@@ -101,12 +102,13 @@ class TrackingManagerNode(Node):
         self.abort_retries_sent = 0
         self.last_abort_send_mono_time = 0.0
 
-        # Timers:
+        # Timers using steady clock (immune to simulation clock pause):
+        self.steady_clock = Clock(clock_type=ClockType.STEADY_TIME)
         # 1) Heartbeat timer (5 Hz / 0.20s)
-        self.heartbeat_timer = self.create_timer(0.20, self._on_heartbeat)
+        self.heartbeat_timer = self.create_timer(0.20, self._on_heartbeat, clock=self.steady_clock)
 
         # 2) Watchdog timer (10 Hz / 0.10s)
-        self.watchdog_timer = self.create_timer(0.10, self._on_watchdog_tick)
+        self.watchdog_timer = self.create_timer(0.10, self._on_watchdog_tick, clock=self.steady_clock)
 
         self.get_logger().info(
             f"TrackingManagerNode initialized (gesture: {hold_time}s, stop: {vis_stop_sec}s, abort: {vis_abort_sec}s)."
@@ -158,9 +160,17 @@ class TrackingManagerNode(Node):
                 and session_id == self.current_abort_session_id
                 and req_id == self.current_abort_request_id
             ):
+                if self.manager.bound_mission_id and status_data.get("mission_id"):
+                    if status_data.get("mission_id") != self.manager.bound_mission_id:
+                        self.get_logger().warn("ACK mission_id mismatch! Ignored.")
+                        return
                 if self.manager.bound_goal_attempt_id and status_data.get("goal_attempt_id"):
                     if status_data.get("goal_attempt_id") != self.manager.bound_goal_attempt_id:
                         self.get_logger().warn("ACK goal_attempt_id mismatch! Ignored.")
+                        return
+                if self.manager.bound_nav2_uuid and status_data.get("nav2_uuid"):
+                    if status_data.get("nav2_uuid") != self.manager.bound_nav2_uuid:
+                        self.get_logger().warn("ACK nav2_uuid mismatch! Ignored.")
                         return
                 self.get_logger().info(f"Received matching ACK for abort request: {self.current_abort_request_id}")
                 self.abort_acked = True
