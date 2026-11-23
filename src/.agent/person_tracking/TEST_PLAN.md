@@ -11,7 +11,8 @@
 
 | Mã test | Tên ca kiểm thử | Phase kiểm thử | Nguồn dữ liệu | Tiêu chí Pass / Yêu cầu nghiệm thu | Bằng chứng & Log | Trạng thái hiện tại |
 |---|---|---|---|---|---|---|
-| **T01** | Khung hình không có người | Phase 2 | Video / Synthetic | FSM ở `IDLE`; xuất vận tốc 0; từ chối lệnh điểm đến. | `phase_2/t01_empty_scene.log` | NOT_STARTED |
+| **T01A** | Khung hình không có người (Adapter & Source Check) | Phase 2 | Video / Synthetic | Khởi tạo ObservationFrame rỗng chuẩn; data_quality VALID_RGBD; tuyệt đối không phát /cmd_vel; chuẩn bị bàn giao cho Phase 3. | `phase_2/launch_smoke_test.log` | **PASS** |
+| **T01B** | Khung hình không có người (FSM & Guard Logic) | Phase 6/7 | Video / Synthetic | FSM giữ `IDLE`; xuất vận tốc 0 liên tục (20 Hz); từ chối nhận điểm đến khi không có người. | `phase_6/t01b_empty_scene_fsm.log` | NOT_STARTED |
 | **T02** | 1 người giơ tay < 1.5s | Phase 4 | Video / Replay | Không khóa ID; FSM giữ `IDLE`; hạ tay bộ đếm reset. | `phase_4/t02_short_gesture.log` | NOT_STARTED |
 | **T03** | 1 người giơ tay $\ge$ 1.5s | Phase 4 | Video / Replay | Khóa đúng ID; cấp `session_id`; hạ tay vẫn giữ khóa; robot đứng yên. | `phase_4/t03_valid_lock.log` | NOT_STARTED |
 | **T04** | 2 người cùng giơ tay, khác depth | Phase 4 | Synthetic / Bag | Khóa người có depth nhỏ nhất (gần camera nhất); bỏ qua người ở xa. | `phase_4/t04_nearest_depth.log` | NOT_STARTED |

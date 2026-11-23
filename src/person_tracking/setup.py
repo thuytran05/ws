@@ -1,5 +1,4 @@
 from glob import glob
-
 from setuptools import find_packages, setup
 
 package_name = 'person_tracking'
@@ -13,6 +12,7 @@ setup(
         ('share/' + package_name, ['package.xml', 'README.md']),
         ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
         ('share/' + package_name + '/config', glob('config/*.yaml')),
+        ('share/' + package_name + '/fixtures', glob('fixtures/*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -24,6 +24,7 @@ setup(
         'console_scripts': [
             'person_tracker = person_tracking.person_tracker:main',
             'person_follower = person_tracking.person_follower:main',
+            'perception_source = person_tracking.perception_source_node:main',
         ],
     },
 )

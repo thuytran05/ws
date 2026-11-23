@@ -19,6 +19,7 @@
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <test_depend>pytest</test_depend>
   <!-- Ultralytics and torch are supplied by the user's existing YOLO venv. -->
   <export>
     <build_type>ament_python</build_type>

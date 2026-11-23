@@ -1,0 +1,36 @@
+=== STEP 1: Launch Publisher & Verify Data Flow ===
+Verified publisher data flow:
+  RGB frames received: 5
+  Depth frames received: 2
+  Status frames received: 8
+
+=== STEP 2: Record Bag with SIGINT Termination ===
+Sending SIGINT to recorder...
+Recorder stopped cleanly with exit code: 0
+
+=== STEP 3: ros2 bag info Inspection ===
+
+Files:             sample_fixture_bag_0.mcap
+Bag size:          60.1 MiB
+Storage id:        mcap
+ROS Distro:        jazzy
+Duration:          1.475318843s
+Start:             Nov 23 2026 03:29:16.620520025 (1795404556.620520025)
+End:               Nov 23 2026 03:29:18.095838868 (1795404558.095838868)
+Messages:          174
+Topic information: Topic: /camera/color/camera_info | Type: sensor_msgs/msg/CameraInfo | Count: 46 | Serialization Format: cdr
+                   Topic: /camera/color/image_raw | Type: sensor_msgs/msg/Image | Count: 41 | Serialization Format: cdr
+                   Topic: /camera/depth/image_raw | Type: sensor_msgs/msg/Image | Count: 41 | Serialization Format: cdr
+                   Topic: /tracking/source_status | Type: std_msgs/msg/String | Count: 46 | Serialization Format: cdr
+Service:           0
+Service information: 
+
+
+=== STEP 4: Test Bag Replay ===
+Replay Results:
+  RGB replayed: 56
+  Depth replayed: 59
+  CameraInfo replayed: 67
+  Status replayed: 67
+
+>>> ROSBAG RECORD & REPLAY VERIFICATION: SUCCESS <<<

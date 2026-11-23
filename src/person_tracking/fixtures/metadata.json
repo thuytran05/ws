@@ -1,0 +1,50 @@
+{
+  "version": "1.0",
+  "description": "Deterministic test fixtures for person_tracking Phase 2",
+  "note": "All data generated synthetically via algorithms; contains NO real Astra or human recordings.",
+  "fixtures": {
+    "synthetic_empty.npz": {
+      "type": "synthetic_npz",
+      "resolution": [
+        640,
+        480
+      ],
+      "content": "Empty scene with uniform background at 3.0m depth",
+      "expected_quality": "VALID_RGBD",
+      "test_case": "T01_adapter"
+    },
+    "synthetic_person_1.npz": {
+      "type": "synthetic_npz",
+      "resolution": [
+        640,
+        480
+      ],
+      "content": "Synthetic person silhouette at 1.5m depth with 3.5m background",
+      "expected_quality": "VALID_RGBD",
+      "test_case": "T09_normal_escort"
+    },
+    "synthetic_corrupted_depth.npz": {
+      "type": "synthetic_npz",
+      "resolution": [
+        640,
+        480
+      ],
+      "content": "Person scene with extensive central NaN and 0.0 depth dropouts",
+      "expected_quality": "INVALID_DEPTH",
+      "test_case": "T19_invalid_depth"
+    },
+    "synthetic_video.mp4": {
+      "type": "mp4_video",
+      "resolution": [
+        640,
+        480
+      ],
+      "fps": 15.0,
+      "frame_count": 30,
+      "duration_sec": 2.0,
+      "content": "Deterministic 30-frame video of moving silhouette for video replay testing",
+      "expected_quality": "RGB_ONLY",
+      "test_case": "video_replay_adapter"
+    }
+  }
+}

@@ -5,7 +5,7 @@
 **Mục tiêu:** Hướng dẫn thực thi lệnh an toàn cho phân hệ Tracking, phân định rõ giữa lệnh đã kiểm chứng thực tế và lệnh dự kiến cho các phase sau.
 
 > [!IMPORTANT]
-> - Đây là sổ tay lệnh riêng của phân hệ Tracking, đặt tại `.agent/person_tracking/COMMANDS.md`.
+> - Đây là sổ tay lệnh riêng của phân hệ Tracking, đặt tại `.agent/COMMANDS_TRACKING.md (cùng cấp với .agent/COMMANDS_VOICE.md)`.
 > - **Tuyệt đối không sửa** file `.agent/COMMANDS.md` chung hoặc `.agent/COMMANDS_VOICE.md` của phân hệ Voice.
 > - Mọi thao tác build và chạy ROS 2 bắt buộc phải thực hiện trong terminal của **VS Code Dev Container (ROS 2 Jazzy)**. Không chạy ROS trên host Ubuntu 22.04 (Humble).
 
@@ -58,7 +58,7 @@ cd /home/ws
 # Source môi trường ROS 2 Jazzy nền tảng
 source /opt/ros/jazzy/setup.bash
 
-# [DỰ KIẾN TỪ PHASE 2] Build cô lập riêng cho package person_tracking
+# [ĐÃ KIỂM CHỨNG TẠI PHASE 2] Build cô lập riêng cho package person_tracking
 colcon build \
   --packages-select person_tracking \
   --build-base build_tracking \
@@ -111,4 +111,62 @@ pytest src/person_tracking/test/test_velocity_guard_safety.py -v --timeout=20
 ```bash
 # [PLANNED - Phase 8] Khởi chạy toàn bộ stack tracking kết hợp Gazebo mô phỏng
 ros2 launch person_tracking escort.launch.py use_sim_time:=true
+```
+
+---
+
+## 3. Quy trình Kiểm thử và Chạy Offline Replay Đã Kiểm chứng (Verified in Phase 2)
+
+### 3.1. Chạy Bộ Kiểm thử Unit và Smoke Test (Pytest)
+```bash
+cd /home/ws
+source /opt/ros/jazzy/setup.bash
+source /home/ws/install_tracking/setup.bash
+export ROS_DOMAIN_ID=42
+
+# Chạy toàn bộ 12 test của adapter và source node (100% PASS)
+pytest src/person_tracking/test/ -v
+```
+
+### 3.2. Chạy Perception Offline Replay (ROS 2 Launch)
+```bash
+# 1. Chế độ Synthetic Fixture (người có RGB-D hợp lệ, 15 FPS)
+ros2 launch person_tracking offline_replay.launch.py \
+  source_mode:=synthetic_fixture \
+  synthetic_case:=person_valid_rgbd \
+  fps:=15.0
+
+# 2. Chế độ Video Replay (chỉ đọc RGB từ MP4, bảo đảm strict RGB-only, depth None)
+ros2 launch person_tracking offline_replay.launch.py \
+  source_mode:=video_replay \
+  fps:=15.0 \
+  loop:=true
+
+# 3. Chế độ Synthetic Corrupted Depth (bơm NaN/0 để kiểm tra bộ lọc an toàn)
+ros2 launch person_tracking offline_replay.launch.py \
+  source_mode:=synthetic_fixture \
+  synthetic_case:=corrupted_depth \
+  fps:=15.0
+```
+
+### 3.3. Quy trình Ghi và Replay Rosbag2 An toàn
+```bash
+# Đặt ROS_DOMAIN_ID đồng nhất để tránh nhiễu
+export ROS_DOMAIN_ID=42
+
+# Chạy perception source
+ros2 run person_tracking perception_source --ros-args -p source_mode:=synthetic_fixture &
+
+# Ghi dữ liệu mẫu (kết thúc đúng cách bằng SIGINT / Ctrl+C)
+ros2 bag record -o src/person_tracking/fixtures/sample_fixture_bag \
+  /camera/color/image_raw \
+  /camera/depth/image_raw \
+  /camera/color/camera_info \
+  /tracking/source_status
+
+# Kiểm tra thông tin bag (metadata và message count)
+ros2 bag info src/person_tracking/fixtures/sample_fixture_bag
+
+# Phát lại rosbag2
+ros2 bag play src/person_tracking/fixtures/sample_fixture_bag --rate 1.0
 ```

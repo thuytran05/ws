@@ -559,47 +559,59 @@ Khi Nav2 Action Server bị crash, rớt kết nối mạng hoặc không trả 
 > **Nguyên tắc an toàn**: Hệ thống **tuyệt đối không cho phép** bất kỳ câu lệnh thoại nào ép xóa trạng thái chưa xác minh ở `IDLE`. Chỉ người vận hành mới được phép can thiệp bằng quy trình chuẩn dưới đây.
 
 #### Quy trình 4 bước cho Người vận hành:
-1. **Bước 1 — Dừng có kiểm soát (Controlled / Emergency Stop)**:
-   Nếu robot vẫn còn chuyển động vật lý ngoài mong muốn hoặc Nav2 không phản hồi:
-   ```bash
-   # Phát lệnh cưỡng bức dừng vận tốc về 0:
-   ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}"
-   ```
-   *(Hoặc nhấn công tắc dừng khẩn cấp vật lý trên thân robot nếu đang ở hiện trường).*
+1. **Bước 1 — Dừng khẩn cấp thực tế và Xác minh Robot dừng hẳn**:
+   - **Lưu ý kỹ thuật quan trọng**: Tuyệt đối **không dùng** lệnh `ros2 topic pub --once /cmd_vel ...` như một cơ chế dừng khẩn cấp. Trên cấu hình robot Mecanum đang chạy với Nav2, `controller_server` liên tục tính toán và xuất topic `/cmd_vel` theo chu kỳ vòng lặp 10–20 Hz. Một bản tin `--once` sẽ ngay lập tức bị ghi đè bởi chu kỳ tiếp theo của controller nếu goal Nav2 vẫn đang active.
+   - **Cơ chế dừng đã xác minh trên hệ thống**:
+     + *Dừng phần mềm*: Gọi lệnh cancel goal thông qua ActionClient trên action `/navigate_to_pose`, hoặc chuyển lifecycle manager của Nav2 sang trạng thái inactive:
+       ```bash
+       # Hủy goal đang hoạt động qua Nav2 action CLI (nếu action server còn phản hồi):
+       ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "{}" --feedback
+       ```
+     + *Dừng cưỡng bức / Khẩn cấp*: Nhấn công tắc E-stop vật lý trên thân robot nếu ở hiện trường; hoặc trong mô phỏng/terminal, phát lặp liên tục tần số cao (10–20 Hz) lệnh dừng vận tốc:
+       ```bash
+       # Phát lặp liên tục tần số 20 Hz cưỡng bức dừng motor:
+       ros2 topic pub -r 20 /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}"
+       ```
+   - **Xác minh robot dừng hẳn**: Trước khi thực hiện bất kỳ bước khôi phục nào, người vận hành phải kiểm tra vận tốc từ `/odom` để đảm bảo robot đã đứng yên hoàn toàn ($v \le 0.02$ m/s, $\omega \le 0.02$ rad/s):
+     ```bash
+     ros2 topic echo /odom --once | grep -E "linear|angular"
+     ```
 
-2. **Bước 2 — Kiểm tra và khôi phục Nav2 Lifecycle**:
-   Kiểm tra xem `bt_navigator` và các action server của Nav2 còn hoạt động hay không:
-   ```bash
-   ros2 lifecycle get /bt_navigator
-   ros2 action list | grep navigate_to_pose
-   ```
-   Nếu Nav2 bị lỗi hoặc crash, khởi động lại stack Nav2 (`ros2 launch linorobot2_navigation ...`).
+2. **Bước 2 — Kiểm tra và Xử lý triệt để Goal cũ trên Nav2**:
+   - Kiểm tra xem `bt_navigator` và các action server của Nav2 còn hoạt động hay không:
+     ```bash
+     ros2 lifecycle get /bt_navigator
+     ros2 action list | grep navigate_to_pose
+     ```
+   - Nếu Nav2 bị lỗi hoặc crash, khởi động lại stack Nav2 (`ros2 launch linorobot2_navigation ...`). Phải đảm bảo không còn goal mồ côi nào đang tiếp tục di chuyển bánh xe.
 
-3. **Bước 3 — Khởi động lại Voice Command Node**:
-   Sau khi Nav2 đã được khôi phục hoặc dừng hẳn, người vận hành khởi động lại `nav_command_node`:
-   ```bash
-   # Dừng node voice cũ:
-   pkill -f nav_command_node
-   
-   # Khởi động lại node voice:
-   ros2 run airport_robot_voice nav_command_node
-   # (Hoặc khởi động lại qua voice_system.launch.py)
-   ```
+3. **Bước 3 — Khởi động lại Voice Command Node (Tránh pkill chung)**:
+   - Trong môi trường phát triển song song (có các node khác như `person_tracking` đang chạy), **tuyệt đối tránh `pkill -f python3` hoặc `pkill -f node`**.
+   - Chỉ dừng chính xác tiến trình `nav_command_node`:
+     ```bash
+     # Dừng chính xác tiến trình nav_command_node của package voice:
+     pkill -f "airport_robot_voice/nav_command_node" || true
+     
+     # Khởi động lại node voice:
+     ros2 run airport_robot_voice nav_command_node
+     # (Hoặc khởi động lại toàn bộ voice qua voice_system.launch.py)
+     ```
 
 4. **Bước 4 — Xác minh phạm vi theo dõi sau khi Restart**:
    - Khi node khởi động lại, một phiên làm việc mới hoàn toàn được tạo với `_session_start_ms` mới (dựa trên epoch timestamp ms).
    - Máy trạng thái bắt đầu từ `IDLE` sạch, danh sách `_attempts` trống, cờ `_unconfirmed_terminal = False`.
-   - Node **không tự khôi phục** bất kỳ chuyến đi cũ nào từ RAM phiên trước, không phát sinh goal điều hướng ngoài ý muốn.
+   - > [!IMPORTANT]
+     > **Phạm vi của Restart**: Việc khởi động lại Voice đưa máy trạng thái về `IDLE` **chỉ xác nhận và làm sạch bộ nhớ cục bộ trong phiên của node Voice mới**. Node mới không kế thừa attempt cũ, nhưng người vận hành **bắt buộc phải hoàn thành Bước 1 và Bước 2** để chắc chắn robot vật lý đã dừng và Nav2 không còn goal cũ trước khi ra lệnh dẫn đường mới.
    - Kiểm tra trạng thái sẵn sàng qua topic:
      ```bash
      ros2 topic echo /voice/nav_state --once --qos-durability transient_local
      ```
      *Dấu hiệu*: `mission_state: "IDLE"`, `has_unresolved_goals: false`, `node_online: true`. Hệ thống sẵn sàng nhận nhiệm vụ mới.
 
-### 8.3 Dọn dẹp process khi kết thúc phiên
+### 8.3 Dọn dẹp tiến trình an toàn trong Workspace dùng chung
 ```bash
-# Dừng tất cả các node của package đang chạy nền
-pkill -f airport_robot_voice
+# Chỉ dừng đúng các tiến trình thuộc package airport_robot_voice, không ảnh hưởng các package khác (person_tracking):
+pkill -f "airport_robot_voice/nav_command_node|airport_robot_voice/intent_node|airport_robot_voice/tts_node|airport_robot_voice/stt_node" || true
 ```
 
 ### 8.4 Thiết lập lại toàn bộ từ đầu trên máy mới (Full Setup Script)
@@ -787,3 +799,46 @@ python3 src/airport_robot_voice/scripts/test_nlu.py
 # (Gồm: A3->A4->Hủy (v=0), A3 tới đích SUCCEEDED, Đo đường 2 Toilet & Chọn đúng điểm ngắn nhất)
 bash src/airport_robot_voice/scripts/run_evidence_verification.sh
 ```
+
+
+---
+
+## 10. Giao diện Tích hợp Phân hệ Person Tracking (Chuẩn bị cho Phase 9)
+
+Tài liệu tham chiếu thiết kế: `src/.agent/person_tracking/VOICE_INTEGRATION_REQUEST.md`.  
+Dưới đây là bản tóm tắt các điểm then chốt đã thống nhất để chuẩn bị cho giai đoạn tích hợp chính thức tại **Phase 9**:
+
+### 10.1 Phân định Quyền hạn và Trách nhiệm
+1. **Voice là Chủ sở hữu DUY NHẤT của `NavigateToPose` Action**:
+   - Node `nav_command_node.py` của phân hệ Voice toàn quyền khởi tạo `ActionClient<NavigateToPose>`, gửi Goal, theo dõi feedback và hủy Goal.
+   - Phân hệ Person Tracking **tuyệt đối không** khởi tạo `ActionClient<NavigateToPose>`, không gửi goal và không gọi cancel trực tiếp trên Nav2.
+2. **Tracking là Cổng An toàn và Quản lý Khóa Khách hàng**:
+   - Tracking phát hiện hành khách qua camera sau, nhận diện cử chỉ giơ tay để khóa khách hàng, sinh `session_id`, và quản lý cổng an toàn vận tốc motor.
+
+### 10.2 Hợp đồng Giao tiếp 3 Kênh giữa Voice và Tracking
+1. **Kênh 1 — Trạng thái Khóa Khách hàng (`/tracking/session_state`)**:
+   - **Kiểu bản tin**: `std_msgs/msg/String` (JSON), QoS: Depth=1, Durability=TRANSIENT_LOCAL, Reliability=RELIABLE.
+   - **Trường dữ liệu**: `session_id`, `state` (`"LOCKED_WAIT_DESTINATION"`), `locked` (`true`/`false`), `confidence`, `stamp`.
+   - **Hành vi Voice tại Phase 9**:
+     - Lắng nghe topic `/tracking/session_state`.
+     - Khi nhận intent dẫn đường từ người dùng:
+       + Nếu `locked == true` và `state == "LOCKED_WAIT_DESTINATION"`: Ghi nhận `session_id` vào phiên hiện tại, chấp nhận điểm đến và gửi Goal cho Nav2.
+       + Nếu `locked == false`: Từ chối dẫn đường, phát câu TTS: *"Xin quý khách vui lòng đứng phía sau và giơ một tay để robot nhận diện trước khi chọn điểm đến."*
+
+2. **Kênh 2 — Yêu cầu Hủy khẩn cấp An toàn (`/tracking/safety_request`)**:
+   - **Kiểu bản tin**: `std_msgs/msg/String` (JSON), QoS: Depth=10, Reliability=RELIABLE.
+   - **Trường dữ liệu**: `request_id`, `session_id`, `command` (`"ABORT"`), `reason_code` (`"TARGET_LOST_PROLONGED"` khi mất dấu > 1.2s), `message`.
+   - **Hành vi Voice tại Phase 9**:
+     - Khi nhận bản tin `command == "ABORT"` có `session_id` khớp với phiên đang dẫn đường:
+       + Lập tức gọi `cancel_goal_async()` hủy Goal đang chạy trên Nav2.
+       + Chuyển trạng thái `mission_state` sang `CANCELING` -> `IDLE`.
+       + Phát TTS thông báo: *"Đã mất dấu hành khách, robot dừng hành trình dẫn đường."*
+
+3. **Kênh 3 — Phát hành Trạng thái Hoàn tất để Mở khóa (`/voice/nav_status`)**:
+   - **Kiểu bản tin**: `std_msgs/msg/String` (JSON), QoS: Depth=1, Durability=TRANSIENT_LOCAL, Reliability=RELIABLE.
+   - **Trường dữ liệu**: `session_id`, `mission_id`, `goal_attempt_id`, `destination_id`, `status` (`"SUCCEEDED"`), `nav_event` (`"GOAL_COMPLETED"`), `is_terminal` (`true`), `message`.
+   - **Ý nghĩa**: Khi Voice phát bản tin hoàn tất có `status == "SUCCEEDED"` và `is_terminal == true` đúng với `session_id`, Tracking xác nhận khách đã đến nơi an toàn, xóa ID khóa, dọn dẹp phiên và đưa hệ thống về trạng thái sẵn sàng đón lượt khách mới.
+
+### 10.3 Nguyên tắc Độc lập trong Giai đoạn Hiện tại
+- Trong các Phase trước Phase 9, phân hệ Tracking sử dụng node mock nội bộ (`mock_voice_owner`) để tự kiểm thử.
+- Phân hệ Voice **chưa nối trực tiếp code** vào các topic của Tracking trong lượt này để đảm bảo toàn bộ 94 bài test hiện tại và các kịch bản nghiệm thu độc lập không bị ảnh hưởng.
