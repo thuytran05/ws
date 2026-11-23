@@ -15,6 +15,7 @@ import os
 import sys
 import time
 import uuid
+from typing import Optional, Dict, List, Tuple
 
 from cv_bridge import CvBridge
 import numpy as np
@@ -111,17 +112,46 @@ class PersonDetectorNode(Node):
         self.current_session_id = str(uuid.uuid4())
         self.last_loop_count = 0
         self.has_seen_status = False
+        self.past_session_ids = set()
         self.status_by_stamp = {}
         self.latest_status = None
         self.last_reset_boundary = None
         self.last_frame_timestamp = -1.0
         self.pending_rgb_frames = []
+        self.max_pending_age_sec = 0.30
+
+        # Periodic drain timer (10 Hz / 100ms) to ensure pending frames expire even if input stops
+        self.drain_timer = self.create_timer(0.10, self._drain_pending_frames)
         self.get_logger().info("PersonDetectorNode initialized and listening for perception streams.")
 
     def _on_status(self, msg: String):
         try:
             status_data = json.loads(msg.data)
-            self.has_seen_status = True
+            session_id = status_data.get('source_session_id', '')
+            loop_count = status_data.get('loop_count', 0)
+            reset_event = status_data.get('reset_event', False)
+
+            if self.has_seen_status:
+                # Drop stale status from past expired sessions
+                if session_id in self.past_session_ids:
+                    self.get_logger().debug(
+                        f"Dropped stale status from past session: {session_id}"
+                    )
+                    return
+                # Drop stale status from older loops of current session
+                if session_id == self.current_session_id and loop_count < self.last_loop_count:
+                    self.get_logger().debug(
+                        f"Dropped stale status: loop {loop_count} < {self.last_loop_count}"
+                    )
+                    return
+                if session_id != self.current_session_id:
+                    if self.current_session_id:
+                        self.past_session_ids.add(self.current_session_id)
+            else:
+                self.has_seen_status = True
+                self.current_session_id = session_id
+                self.last_loop_count = loop_count
+
             self.latest_status = status_data
 
             stamp_dict = status_data.get('stamp', {})
@@ -133,9 +163,6 @@ class PersonDetectorNode(Node):
                 oldest_key = next(iter(self.status_by_stamp))
                 self.status_by_stamp.pop(oldest_key, None)
 
-            session_id = status_data.get('source_session_id', '')
-            loop_count = status_data.get('loop_count', 0)
-            reset_event = status_data.get('reset_event', False)
             boundary_key = (session_id, loop_count)
 
             # If status explicitly indicates a boundary reset and has not been executed yet
@@ -148,6 +175,8 @@ class PersonDetectorNode(Node):
                     self.last_reset_boundary = boundary_key
                     self.current_session_id = session_id
                     self.last_loop_count = loop_count
+            elif session_id:
+                self.current_session_id = session_id
 
             self._drain_pending_frames()
         except Exception as exc:
@@ -177,30 +206,48 @@ class PersonDetectorNode(Node):
 
     def _on_rgb(self, msg: Image):
         frame_stamp = (msg.header.stamp.sec, msg.header.stamp.nanosec)
-        # If we have seen status before, but status for this frame hasn't arrived yet, buffer briefly
-        if self.has_seen_status and frame_stamp not in self.status_by_stamp:
-            now_mono = time.monotonic()
-            self.pending_rgb_frames.append((now_mono, msg))
-            self._drain_pending_frames()
-            return
+        if self.has_seen_status:
+            if frame_stamp not in self.status_by_stamp:
+                # Buffer briefly in bounded queue waiting for matching status
+                now_mono = time.monotonic()
+                if len(self.pending_rgb_frames) >= 50:
+                    self.pending_rgb_frames.pop(0)
+                    self.get_logger().warn("Pending queue full (>=50); dropped oldest pending RGB frame.")
+                self.pending_rgb_frames.append((now_mono, msg))
+                self._drain_pending_frames()
+                return
+            else:
+                matched_status = self.status_by_stamp.pop(frame_stamp)
+                self._process_rgb_message(msg, matched_status=matched_status)
+                return
 
-        self._process_rgb_message(msg)
+        self._process_rgb_message(msg, matched_status=None)
 
     def _drain_pending_frames(self):
         now_mono = time.monotonic()
         remaining = []
         for queue_time, frame_msg in self.pending_rgb_frames:
             stamp = (frame_msg.header.stamp.sec, frame_msg.header.stamp.nanosec)
-            # If status arrived OR timeout expired (> 0.04s)
-            if stamp in self.status_by_stamp or (now_mono - queue_time) > 0.04:
-                self._process_rgb_message(frame_msg)
+            if stamp in self.status_by_stamp:
+                matched_status = self.status_by_stamp.pop(stamp)
+                self._process_rgb_message(frame_msg, matched_status=matched_status)
+            elif (now_mono - queue_time) > self.max_pending_age_sec:
+                # Timeout expired and no status match: drop frame, DO NOT guess with latest_status!
+                self.get_logger().warn(
+                    f"Dropped frame with stamp {stamp}: status timeout in replay mode (waited > 0.04s without status match)."
+                )
             else:
                 remaining.append((queue_time, frame_msg))
         self.pending_rgb_frames = remaining
 
-    def _process_rgb_message(self, msg: Image):
+    def _process_rgb_message(self, msg: Image, matched_status: Optional[dict] = None):
         stamp = (msg.header.stamp.sec, msg.header.stamp.nanosec)
-        status_data = self.status_by_stamp.pop(stamp, None) or self.latest_status
+        status_data = matched_status
+
+        if self.has_seen_status and status_data is None:
+            # Replay mode requiring metadata: cannot process frame without matched status
+            self.get_logger().warn(f"Dropped frame with stamp {stamp}: missing metadata in status mode.")
+            return
 
         if status_data:
             session_id = status_data.get('source_session_id', '')
@@ -279,6 +326,9 @@ class PersonDetectorNode(Node):
                 "center_offset_x_norm": p.center_offset_x_norm,
                 "near_edge": p.near_edge,
                 "keypoints": p.keypoints,
+                "bearing_optical_rad": getattr(p, 'bearing_optical_rad', None),
+                "bearing_base_rad": getattr(p, 'bearing_base_rad', None),
+                "position_base": getattr(p, 'position_base', None),
                 # Backward-compatibility alias
                 "bbox": p.bbox_xyxy,
             }

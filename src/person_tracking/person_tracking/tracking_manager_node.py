@@ -90,17 +90,26 @@ class TrackingManagerNode(Node):
         pass
 
     def _on_heartbeat(self):
+        now = self.get_clock().now().to_msg()
+        now_mono = time.monotonic()
+        obs_age = now_mono - self.manager.last_observation_mono_time
+        obs_fresh = (self.manager.last_observation_mono_time > 0 and obs_age <= 0.40)
+
         if self.last_snapshot is not None:
+            self.last_snapshot.stamp_sec = now.sec
+            self.last_snapshot.stamp_nanosec = now.nanosec
+            self.last_snapshot.obs_fresh = obs_fresh
+            if not obs_fresh and self.last_snapshot.locked:
+                self.last_snapshot.reason_code = "OBSERVATION_STALE"
             self._publish_session_state(self.last_snapshot)
         else:
             # Publish initial IDLE snapshot
-            now = self.get_clock().now().to_msg()
-            snapshot = self.manager._make_snapshot(now.sec, now.nanosec)
+            snapshot = self.manager._make_snapshot(now.sec, now.nanosec, obs_fresh=False)
             self._publish_session_state(snapshot)
 
     def _publish_session_state(self, snapshot: SessionStateSnapshot):
         now = self.get_clock().now().to_msg()
-        # Update timestamp to current ROS time
+        # Update heartbeat timestamp to current ROS time
         snapshot.stamp_sec = now.sec
         snapshot.stamp_nanosec = now.nanosec
         payload = self.manager.to_json_dict(snapshot)

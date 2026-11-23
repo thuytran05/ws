@@ -31,6 +31,12 @@ except ImportError as exc:
     torch = None
 
 from person_tracking.source_adapters import ObservationFrame, compute_mad, DataQuality
+from person_tracking.rear_camera_geometry import (
+    RearCameraGeometry,
+    CameraIntrinsics,
+    CameraMountTransform,
+    TargetGeometryResult,
+)
 
 
 @dataclass
@@ -46,6 +52,9 @@ class PersonDetection:
     depth_valid: bool = False  # True ONLY if alignment proven (VALID_RGBD) and depth valid
     center_offset_x_norm: float = 0.0  # -1.0 (far left) to 1.0 (far right)
     near_edge: bool = False  # True if bbox touches outer margin
+    bearing_optical_rad: Optional[float] = None
+    bearing_base_rad: Optional[float] = None
+    position_base: Optional[List[float]] = None
     bbox: Optional[List[float]] = None  # Backward-compatibility alias
 
     def __post_init__(self):
@@ -126,6 +135,8 @@ class MultiPersonTracker:
         self.previous_track_ids = set()
         self.total_processed_frames = 0
         self.mock_backend_candidates: Optional[List[PersonDetection]] = None
+        self.geometry = RearCameraGeometry()
+        self.mount_tf: Optional[CameraMountTransform] = CameraMountTransform.create_synthetic_rear_mount()
 
     def reset(self):
         """Reset tracker state on source switch, video loop, or stream reset."""
@@ -171,6 +182,20 @@ class MultiPersonTracker:
                 is_conf = cand.is_confirmed or (cand.track_id is not None and cand.track_id > 0)
                 if is_conf and cand.track_id:
                     current_track_ids.add(cand.track_id)
+                eff_depth = torso_depth_m if cand.torso_depth_m is None else cand.torso_depth_m
+                intrinsics = CameraIntrinsics.from_camera_info(obs_frame.camera_info)
+                geom_engine = getattr(self, 'geometry', None) or RearCameraGeometry()
+                mount_tf = getattr(self, 'mount_tf', None) or CameraMountTransform.create_synthetic_rear_mount()
+                geom = geom_engine.compute_geometry(
+                    u=box_cx,
+                    v=(y1 + y2) / 2.0,
+                    torso_depth_m=eff_depth,
+                    depth_valid=depth_valid,
+                    intrinsics=intrinsics,
+                    mount_tf=mount_tf,
+                    frame_id=obs_frame.frame_id,
+                    image_width=w,
+                )
                 person = PersonDetection(
                     bbox_xyxy=box,
                     confidence=cand.confidence,
@@ -178,10 +203,13 @@ class MultiPersonTracker:
                     track_id=cand.track_id,
                     is_confirmed=is_conf,
                     is_ambiguous=cand.is_ambiguous,
-                    torso_depth_m=torso_depth_m if cand.torso_depth_m is None else cand.torso_depth_m,
+                    torso_depth_m=eff_depth,
                     depth_valid=depth_valid,
                     center_offset_x_norm=center_offset_norm,
                     near_edge=near_edge,
+                    bearing_optical_rad=geom.optical_bearing_rad,
+                    bearing_base_rad=geom.base_bearing_rad,
+                    position_base=geom.position_base,
                 )
                 detected_persons.append(person)
         else:
@@ -241,6 +269,19 @@ class MultiPersonTracker:
                             obs_frame, box, kp_list, h, w
                         )
 
+                        intrinsics = CameraIntrinsics.from_camera_info(obs_frame.camera_info)
+                        geom_engine = getattr(self, 'geometry', None) or RearCameraGeometry()
+                        mount_tf = getattr(self, 'mount_tf', None) or CameraMountTransform.create_synthetic_rear_mount()
+                        geom = geom_engine.compute_geometry(
+                            u=box_cx,
+                            v=(y1 + y2) / 2.0,
+                            torso_depth_m=torso_depth_m,
+                            depth_valid=depth_valid,
+                            intrinsics=intrinsics,
+                            mount_tf=mount_tf,
+                            frame_id=obs_frame.frame_id,
+                            image_width=w,
+                        )
                         person = PersonDetection(
                             bbox_xyxy=box,
                             confidence=conf,
@@ -252,6 +293,9 @@ class MultiPersonTracker:
                             depth_valid=depth_valid,
                             center_offset_x_norm=center_offset_norm,
                             near_edge=near_edge,
+                            bearing_optical_rad=geom.optical_bearing_rad,
+                            bearing_base_rad=geom.base_bearing_rad,
+                            position_base=geom.position_base,
                         )
                         detected_persons.append(person)
 
@@ -318,11 +362,17 @@ class MultiPersonTracker:
         roi_y2 = int(y1 + 0.6 * (y2 - y1))
 
         roi_depth = depth_img[roi_y1:roi_y2, roi_x1:roi_x2]
+        total_pixels = roi_depth.size
+        if total_pixels == 0:
+            return None, False
+
         # Filter valid depth: non-NaN, non-zero, within Astra sensor range [0.4m, 5.0m]
         valid_mask = np.isfinite(roi_depth) & (roi_depth >= 0.4) & (roi_depth <= 5.0)
         valid_pixels = roi_depth[valid_mask]
 
-        if valid_pixels.size < 15:
+        # Valid depth pixel ratio in torso ROI must be >= 30%
+        valid_ratio = valid_pixels.size / float(total_pixels)
+        if valid_ratio < 0.30 or valid_pixels.size < 15:
             return None, False
 
         median_d = float(np.median(valid_pixels))

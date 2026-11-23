@@ -289,7 +289,8 @@ def test_two_loop_replay_boundary_reset_and_out_of_order_status():
         img_msg_1.header.stamp.nanosec = 0
         img_msg_1.header.frame_id = "camera_color_optical_frame"
         rgb_pub.publish(img_msg_1)
-        rclpy.spin_once(detector_node, timeout_sec=0.02)
+        for _ in range(5):
+            rclpy.spin_once(detector_node, timeout_sec=0.01)
         # Image is queued in pending_rgb_frames waiting for matching status
         assert len(detector_node.pending_rgb_frames) == 1
 
@@ -329,7 +330,8 @@ def test_two_loop_replay_boundary_reset_and_out_of_order_status():
             "stamp": {"sec": 102, "nanosec": 0}
         }
         status_pub.publish(String(data=json.dumps(status_2)))
-        rclpy.spin_once(detector_node, timeout_sec=0.05)
+        for _ in range(5):
+            rclpy.spin_once(detector_node, timeout_sec=0.02)
 
         assert detector_node.last_loop_count == 2
         assert detector_node.current_session_id == "session-loop-2"
@@ -445,6 +447,177 @@ def test_observation_payload_with_non_empty_candidates():
         assert cand["bbox"] == cand["bbox_xyxy"]
         assert payload["persons"] == payload["candidates"]
         assert payload["source_session_id"] == "session-test-candidates"
+
+        detector_node.destroy_node()
+        test_sub.destroy_node()
+    finally:
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+def test_status_timeout_drops_frame_no_fallback_latest_status():
+    """Verify frame is dropped when status times out (> 0.04s) and NOT misassigned via latest_status."""
+    if not rclpy.ok():
+        rclpy.init()
+    try:
+        detector_node = PersonDetectorNode()
+        test_sub = PerceptionObserverSubscriber()
+        status_pub = detector_node.create_publisher(String, '/tracking/source_status', 10)
+        rgb_pub = detector_node.create_publisher(Image, '/camera/color/image_raw', qos_profile_sensor_data)
+
+        # 1. Establish status mode with initial status
+        init_status = {
+            "source_mode": "video_replay",
+            "source_session_id": "session-initial",
+            "loop_count": 0,
+            "reset_event": False,
+            "stamp": {"sec": 1, "nanosec": 0}
+        }
+        status_pub.publish(String(data=json.dumps(init_status)))
+        for _ in range(5):
+            rclpy.spin_once(detector_node, timeout_sec=0.01)
+
+        assert detector_node.has_seen_status is True
+        assert detector_node.current_session_id == "session-initial"
+
+        # 2. Publish RGB frame with stamp (100, 0) WITHOUT status
+        rgb_arr = np.zeros((480, 640, 3), dtype=np.uint8)
+        rgb_msg = detector_node.bridge.cv2_to_imgmsg(rgb_arr, encoding="bgr8")
+        rgb_msg.header.stamp.sec = 100
+        rgb_msg.header.stamp.nanosec = 0
+        rgb_msg.header.frame_id = "camera_color_optical_frame"
+        rgb_pub.publish(rgb_msg)
+
+        # 3. Spin past timeout (0.50s > 0.30s timeout) so drain timer drops it
+        start_wait = time.monotonic()
+        while time.monotonic() - start_wait < 0.50:
+            rclpy.spin_once(detector_node, timeout_sec=0.02)
+            rclpy.spin_once(test_sub, timeout_sec=0.02)
+        detector_node._drain_pending_frames()
+
+        # Frame MUST have been dropped from pending_rgb_frames and NOT published!
+        assert len(detector_node.pending_rgb_frames) == 0
+        assert len(test_sub.received_obs) == 0, "ERROR: Frame was published despite status timeout!"
+
+        # 4. Now send a late status with stamp (100, 0)
+        late_status = {
+            "source_mode": "video_replay",
+            "source_session_id": "session-late",
+            "loop_count": 0,
+            "reset_event": False,
+            "stamp": {"sec": 100, "nanosec": 0}
+        }
+        status_pub.publish(String(data=json.dumps(late_status)))
+        for _ in range(5):
+            rclpy.spin_once(detector_node, timeout_sec=0.01)
+            rclpy.spin_once(test_sub, timeout_sec=0.01)
+
+        # Still no observation because frame was already dropped at timeout
+        assert len(test_sub.received_obs) == 0
+
+        detector_node.destroy_node()
+        test_sub.destroy_node()
+    finally:
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+def test_stale_status_from_old_loop_is_ignored():
+    """Verify status arriving late from an older loop or past session is ignored and does not reset tracker."""
+    if not rclpy.ok():
+        rclpy.init()
+    try:
+        detector_node = PersonDetectorNode()
+        detector_node.has_seen_status = True
+        detector_node.last_loop_count = 5
+        detector_node.current_session_id = "session-current"
+        detector_node.past_session_ids = {"session-old-1", "session-old-2"}
+
+        # 1. Send stale status from past session
+        stale_session_status = {
+            "source_mode": "video_replay",
+            "source_session_id": "session-old-1",
+            "loop_count": 10,
+            "reset_event": True,
+            "stamp": {"sec": 50, "nanosec": 0}
+        }
+        detector_node._on_status(String(data=json.dumps(stale_session_status)))
+        assert detector_node.current_session_id == "session-current"
+        assert detector_node.last_loop_count == 5
+
+        # 2. Send stale status from older loop of current session
+        stale_loop_status = {
+            "source_mode": "video_replay",
+            "source_session_id": "session-current",
+            "loop_count": 3,
+            "reset_event": True,
+            "stamp": {"sec": 51, "nanosec": 0}
+        }
+        detector_node._on_status(String(data=json.dumps(stale_loop_status)))
+        assert detector_node.current_session_id == "session-current"
+        assert detector_node.last_loop_count == 5
+
+        detector_node.destroy_node()
+    finally:
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+def test_first_frame_of_new_loop_with_detection_runs_cleanly():
+    """Verify first frame of a new loop resets pipeline BEFORE inference and publishes observation."""
+    if not rclpy.ok():
+        rclpy.init()
+    try:
+        from person_tracking.multi_person_tracker import PersonDetection
+        detector_node = PersonDetectorNode()
+        test_sub = PerceptionObserverSubscriber()
+        status_pub = detector_node.create_publisher(String, '/tracking/source_status', 10)
+        rgb_pub = detector_node.create_publisher(Image, '/camera/color/image_raw', qos_profile_sensor_data)
+
+        mock_cand = PersonDetection(
+            bbox_xyxy=[100.0, 50.0, 250.0, 400.0],
+            confidence=0.91,
+            keypoints=[[150.0, 100.0, 0.9]] * 17,
+            track_id=1,
+            is_confirmed=True,
+        )
+        detector_node.tracker.mock_backend_candidates = [mock_cand]
+
+        now_msg = detector_node.get_clock().now().to_msg()
+        curr_sec = now_msg.sec
+        curr_nsec = now_msg.nanosec
+
+        new_loop_status = {
+            "source_mode": "video_replay",
+            "source_session_id": "session-new-loop-7",
+            "loop_count": 7,
+            "reset_event": True,
+            "stamp": {"sec": curr_sec, "nanosec": curr_nsec}
+        }
+        status_pub.publish(String(data=json.dumps(new_loop_status)))
+        rclpy.spin_once(detector_node, timeout_sec=0.05)
+
+        rgb_arr = np.zeros((480, 640, 3), dtype=np.uint8)
+        rgb_msg = detector_node.bridge.cv2_to_imgmsg(rgb_arr, encoding="bgr8")
+        rgb_msg.header.stamp.sec = curr_sec
+        rgb_msg.header.stamp.nanosec = curr_nsec
+        rgb_msg.header.frame_id = "camera_color_optical_frame"
+        rgb_pub.publish(rgb_msg)
+
+        start = time.time()
+        while time.time() - start < 3.0:
+            rclpy.spin_once(detector_node, timeout_sec=0.02)
+            rclpy.spin_once(test_sub, timeout_sec=0.02)
+            if len(test_sub.received_obs) >= 1:
+                break
+
+        assert len(test_sub.received_obs) >= 1, "Failed to receive observation for frame 0 of new loop"
+        payload = json.loads(test_sub.received_obs[-1].data)
+
+        assert payload["source_session_id"] == "session-new-loop-7"
+        assert len(payload["candidates"]) == 1
+        assert payload["candidates"][0]["track_id"] == 1
+        assert detector_node.last_loop_count == 7
 
         detector_node.destroy_node()
         test_sub.destroy_node()

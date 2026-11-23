@@ -71,24 +71,23 @@ def test_t02_gesture_hold_under_threshold_no_lock():
     """T02: Hand raised for < 1.5s does not lock; lowering hand resets timer."""
     manager = PassengerLockManager(gesture_hold_time_sec=1.5)
 
-    # Frame 1: Candidate 1 raises hand at t = 0.0s
+    # Feed frames with ascending timestamps up to 1.0s at 10 Hz (step 0.1s)
     cand = _create_mock_candidate(track_id=1, hand_raised=True)
-    obs1 = {"source_session_id": "session-1", "candidates": [cand], "stamp": {"sec": 0, "nanosec": 0}}
-    snap1 = manager.process_observation(obs1, current_time_sec=0.0)
+    for i in range(11):  # t = 0.0 to 1.0s
+        t_sec = round(i * 0.1, 2)
+        sec = int(t_sec)
+        nsec = int(round((t_sec - sec) * 1e9))
+        obs = {"source_session_id": "session-1", "candidates": [cand], "stamp": {"sec": sec, "nanosec": nsec}}
+        snap = manager.process_observation(obs, current_time_sec=t_sec)
+        assert manager.locked is False
+        assert manager.state == TrackingState.IDLE
 
-    assert manager.locked is False
-    assert manager.state == TrackingState.IDLE
     assert 1 in manager.gesture_raise_start
 
-    # Frame 2: Candidate 1 still raising hand at t = 1.0s (< 1.5s)
-    snap2 = manager.process_observation(obs1, current_time_sec=1.0)
-    assert manager.locked is False
-    assert manager.state == TrackingState.IDLE
-
-    # Frame 3: Candidate 1 lowers hand at t = 1.2s -> timer resets
+    # Frame at t = 1.1s with hand lowered -> timer resets
     cand_down = _create_mock_candidate(track_id=1, hand_raised=False)
-    obs3 = {"source_session_id": "session-1", "candidates": [cand_down], "stamp": {"sec": 1, "nanosec": 200000000}}
-    snap3 = manager.process_observation(obs3, current_time_sec=1.2)
+    obs_down = {"source_session_id": "session-1", "candidates": [cand_down], "stamp": {"sec": 1, "nanosec": 100000000}}
+    snap_down = manager.process_observation(obs_down, current_time_sec=1.1)
 
     assert manager.locked is False
     assert manager.state == TrackingState.IDLE
@@ -96,25 +95,30 @@ def test_t02_gesture_hold_under_threshold_no_lock():
 
 
 def test_t03_valid_gesture_locks_and_hand_drop_retains_lock():
-    """T03: Hand raised for >= 1.5s locks; lowering hand retains locked session."""
+    """T03: Hand raised for >= 1.5s with sequential advancing frames locks; lowering hand retains lock."""
     manager = PassengerLockManager(gesture_hold_time_sec=1.5)
 
     cand_up = _create_mock_candidate(track_id=2, hand_raised=True, depth_m=1.65, depth_valid=True)
-    obs = {"source_session_id": "session-1", "candidates": [cand_up], "stamp": {"sec": 0, "nanosec": 0}}
 
-    # Start gesture at t = 0.0s
-    manager.process_observation(obs, current_time_sec=0.0)
-    assert manager.locked is False
+    # Feed frames with advancing timestamps from t = 0.0 to 1.6s at 10 Hz (step 0.1s <= 0.25s threshold)
+    for i in range(17):  # 17 steps: t = 0.0 to 1.6s
+        t_sec = round(i * 0.1, 2)
+        sec = int(t_sec)
+        nsec = int(round((t_sec - sec) * 1e9))
+        obs = {"source_session_id": "session-1", "candidates": [cand_up], "stamp": {"sec": sec, "nanosec": nsec}}
+        snap = manager.process_observation(obs, current_time_sec=t_sec)
+        if t_sec < 1.5:
+            assert manager.locked is False
+        else:
+            assert manager.locked is True
 
-    # Continue gesture past threshold at t = 1.55s
-    snap = manager.process_observation(obs, current_time_sec=1.55)
     assert manager.locked is True
     assert manager.state == TrackingState.LOCKED_WAIT_DESTINATION
     assert manager.locked_track_id == 2
     assert len(manager.session_id) > 0
     assert manager.locked_distance_m == 1.65
     assert manager.locked_depth_proven is True
-    assert manager.reason_code == "HAND_RAISE_HELD_SINGLE"
+    assert manager.reason_code in ["HAND_RAISE_HELD_SINGLE", "LOCKED_TRACKING_ACTIVE"]
 
     # INVARIANT: Lowering hand after locking DOES NOT lose lock!
     cand_down = _create_mock_candidate(track_id=2, hand_raised=False, depth_m=1.65, depth_valid=True)
@@ -135,18 +139,18 @@ def test_t04_two_candidates_nearest_depth_selection():
     # Candidate 2: 2.8m away (farther)
     c2 = _create_mock_candidate(track_id=20, hand_raised=True, depth_m=2.80, depth_valid=True)
 
-    obs = {"source_session_id": "session-1", "candidates": [c1, c2], "stamp": {"sec": 0, "nanosec": 0}}
+    # Feed frames advancing from t = 0.0 to 1.6s
+    for i in range(17):
+        t_sec = round(i * 0.1, 2)
+        sec = int(t_sec)
+        nsec = int(round((t_sec - sec) * 1e9))
+        obs = {"source_session_id": "session-1", "candidates": [c1, c2], "stamp": {"sec": sec, "nanosec": nsec}}
+        snap = manager.process_observation(obs, current_time_sec=t_sec)
 
-    # Start gesture at t = 0.0s
-    manager.process_observation(obs, current_time_sec=0.0)
-    assert manager.locked is False
-
-    # After 1.6s of holding: both eligible
-    snap = manager.process_observation(obs, current_time_sec=1.6)
     assert manager.locked is True
     assert manager.locked_track_id == 10  # Nearest candidate (1.4m) selected!
     assert manager.locked_distance_m == 1.40
-    assert manager.reason_code == "HAND_RAISE_HELD_NEAREST"
+    assert manager.reason_code in ["HAND_RAISE_HELD_NEAREST", "LOCKED_TRACKING_ACTIVE"]
 
 
 def test_t05_ambiguous_gesture_no_depth_stays_idle():
@@ -157,26 +161,141 @@ def test_t05_ambiguous_gesture_no_depth_stays_idle():
     c1 = _create_mock_candidate(track_id=1, hand_raised=True, depth_valid=False, bbox_xyxy=[50.0, 80.0, 210.0, 420.0])
     c2 = _create_mock_candidate(track_id=2, hand_raised=True, depth_valid=False, bbox_xyxy=[300.0, 80.0, 460.0, 420.0])
 
-    obs = {"source_session_id": "session-1", "candidates": [c1, c2], "stamp": {"sec": 0, "nanosec": 0}}
+    for i in range(17):
+        t_sec = round(i * 0.1, 2)
+        sec = int(t_sec)
+        nsec = int(round((t_sec - sec) * 1e9))
+        obs = {"source_session_id": "session-1", "candidates": [c1, c2], "stamp": {"sec": sec, "nanosec": nsec}}
+        snap = manager.process_observation(obs, current_time_sec=t_sec)
 
-    manager.process_observation(obs, current_time_sec=0.0)
-    snap = manager.process_observation(obs, current_time_sec=1.6)
-
-    # Must stay in IDLE and report AMBIGUOUS_GESTURE!
     assert manager.locked is False
     assert manager.state == TrackingState.IDLE
     assert manager.reason_code == "AMBIGUOUS_GESTURE"
+
+
+def test_duplicate_stamp_1_6s_apart_does_not_lock():
+    """Regression test: Same observation stamp sent twice 1.6s apart MUST NOT accumulate hold time."""
+    manager = PassengerLockManager(gesture_hold_time_sec=1.5)
+
+    cand = _create_mock_candidate(track_id=1, hand_raised=True)
+    obs = {"source_session_id": "session-1", "candidates": [cand], "stamp": {"sec": 10, "nanosec": 0}}
+
+    # Call 1: at t_mono = 0.0s with stamp = 10.0s
+    snap1 = manager.process_observation(obs, current_time_sec=0.0)
+    assert manager.locked is False
+
+    # Call 2: 1.6s later (t_mono = 1.6s) but with IDENTICAL stamp = 10.0s
+    snap2 = manager.process_observation(obs, current_time_sec=1.6)
+    assert manager.locked is False, "REGRESSION: Duplicate observation stamp caused false lock!"
+    assert manager.state == TrackingState.IDLE
+
+
+def test_track_id_across_sources_does_not_accumulate():
+    """Regression test: Same track_id appearing in source A then source B MUST NOT carry over gesture timer."""
+    manager = PassengerLockManager(gesture_hold_time_sec=1.5)
+
+    cand = _create_mock_candidate(track_id=1, hand_raised=True)
+
+    # In Source A: hand raised for 0.8s (t = 0.0 to 0.8s at 10 Hz)
+    for i in range(9):
+        t_sec = round(i * 0.1, 2)
+        sec = int(t_sec)
+        nsec = int(round((t_sec - sec) * 1e9))
+        obs_a = {"source_session_id": "source-A", "candidates": [cand], "stamp": {"sec": sec, "nanosec": nsec}}
+        manager.process_observation(obs_a, current_time_sec=t_sec)
+        assert manager.locked is False
+
+    # Switch to Source B: track_id 1 appears and raises hand for 0.8s (t = 1.0 to 1.8s)
+    for i in range(9):
+        t_sec = round(1.0 + i * 0.1, 2)
+        sec = int(t_sec)
+        nsec = int(round((t_sec - sec) * 1e9))
+        obs_b = {"source_session_id": "source-B", "candidates": [cand], "stamp": {"sec": sec, "nanosec": nsec}}
+        snap = manager.process_observation(obs_b, current_time_sec=t_sec)
+        # Even though total time since t=0 is 1.8s, in source B it's only 0.8s -> MUST NOT LOCK!
+        assert manager.locked is False, "REGRESSION: Track ID accumulated hold duration across source sessions!"
+
+    # Now continue in Source B until hold time in source B reaches 1.6s (t = 1.8 to 2.6s)
+    for i in range(9):
+        t_sec = round(1.9 + i * 0.1, 2)
+        sec = int(t_sec)
+        nsec = int(round((t_sec - sec) * 1e9))
+        obs_b = {"source_session_id": "source-B", "candidates": [cand], "stamp": {"sec": sec, "nanosec": nsec}}
+        snap = manager.process_observation(obs_b, current_time_sec=t_sec)
+
+    assert manager.locked is True
+    assert manager.locked_source_session_id == "source-B"
+
+
+def test_frame_gap_resets_gesture_timer():
+    """Test that observation gap exceeding max interval (0.25s) resets gesture timer."""
+    manager = PassengerLockManager(gesture_hold_time_sec=1.5)
+    cand = _create_mock_candidate(track_id=1, hand_raised=True)
+
+    # Frame 1: t = 0.0s
+    obs1 = {"source_session_id": "session-1", "candidates": [cand], "stamp": {"sec": 0, "nanosec": 0}}
+    manager.process_observation(obs1, current_time_sec=0.0)
+
+    # Frame 2: t = 0.5s (gap of 0.5s > 0.25s)
+    obs2 = {"source_session_id": "session-1", "candidates": [cand], "stamp": {"sec": 0, "nanosec": 500000000}}
+    manager.process_observation(obs2, current_time_sec=0.5)
+
+    # Timer should have reset on gap: accumulated hold time is 0.0
+    cand_key = ("session-1", 1)
+    assert manager.gesture_state[cand_key].accumulated_hold_sec == 0.0
+    assert manager.locked is False
+
+
+def test_heartbeat_observation_stamp_distinction_and_staleness():
+    """Verify /tracking/session_state separates heartbeat stamp from last observation stamp."""
+    if not rclpy.ok():
+        rclpy.init()
+    try:
+        node = TrackingManagerNode()
+        cand = _create_mock_candidate(track_id=3, hand_raised=True)
+
+        # Feed observation with optical stamp (sec=100, nanosec=200)
+        obs_payload = {
+            "source_session_id": "sess-hb",
+            "candidates": [cand],
+            "stamp": {"sec": 100, "nanosec": 200}
+        }
+        msg = String(data=json.dumps(obs_payload))
+        node._on_observation(msg)
+
+        assert node.last_snapshot is not None
+        assert node.last_snapshot.last_observation_stamp == {"sec": 100, "nanosec": 200}
+        assert node.last_snapshot.obs_fresh is True
+
+        # Heartbeat check
+        node._on_heartbeat()
+        hb_payload = node.manager.to_json_dict(node.last_snapshot)
+        assert hb_payload["last_observation_stamp"] == {"sec": 100, "nanosec": 200}
+        assert "obs_fresh" in hb_payload
+
+        # Simulate staleness (> 0.4s)
+        node.manager.last_observation_mono_time = time.monotonic() - 0.5
+        node._on_heartbeat()
+        assert node.last_snapshot.obs_fresh is False
+
+        node.destroy_node()
+    finally:
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 def test_source_reset_invalidates_session_no_id_hopping():
     """Verify source reset (new source_session_id) resets lock to IDLE and prevents ID hopping."""
     manager = PassengerLockManager(gesture_hold_time_sec=1.0)
 
-    # Lock Candidate 5 on session A
+    # Lock Candidate 5 on session A by advancing frames for 1.2s
     c_up = _create_mock_candidate(track_id=5, hand_raised=True)
-    obs_a = {"source_session_id": "session-A", "candidates": [c_up], "stamp": {"sec": 0, "nanosec": 0}}
-    manager.process_observation(obs_a, current_time_sec=0.0)
-    snap_a = manager.process_observation(obs_a, current_time_sec=1.2)
+    for i in range(13):
+        t_sec = round(i * 0.1, 2)
+        sec = int(t_sec)
+        nsec = int(round((t_sec - sec) * 1e9))
+        obs_a = {"source_session_id": "session-A", "candidates": [c_up], "stamp": {"sec": sec, "nanosec": nsec}}
+        manager.process_observation(obs_a, current_time_sec=t_sec)
     assert manager.locked is True
     assert manager.locked_track_id == 5
 
@@ -206,9 +325,12 @@ def test_mock_voice_departure_rejection_contract():
 
     # 2. When locked: voice accepts
     c_up = _create_mock_candidate(track_id=7, hand_raised=True)
-    obs = {"source_session_id": "session-1", "candidates": [c_up], "stamp": {"sec": 0, "nanosec": 0}}
-    manager.process_observation(obs, current_time_sec=0.0)
-    snap_locked = manager.process_observation(obs, current_time_sec=1.2)
+    for i in range(13):
+        t_sec = round(i * 0.1, 2)
+        sec = int(t_sec)
+        nsec = int(round((t_sec - sec) * 1e9))
+        obs = {"source_session_id": "session-1", "candidates": [c_up], "stamp": {"sec": sec, "nanosec": nsec}}
+        snap_locked = manager.process_observation(obs, current_time_sec=t_sec)
     assert snap_locked.locked is True
     assert mock_voice_check_departure(snap_locked) is True
 

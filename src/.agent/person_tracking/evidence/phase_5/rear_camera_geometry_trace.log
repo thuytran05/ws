@@ -1,0 +1,52 @@
+=== REAR CAMERA GEOMETRY & ADR-10 CONVENTION TRACE ===
+Mounting: translation=[-0.2, 0.0, 0.25], child_frame=camera_color_optical_frame
+Rotation matrix (optical -> base_link):
+[[ 0.  0. -1.]
+ [ 1.  0.  0.]
+ [ 0. -1.  0.]]
+det(R) = 1.0000
+
+--- Case: Center target (u=320, v=240, depth=2.0m) ---
+  center_offset_x_norm : +0.0000
+  optical_bearing_rad  : +0.0000 rad (+0.00 deg)
+  base_bearing_rad     : +3.1416 rad (+180.00 deg)
+  position_optical     : [0.0, 0.0, 2.0]
+  position_base        : [-2.2, 0.0, 0.25]
+  is_metric_valid      : True
+  error_reason         : 
+
+--- Case: Right target (u=420, v=240, depth=2.0m) ---
+  center_offset_x_norm : +0.3125
+  optical_bearing_rad  : +0.1974 rad (+11.31 deg)
+  base_bearing_rad     : +2.9617 rad (+169.70 deg)
+  position_optical     : [0.4, 0.0, 2.0]
+  position_base        : [-2.2, 0.4, 0.25]
+  is_metric_valid      : True
+  error_reason         : 
+
+--- Case: Left target (u=220, v=240, depth=2.0m) ---
+  center_offset_x_norm : -0.3125
+  optical_bearing_rad  : -0.1974 rad (-11.31 deg)
+  base_bearing_rad     : -2.9617 rad (-169.70 deg)
+  position_optical     : [-0.4, 0.0, 2.0]
+  position_base        : [-2.2, -0.4, 0.25]
+  is_metric_valid      : True
+  error_reason         : 
+
+--- Case: Unverified alignment (u=420, v=240, depth=2.0m) ---
+  center_offset_x_norm : +0.3125
+  optical_bearing_rad  : +0.1974 rad (+11.31 deg)
+  base_bearing_rad     : None
+  position_optical     : None
+  position_base        : None
+  is_metric_valid      : False
+  error_reason         : UNVERIFIED_OR_INVALID_DEPTH
+
+--- Case: Missing TF transform (u=320, v=240, depth=2.0m) ---
+  center_offset_x_norm : +0.0000
+  optical_bearing_rad  : +0.0000 rad (+0.00 deg)
+  base_bearing_rad     : None
+  position_optical     : None
+  position_base        : None
+  is_metric_valid      : False
+  error_reason         : MISSING_TF_TRANSFORM

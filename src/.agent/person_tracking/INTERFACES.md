@@ -45,11 +45,25 @@
       "schema_version": { "type": "string", "enum": ["1.0"] },
       "stamp": {
         "type": "object",
+        "description": "Thời điểm phát nhịp tim (heartbeat) hiện tại theo ROS Clock",
         "properties": {
           "sec": { "type": "integer" },
           "nanosec": { "type": "integer" }
         },
         "required": ["sec", "nanosec"]
+      },
+      "last_observation_stamp": {
+        "type": "object",
+        "description": "Thời điểm chụp quang học thực tế của frame quan sát gần nhất được xử lý",
+        "properties": {
+          "sec": { "type": "integer" },
+          "nanosec": { "type": "integer" }
+        },
+        "required": ["sec", "nanosec"]
+      },
+      "obs_fresh": {
+        "type": "boolean",
+        "description": "True nếu quan sát đến trong vòng 0.4s; False nếu mất frame hoặc quá hạn"
       },
       "sequence_num": { "type": "integer", "minimum": 0 },
       "session_id": { "type": "string", "format": "uuid" },
@@ -71,7 +85,9 @@
   ```json
   {
     "schema_version": "1.0",
-    "stamp": { "sec": 1732320000, "nanosec": 123456789 },
+    "stamp": { "sec": 1732320000, "nanosec": 500000000 },
+    "last_observation_stamp": { "sec": 1732320000, "nanosec": 420000000 },
+    "obs_fresh": true,
     "sequence_num": 42,
     "session_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
     "state": "LOCKED_WAIT_DESTINATION",
@@ -84,8 +100,9 @@
   }
   ```
 - **Quy tắc Kiểm tra tại Voice (Gating Rule):**
-  - Khi người dùng nói lệnh điểm đến: Voice kiểm tra bản tin `/tracking/session_state` mới nhất (tuổi bản tin $\le 1.0s$).
-  - Chỉ khi `locked == true` VÀ `state == "LOCKED_WAIT_DESTINATION"`: Voice mới chấp nhận điểm đến và gửi Goal sang Nav2.
+  - Khi người dùng nói lệnh điểm đến: Voice kiểm tra bản tin `/tracking/session_state` mới nhất (tuổi bản tin heartbeat $\le 1.0s$).
+  - Chỉ khi `locked == true` VÀ `state == "LOCKED_WAIT_DESTINATION"` VÀ `obs_fresh == true`: Voice mới chấp nhận điểm đến và gửi Goal sang Nav2.
+  - Nếu `obs_fresh == false` (hoặc `reason_code == "OBSERVATION_STALE"`): Voice từ chối khởi hành vì mục tiêu bị mất dấu trước khi xuất phát.
   - Nếu `locked == false`: Voice từ chối bằng giọng nói (ví dụ: *"Xin quý khách vui lòng giơ tay để tôi nhận diện trước khi chọn điểm đến"*).
 
 ---
@@ -207,7 +224,10 @@
             "depth_valid": { "type": "boolean" },
             "center_offset_x_norm": { "type": "number", "minimum": -1.0, "maximum": 1.0 },
             "near_edge": { "type": "boolean" },
-            "keypoints": { "type": "array", "items": { "type": "array", "minItems": 3, "maxItems": 3 } }
+            "keypoints": { "type": "array", "items": { "type": "array", "minItems": 3, "maxItems": 3 } },
+            "bearing_optical_rad": { "type": ["number", "null"], "description": "Góc lệch phương vị quang học theta_opt = atan2(u - cx, fx)" },
+            "bearing_base_rad": { "type": ["number", "null"], "description": "Góc lệch phương vị hệ robot base_link [-pi, pi]" },
+            "position_base": { "type": ["array", "null"], "items": { "type": "number" }, "minItems": 3, "maxItems": 3, "description": "[X, Y, Z] trong base_link (meters)" }
           },
           "required": ["is_confirmed", "is_ambiguous", "confidence", "bbox_xyxy", "depth_valid", "center_offset_x_norm", "near_edge"]
         }

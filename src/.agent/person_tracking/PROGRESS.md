@@ -16,7 +16,7 @@
 | **Phase 2** | Source adapters, offline dataset & Test infrastructure | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_2/` |
 | **Phase 3** | Multi-person perception, pose & Tracking ID | **PARTIAL / CODE_READY** | 23/11/2026 | `.agent/person_tracking/evidence/phase_3/` |
 | **Phase 4** | Giơ tay, chọn khách gần nhất & Khóa phiên | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_4/` |
-| **Phase 5** | RGB-D, depth & Hình học camera sau | **NOT_STARTED** | — | — |
+| **Phase 5** | RGB-D, depth & Hình học camera sau | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_5/` |
 | **Phase 6** | Session FSM, timeout & Giao tiếp voice | **NOT_STARTED** | — | — |
 | **Phase 7** | Velocity guard, mecanum & Watchdog | **NOT_STARTED** | — | — |
 | **Phase 8** | End-to-end ROS 2 integration (không sửa Gazebo) | **NOT_STARTED** | — | — |
@@ -187,7 +187,70 @@
   - Log nghiệm thu Phase 4: [.agent/person_tracking/evidence/phase_4/gesture_locking_verified.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_4/gesture_locking_verified.log).
   - Kết quả kiểm thử pytest tổng hợp: [.agent/person_tracking/evidence/phase_4/pytest_results.txt](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_4/pytest_results.txt).
 
+- **Xử lý Hồi quy Phase 3–4 (Regression Fixes):**
+  1. **Đồng bộ hàng đợi replay & siêu dữ liệu phiên:**
+     - Loại bỏ hành vi dùng `latest_status` của frame khác để gán phiên sau timeout.
+     - Trong chế độ replay có metadata, frame quá hạn chờ (> 0.30s) mà không có status khớp stamp sẽ bị HỦY (DROP) kèm cảnh báo tường minh.
+     - Bỏ qua status đến muộn từ các vòng lặp cũ (`loop_count < last_loop_count`) hoặc phiên cũ (`session_id in past_session_ids`).
+     - Bổ sung drain timer chu kỳ 10 Hz giải phóng hàng đợi khi nguồn ngừng phát.
+     - Giữ nguyên luồng nhận live camera / rosbag không có status.
+  2. **Bộ đếm cử chỉ giơ tay & cô lập phiên:**
+     - Khắc phục lỗi false-lock khi cùng một observation stamp gửi lặp lại cách nhau 1.6s: chỉ tích lũy thời gian khi observation mới có $\Delta t > 0$.
+     - Khắc phục lỗi tích lũy thời gian khi cùng `track_id` xuất hiện ở nguồn A rồi nguồn B: cô lập trạng thái cử chỉ theo cặp `(source_session_id, track_id)`.
+     - Frame gap vượt ngưỡng 0.25s tự động reset bộ đếm cử chỉ của track đó.
+     - Duy trì khóa an toàn sau khi hạ tay.
+  3. **Tách biệt timestamp heartbeat và quan sát:**
+     - Trường `stamp` trong `/tracking/session_state` luôn là thời điểm phát nhịp tim (ROS clock `now()`).
+     - Trường `last_observation_stamp` ghi nhận chính xác thời điểm chụp quang học thực tế từ camera.
+     - Cờ `obs_fresh` cảnh báo quan sát quá hạn (> 0.4s) với `reason_code = "OBSERVATION_STALE"`.
+  - Gate 3 tiếp tục duy trì trạng thái **PARTIAL / CODE_READY** (chờ video người thật `T06`).
+
+---
+
+### Phase 5 — RGB-D, depth & Hình học camera sau — [PASS]
+- **Ngày/giờ hoàn thành:** 23/11/2026 16:45:00+07:00
+- **Baseline Git Commit:** `7028d538decab0462c8de0aaf28a0114a0bab212`
+- **Mục tiêu đạt được:** Nghiệm thu trắc lượng RGB-D offline, chuẩn hóa lọc nhiễu vùng thân, thiết lập mô hình hình học camera sau (`ADR-10`), phân tách offset pixel 2D với góc lệch phương vị 3D, và đảm bảo an toàn tuyệt đối.
+
+- **Các thành phần đã triển khai (100% trong allowlist):**
+  1. `rear_camera_geometry.py`:
+     - Mô hình camera pinhole `CameraIntrinsics`: trích xuất và thẩm định $f_x, f_y, c_x, c_y$ từ `CameraInfo`.
+     - Biến đổi tọa độ lắp đặt `CameraMountTransform`: camera sau quay về sau (`yaw = pi` so với `base_link`). Ma trận quay trực giao chuẩn $R_{	ext{rear}} = [[0, 0, -1], [1, 0, 0], [0, -1, 0]]$, $\det(R) = +1$.
+     - Động học hình học `RearCameraGeometry`:
+       * Offset pixel chuẩn hóa `center_offset_x_norm` trong $[-1.0, 1.0]$.
+       * Góc lệch phương vị quang học $	heta_{	ext{opt}} = rctan2(u - c_x, f_x)$.
+       * Tọa độ 3D quang học $P_{	ext{opt}} = [X, Y, Z]$.
+       * Tọa độ 3D thân xe $P_{	ext{base}} = R \cdot P_{	ext{opt}} + T$.
+       * Góc lệch phương vị thân xe $\phi_{	ext{base}} = rctan2(Y_{	ext{base}}, X_{	ext{base}})$.
+     - Tuân thủ quy ước dấu `ADR-10`:
+       * Khách bên phải ảnh ($u > c_x$): $	heta_{	ext{opt}} > 0 \implies Y_{	ext{base}} > 0$ (sườn TRÁI robot, góc quay $\in (\pi/2, \pi)$).
+       * Khách ở giữa ảnh ($u = c_x$): $	heta_{	ext{opt}} = 0 \implies Y_{	ext{base}} = 0$ (thẳng sau đuôi robot, góc quay $\pm \pi$).
+       * Khách bên trái ảnh ($u < c_x$): $	heta_{	ext{opt}} < 0 \implies Y_{	ext{base}} < 0$ (sườn PHẢI robot, góc quay $\in (-\pi, -\pi/2)$).
+     - Xử lý biên: Thiếu TF -> `position_base = None`; Lệch frame -> `is_metric_valid = False`; Intrinsics lỗi -> `optical_bearing = None`.
+  2. Cải tiến bộ lọc depth vùng thân (`multi_person_tracker.py`):
+     - Ràng buộc tỷ lệ pixel hợp lệ trong torso ROI: $\ge 30\%$ và $\ge 15$ pixels (loại bỏ phông nền và biên nhiễu).
+     - Ràng buộc dải cảm biến Astra: $[0.4m, 5.0m]$ (loại bỏ cự ly cực đoan, zero, NaN).
+     - Bộ lọc phân tán MAD: $	ext{MAD} \le 0.25m$ (loại bỏ nhiễu hạt, phản xạ).
+     - Ràng buộc tin cậy căn chỉnh: Chỉ khi `data_quality == VALID_RGBD` thì `depth_valid = True`. Khi `UNVERIFIED_ALIGNMENT`, `depth_valid = False` tuyệt đối; không dùng raw depth để chọn khách gần nhất; không thay 0 cho depth thiếu.
+  3. `test_rear_camera_geometry.py`:
+     - 9 ca kiểm thử chuyên sâu phủ toàn bộ các kịch bản hình học ADR-10, các trường hợp lỗi biên, các bộ lọc depth và audit an toàn vận tốc.
+  4. Toàn bộ test suite phân hệ:
+     - **55/55 tests PASS** trong 8.31s (test_multi_person_tracker: 11, test_person_detector_smoke: 8, test_rear_camera_geometry: 9, test_source_adapters: 16, test_tracking_manager: 11).
+
+- **Phân định Rõ ràng Giữa Dữ liệu Kiểm thử Giả lập & Nghiệm thu Thực tế:**
+  - **Đã kiểm chứng đạt 100% bằng dữ liệu offline & mô phỏng (PASS):**
+    - Toàn bộ trắc lượng depth ROI, MAD filter, sensor range, valid pixel ratio.
+    - Toàn bộ phép chiếu hình học ADR-10 cho camera sau với góc lệch trái/giữa/phải.
+    - Khả năng chịu lỗi khi mất CameraInfo, TF transform, hoặc sai frame ID.
+  - **Mục còn chờ nghiệm thu thực tế (Live Hardware Pending):**
+    - Camera Astra thật tiếp tục ở trạng thái **HARDWARE_VALIDATION_PENDING** (chờ kết nối và cân chỉnh trên robot thật tại Phase 11).
+
+- **Bằng chứng kỹ thuật:**
+  - Trace hình học camera sau: [.agent/person_tracking/evidence/phase_5/rear_camera_geometry_trace.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_5/rear_camera_geometry_trace.log).
+  - Log nghiệm thu Phase 5: [.agent/person_tracking/evidence/phase_5/phase_5_offline_verified.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_5/phase_5_offline_verified.log).
+  - Kết quả kiểm thử pytest tổng thể: [.agent/person_tracking/evidence/phase_5/pytest_results.txt](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_5/pytest_results.txt).
+
 - **Trạng thái phân hệ & Điểm dừng:**
   - Phân hệ Voice tiếp tục sở hữu duy nhất `NavigateToPose`.
-  - Phân hệ Tracking không phát bất kỳ lệnh `/cmd_vel` hay mục tiêu di chuyển nào.
-  - DỪNG TRƯỚC PHASE 5 theo đúng quy định.
+  - Phân hệ Tracking tuyệt đối KHÔNG phát bất kỳ lệnh `/cmd_vel` hay mục tiêu di chuyển nào.
+  - DỪNG TRƯỚC PHASE 6 theo đúng quy định bàn giao.

@@ -1,0 +1,56 @@
+=== PHASE 5 OFFLINE VERIFICATION AUDIT LOG ===
+Date: 23/11/2026
+Subsystem: person_tracking
+Scope: Phase 5 (RGB-D Metrology & Rear Camera Geometry) + Phase 3-4 Regression Fixes
+Execution Environment: ROS 2 Jazzy (Dev Container: thirsty_ishizaka, Ubuntu 24.04 LTS, Python 3.12.3)
+Build Isolation:
+  --build-base /home/ws/build_tracking
+  --install-base /home/ws/install_tracking
+  --log-base /home/ws/log_tracking
+
+1. PHASE 3-4 REGRESSION FIXES VERIFIED:
+   - Replay Queue Timeout & Drop:
+     * When source_status is missing / delayed > 0.30s, frames are cleanly dropped instead of misassigned.
+     * Stale status from older loops (loop_count < last_loop_count) or past sessions (session_id in past_session_ids) is ignored.
+     * Periodic drain timer (10 Hz) guarantees expiration even if publisher stops.
+     * Live camera / bag replay without status continues to pass through immediately.
+     * Test verification: test_status_timeout_drops_frame_no_fallback_latest_status (PASS), test_stale_status_from_old_loop_is_ignored (PASS), test_first_frame_of_new_loop_with_detection_runs_cleanly (PASS).
+   - Gesture Hold & Accumulation Invariants:
+     * Duplicate observation stamp sent twice 1.6s apart does NOT accumulate hold time (PASS).
+     * Same track_id appearing in source A then source B does NOT carry over gesture timer (PASS).
+     * Frame gaps exceeding 0.25s cleanly reset gesture timer for that track (PASS).
+     * Post-lock hand drop retains lock (PASS).
+   - Heartbeat vs Observation Stamp Distinction:
+     * stamp field in /tracking/session_state carries current ROS heartbeat time (now()).
+     * last_observation_stamp carries optical capture time from /tracking/observation.
+     * obs_fresh flag is True when observation age <= 0.40s; False when > 0.40s (reason_code="OBSERVATION_STALE").
+     * Test verification: test_heartbeat_observation_stamp_distinction_and_staleness (PASS).
+
+2. PHASE 5 OFFLINE DELIVERABLES VERIFIED:
+   - RGB-D Quality & Torso Measurement:
+     * Requires DataQuality.VALID_RGBD for depth_valid=True.
+     * When UNVERIFIED_ALIGNMENT: depth_valid=False strictly enforced; raw depth not used for nearest selection; 0 is never substituted for missing depth.
+     * Valid depth pixel ratio in torso ROI must be >= 30% (rejection of background clutter).
+     * Sensor range gating: [0.4m, 5.0m] enforced (rejection of 0.0m, extremes, NaNs).
+     * MAD dispersion filter: rejects noisy depth with MAD > 0.25m.
+   - Rear Camera Geometry & Spatial Transforms (ADR-10):
+     * center_offset_x_norm [-1.0, 1.0] decoupled from bearing_optical_rad.
+     * Target right (u > cx) -> optical bearing > 0 -> base_link Y > 0 (robot's left side).
+     * Target left (u < cx) -> optical bearing < 0 -> base_link Y < 0 (robot's right side).
+     * Target center (u = cx) -> optical bearing = 0 -> directly behind robot.
+     * Handled missing TF (mount_tf=None), frame mismatch, and invalid intrinsics.
+   - Critical Safety Audit:
+     * Strictly ZERO /cmd_vel publishers in person_tracking.
+     * Strictly ZERO velocity or motion command generation in rear_camera_geometry.py.
+
+3. TEST EXECUTION SUMMARY:
+   Total Tests Collected: 55
+   Passed: 55
+   Failed: 0
+   Skipped: 0
+   Pass Rate: 100.0%
+   Total Duration: 8.31s
+
+Hardware Status: Astra camera live hardware validation remains HARDWARE_VALIDATION_PENDING (Phase 11).
+Gate 3 Status: PARTIAL / CODE_READY (waiting for user-provided real human video T06).
+Gate 5 Status: PASS (Offline Metrology & Geometry 100% verified).

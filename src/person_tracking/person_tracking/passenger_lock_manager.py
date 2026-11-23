@@ -28,10 +28,18 @@ class TrackingState(str, Enum):
 
 
 @dataclass
+class GestureTrackState:
+    last_stamp_total: float  # stamp_sec + stamp_nanosec * 1e-9
+    accumulated_hold_sec: float = 0.0
+
+
+@dataclass
 class SessionStateSnapshot:
     schema_version: str
     stamp_sec: int
     stamp_nanosec: int
+    last_observation_stamp: Dict[str, int]
+    obs_fresh: bool
     sequence_num: int
     session_id: str
     state: str
@@ -68,8 +76,11 @@ class PassengerLockManager:
         self.reason_code: str = "NO_LOCK"
         self.sequence_num: int = 0
 
-        # Gesture tracking: track_id -> first_seen_raise_monotonic_time
+        # Gesture tracking: (source_session_id, track_id) -> GestureTrackState
+        self.gesture_state: Dict[Tuple[str, int], GestureTrackState] = {}
         self.gesture_raise_start: Dict[int, float] = {}
+        self.last_observation_stamp: Dict[str, int] = {"sec": 0, "nanosec": 0}
+        self.last_observation_mono_time: float = 0.0
 
     def reset_session(self, reason: str = "SESSION_RESET"):
         """Reset lock and return to IDLE state."""
@@ -82,6 +93,7 @@ class PassengerLockManager:
         self.locked_depth_proven = False
         self.locked_confidence = 0.0
         self.reason_code = reason
+        self.gesture_state.clear()
         self.gesture_raise_start.clear()
 
     def is_hand_raised(self, keypoints: List[List[float]]) -> bool:
@@ -149,8 +161,16 @@ class PassengerLockManager:
 
             return self._make_snapshot(stamp_sec, stamp_nanosec)
 
+        # Record observation arrival
+        self.last_observation_stamp = {"sec": stamp_sec, "nanosec": stamp_nanosec}
+        self.last_observation_mono_time = current_time_sec
+
+        t_obs = stamp_sec + stamp_nanosec * 1e-9
+        if t_obs == 0.0 and current_time_sec is not None:
+            t_obs = current_time_sec
+
         # If not locked: evaluate candidates for hand raise gesture
-        active_ids = set()
+        active_keys = set()
         eligible_candidates = []
 
         for cand in candidates:
@@ -158,28 +178,50 @@ class PassengerLockManager:
             if track_id is None or not cand.get("is_confirmed", False):
                 continue
 
-            active_ids.add(track_id)
+            cand_key = (source_session_id, track_id)
+            active_keys.add(cand_key)
             kps = cand.get("keypoints", [])
             hand_up = self.is_hand_raised(kps)
 
             if hand_up:
-                if track_id not in self.gesture_raise_start:
-                    self.gesture_raise_start[track_id] = current_time_sec
-                hold_time = current_time_sec - self.gesture_raise_start[track_id]
+                if cand_key not in self.gesture_state:
+                    self.gesture_state[cand_key] = GestureTrackState(
+                        last_stamp_total=t_obs,
+                        accumulated_hold_sec=0.0,
+                    )
+                    self.gesture_raise_start[track_id] = t_obs
+                else:
+                    g_state = self.gesture_state[cand_key]
+                    delta_t = t_obs - g_state.last_stamp_total
 
-                # Check if hold duration meets threshold
-                if hold_time >= self.gesture_hold_time_sec:
-                    # Do not lock if spatially ambiguous
+                    if delta_t <= 0.0:
+                        # Duplicate or out-of-order stamp: do NOT accumulate time
+                        pass
+                    elif delta_t > 0.25:
+                        # Gap exceeded max interval (0.25s): reset gesture timer for this track!
+                        self.gesture_state[cand_key] = GestureTrackState(
+                            last_stamp_total=t_obs,
+                            accumulated_hold_sec=0.0,
+                        )
+                        self.gesture_raise_start[track_id] = t_obs
+                    else:
+                        g_state.accumulated_hold_sec += delta_t
+                        g_state.last_stamp_total = t_obs
+
+                g_state = self.gesture_state[cand_key]
+                if g_state.accumulated_hold_sec >= self.gesture_hold_time_sec:
                     if not cand.get("is_ambiguous", False):
-                        eligible_candidates.append((cand, hold_time))
+                        eligible_candidates.append((cand, g_state.accumulated_hold_sec))
             else:
                 # Lowered hand resets the hold timer
+                self.gesture_state.pop(cand_key, None)
                 self.gesture_raise_start.pop(track_id, None)
 
-        # Clean up gesture timers for track IDs no longer active
-        for tid in list(self.gesture_raise_start.keys()):
-            if tid not in active_ids:
-                self.gesture_raise_start.pop(tid, None)
+        # Clean up gesture timers for track IDs / sessions no longer active
+        for k in list(self.gesture_state.keys()):
+            if k not in active_keys:
+                self.gesture_state.pop(k, None)
+                self.gesture_raise_start.pop(k[1], None)
 
         # Disambiguate and select passenger
         if len(eligible_candidates) == 1:
@@ -238,16 +280,23 @@ class PassengerLockManager:
             self.locked_distance_m = cand.get("torso_depth_m")
             self.locked_depth_proven = True
         else:
-            self.locked_distance_m = cand.get("torso_depth_m")  # raw or None
+            self.locked_distance_m = None
             self.locked_depth_proven = False
 
         self.reason_code = reason
 
-    def _make_snapshot(self, stamp_sec: int, stamp_nanosec: int) -> SessionStateSnapshot:
+    def _make_snapshot(
+        self,
+        stamp_sec: int,
+        stamp_nanosec: int,
+        obs_fresh: bool = True,
+    ) -> SessionStateSnapshot:
         return SessionStateSnapshot(
             schema_version="1.0",
             stamp_sec=stamp_sec,
             stamp_nanosec=stamp_nanosec,
+            last_observation_stamp=dict(self.last_observation_stamp),
+            obs_fresh=obs_fresh,
             sequence_num=self.sequence_num,
             session_id=self.session_id,
             state=self.state.value,
@@ -264,6 +313,8 @@ class PassengerLockManager:
         return {
             "schema_version": snapshot.schema_version,
             "stamp": {"sec": snapshot.stamp_sec, "nanosec": snapshot.stamp_nanosec},
+            "last_observation_stamp": snapshot.last_observation_stamp,
+            "obs_fresh": snapshot.obs_fresh,
             "sequence_num": snapshot.sequence_num,
             "session_id": snapshot.session_id,
             "state": snapshot.state,
