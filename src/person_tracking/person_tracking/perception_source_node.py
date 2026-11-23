@@ -1,3 +1,4 @@
+import uuid
 #!/usr/bin/env python3
 """ROS 2 node that publishes normalized camera streams for offline testing.
 
@@ -62,6 +63,8 @@ class PerceptionSourceNode(Node):
         self.frame_count = 0
         self.is_eof = False
         self.video_adapter = None
+        self.source_session_id = str(uuid.uuid4())
+        self.loop_count = 0
 
         # Setup publishers
         sensor_qos = qos_profile_sensor_data
@@ -110,8 +113,15 @@ class PerceptionSourceNode(Node):
         current_time_tuple = (now_msg.sec, now_msg.nanosec)
 
         obs_frame = None
+        reset_event = False
 
         if self.source_mode == SourceMode.VIDEO_REPLAY.value and self.video_adapter is not None:
+            if getattr(self.video_adapter, 'just_looped', False):
+                self.loop_count = self.video_adapter.loop_count
+                self.video_adapter.just_looped = False
+                reset_event = True
+                self.get_logger().info(f"Video replay looped (loop_count={self.loop_count}).")
+
             obs_frame = self.video_adapter.read_frame(current_ros_time=current_time_tuple)
             if obs_frame is None and self.video_adapter.eof:
                 self.is_eof = True
@@ -131,6 +141,8 @@ class PerceptionSourceNode(Node):
         if obs_frame is None:
             return
 
+        if obs_frame is not None:
+            obs_frame.source_session_id = self.source_session_id
         self.frame_count += 1
 
         # 1. Publish RGB Image
@@ -168,6 +180,7 @@ class PerceptionSourceNode(Node):
             reason=obs_frame.error_reason,
             stamp_sec=obs_frame.stamp_sec,
             stamp_nanosec=obs_frame.stamp_nanosec,
+            reset_event=reset_event,
         )
 
     def _generate_synthetic_frame(self, stamp: tuple) -> ObservationFrame:
@@ -187,9 +200,20 @@ class PerceptionSourceNode(Node):
                 person_bbox=bbox, frame_id=self.frame_id, stamp=stamp
             )
 
-    def _publish_status(self, eof: bool, quality: str, reason: str, stamp_sec: int = 0, stamp_nanosec: int = 0):
+    def _publish_status(
+        self,
+        eof: bool,
+        quality: str,
+        reason: str,
+        stamp_sec: int = 0,
+        stamp_nanosec: int = 0,
+        reset_event: bool = False,
+    ):
         status_payload = {
             "source_mode": self.source_mode,
+            "source_session_id": self.source_session_id,
+            "loop_count": self.loop_count,
+            "reset_event": reset_event,
             "frame_count": self.frame_count,
             "fps": self.fps,
             "eof": eof,

@@ -135,3 +135,68 @@ def test_gpu_and_cpu_benchmarks():
         gpu_obs = gpu_tracker.process_frame(frame)
         assert gpu_obs.device == "cuda:0"
         assert gpu_obs.processing_time_ms < 40.0  # Under 40ms on GPU (> 25 FPS)
+
+
+def test_depth_valid_strictly_false_when_unverified_alignment():
+    tracker = MultiPersonTracker.__new__(MultiPersonTracker)
+    
+    # 1. Frame with UNVERIFIED_ALIGNMENT
+    frame_unverified = SyntheticFixtureGenerator.generate_person_scene(
+        person_bbox=(150, 100, 350, 350),
+        person_depth_m=1.75,
+    )
+    frame_unverified.data_quality = DataQuality.UNVERIFIED_ALIGNMENT.value
+
+    box = [150.0, 100.0, 350.0, 350.0]
+    depth_m, depth_valid = tracker._measure_torso_depth(
+        obs_frame=frame_unverified,
+        box=box,
+        keypoints=[],
+        h=480,
+        w=640,
+    )
+    assert depth_m is not None
+    assert abs(depth_m - 1.75) < 0.1
+    # STRICT SAFETY INVARIANT: Unverified alignment MUST NOT yield depth_valid=True!
+    assert depth_valid is False, "depth_valid must be False when data_quality is UNVERIFIED_ALIGNMENT!"
+
+
+def test_depth_valid_true_when_proven_valid_rgbd():
+    tracker = MultiPersonTracker.__new__(MultiPersonTracker)
+    
+    # Frame with VALID_RGBD
+    frame_verified = SyntheticFixtureGenerator.generate_person_scene(
+        person_bbox=(150, 100, 350, 350),
+        person_depth_m=1.75,
+    )
+    frame_verified.data_quality = DataQuality.VALID_RGBD.value
+
+    box = [150.0, 100.0, 350.0, 350.0]
+    depth_m, depth_valid = tracker._measure_torso_depth(
+        obs_frame=frame_verified,
+        box=box,
+        keypoints=[],
+        h=480,
+        w=640,
+    )
+    assert depth_m is not None
+    assert abs(depth_m - 1.75) < 0.1
+    assert depth_valid is True, "depth_valid must be True when data_quality is VALID_RGBD!"
+
+
+@pytest.mark.skipif(not has_yolo_model(), reason="Model checkpoint not found")
+def test_tracker_reset_allows_continued_tracking():
+    tracker = MultiPersonTracker(model_path=MODEL_PATH)
+    frame1 = SyntheticFixtureGenerator.generate_empty_scene()
+    obs1 = tracker.process_frame(frame1)
+    assert len(obs1.candidates) == 0
+
+    # Trigger tracker reset
+    tracker.reset()
+    assert len(tracker.previous_track_ids) == 0
+
+    # Ensure subsequent tracking executes without error or stale state
+    frame2 = SyntheticFixtureGenerator.generate_empty_scene()
+    obs2 = tracker.process_frame(frame2)
+    assert len(obs2.candidates) == 0
+    assert obs2.processing_time_ms > 0.0

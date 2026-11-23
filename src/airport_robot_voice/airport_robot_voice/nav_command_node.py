@@ -943,6 +943,10 @@ class NavCommandNode(Node):
         goal.pose = self._current_target_pose
 
         self.get_logger().info(f'[{attempt_id}] Gửi goal tới Nav2 cho mission {mission_id} ({self._current_target_name}, uuid={rec.nav2_uuid})...')
+        self.publish_feedback(
+            'NAV_GOAL_DISPATCHED', 'OK',
+            f'Gửi goal {self._current_target_key} tới Nav2 (attempt={attempt_id}, uuid={rec.nav2_uuid})'
+        )
         self._start_acceptance_timer(attempt_id)
         try:
             future = self.nav_client.send_goal_async(
@@ -1495,6 +1499,16 @@ class NavCommandNode(Node):
     # Hủy nhiệm vụ (CANCEL)
     # ------------------------------------------------------------------
     def handle_cancel_request(self, req_id: str):
+        cancelled_pending_target = self._pending_replace_target
+        cancelled_pending_cat = self._pending_replace_category
+        if cancelled_pending_target or cancelled_pending_cat:
+            p_name = cancelled_pending_target or cancelled_pending_cat
+            self.get_logger().info(f'Hủy pending replace ({p_name}) khi xử lý lệnh hủy.')
+            self.publish_feedback(
+                'PENDING_REPLACE_CANCELLED', 'OK',
+                f'Đã hủy yêu cầu đổi đích đang chờ ({p_name})'
+            )
+
         self._pending_replace_target = None
         self._pending_replace_category = None
         self._pending_replace_req_id = None
@@ -1528,6 +1542,11 @@ class NavCommandNode(Node):
             self.get_logger().info('Đã nhận lệnh hủy khi đang STARTING. Sẽ hủy ngay khi goal được chấp nhận.')
 
         elif self.state in (MissionState.ANNOUNCING, MissionState.RESOLVING, MissionState.PAUSED):
+            if not cancelled_pending_target and self.state == MissionState.ANNOUNCING and self._current_target_key:
+                self.publish_feedback(
+                    'PENDING_REPLACE_CANCELLED', 'OK',
+                    f'Đã hủy yêu cầu đổi đích đang chờ ({self._current_target_key})'
+                )
             self._cancel_tts_timeout_timer()
             self.cancel_tts(speech_id=self._pending_speech_id, mission_id=self._current_mission_id)
             self._pending_speech_id = None

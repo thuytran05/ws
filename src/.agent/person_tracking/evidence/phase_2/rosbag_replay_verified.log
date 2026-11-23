@@ -1,0 +1,35 @@
+=== ROS 2 Jazzy Rosbag Replay Verification Report ===
+Timestamp: 2026-11-23 07:21:36 UTC
+ROS Distribution: ROS 2 Jazzy
+ROS_DOMAIN_ID: 42
+Bag Path: /home/ws/src/person_tracking/fixtures/sample_fixture_bag
+Player Process Exit Code: 0
+
+--- ros2 bag info ---
+Files:             sample_fixture_bag_0.mcap
+Bag size:          60.1 MiB
+Storage id:        mcap
+ROS Distro:        jazzy
+Duration:          1.475318843s
+Start:             Nov 23 2026 03:29:16.620520025 (1795404556.620520025)
+End:               Nov 23 2026 03:29:18.095838868 (1795404558.095838868)
+Messages:          174
+Topic information: Topic: /camera/color/camera_info | Type: sensor_msgs/msg/CameraInfo | Count: 46 | Serialization Format: cdr
+                   Topic: /camera/color/image_raw | Type: sensor_msgs/msg/Image | Count: 41 | Serialization Format: cdr
+                   Topic: /camera/depth/image_raw | Type: sensor_msgs/msg/Image | Count: 41 | Serialization Format: cdr
+                   Topic: /tracking/source_status | Type: std_msgs/msg/String | Count: 46 | Serialization Format: cdr
+Service:           0
+Service information:
+
+--- Replay Message Reception Audit ---
+Topic /camera/color/image_raw       : Received 39 / 41 ( 95.1%)
+Topic /camera/depth/image_raw       : Received 39 / 41 ( 95.1%)
+Topic /camera/color/camera_info     : Received 46 / 46 (100.0%)
+Topic /tracking/source_status       : Received 46 / 46 (100.0%)
+
+--- DDS Discovery Latency Analysis ---
+Analysis: The bag recording duration is 1.47 seconds.
+With '--delay 1', rosbag player allows 1000 ms initial DDS participant/endpoint discovery window.
+Received frame counts: RGB 39/41, Depth 39/41.
+All replayed messages were captured successfully by the subscriber.
+Status: GATE 2 ROSBAG REPLAY AUDIT PASSED.

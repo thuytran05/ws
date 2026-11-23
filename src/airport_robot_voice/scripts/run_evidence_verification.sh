@@ -83,8 +83,9 @@ for i in $(seq 1 30); do
     
     BT_STATE=$(ros2 lifecycle get /bt_navigator 2>/dev/null || true)
     PLANNER_STATE=$(ros2 lifecycle get /planner_server 2>/dev/null || true)
+    CONTROLLER_STATE=$(ros2 lifecycle get /controller_server 2>/dev/null || true)
     
-    if echo "$BT_STATE" | grep -q "active" && echo "$PLANNER_STATE" | grep -q "active"; then
+    if echo "$BT_STATE" | grep -q "active" && echo "$PLANNER_STATE" | grep -q "active" && echo "$CONTROLLER_STATE" | grep -q "active"; then
         NAV_ACTIVE=1
         echo "Nav2 bt_navigator và planner_server đã chuyển sang trạng thái ACTIVE sau ${i}s."
         break

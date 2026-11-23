@@ -30,38 +30,56 @@ except ImportError as exc:
     YOLO = None
     torch = None
 
-from person_tracking.source_adapters import ObservationFrame, compute_mad
+from person_tracking.source_adapters import ObservationFrame, compute_mad, DataQuality
 
 
 @dataclass
 class PersonDetection:
-    """Normalized representation of a single detected person."""
-    bbox: List[float]  # [x1, y1, x2, y2] pixel coordinates
-    confidence: float
-    keypoints: List[List[float]]  # 17 keypoints: [x, y, conf]
+    """Normalized representation of a single detected person candidate."""
+    bbox_xyxy: List[float] = field(default_factory=list)  # [x1, y1, x2, y2] pixel coordinates
+    confidence: float = 0.0
+    keypoints: List[List[float]] = field(default_factory=list)  # 17 keypoints: [x, y, conf]
     track_id: Optional[int] = None  # None or -1 if unconfirmed
     is_confirmed: bool = False  # True if tracker assigned persistent positive ID
     is_ambiguous: bool = False  # True if overlapping bboxes or identity ambiguity
     torso_depth_m: Optional[float] = None
-    depth_valid: bool = False
+    depth_valid: bool = False  # True ONLY if alignment proven (VALID_RGBD) and depth valid
     center_offset_x_norm: float = 0.0  # -1.0 (far left) to 1.0 (far right)
     near_edge: bool = False  # True if bbox touches outer margin
+    bbox: Optional[List[float]] = None  # Backward-compatibility alias
+
+    def __post_init__(self):
+        if not self.bbox_xyxy and self.bbox is not None:
+            self.bbox_xyxy = self.bbox
+        elif self.bbox is None and self.bbox_xyxy:
+            self.bbox = self.bbox_xyxy
 
 
 @dataclass
 class MultiPersonObservation:
-    """Perception output for a single video/sensor frame."""
+    """Perception output for a single video/sensor frame matching INTERFACES.md."""
     stamp_sec: int
     stamp_nanosec: int
-    receive_monotonic: float
+    receive_monotonic_time: float
     frame_id: str
     source_mode: str
     data_quality: str
-    persons: List[PersonDetection] = field(default_factory=list)
+    source_session_id: str = ""
+    candidates: List[PersonDetection] = field(default_factory=list)
     active_track_ids: List[int] = field(default_factory=list)
     lost_track_ids: List[int] = field(default_factory=list)
     processing_time_ms: float = 0.0
     device: str = "cpu"
+
+    @property
+    def persons(self) -> List[PersonDetection]:
+        """Backward-compatibility alias for candidates."""
+        return self.candidates
+
+    @property
+    def receive_monotonic(self) -> float:
+        """Backward-compatibility alias for receive_monotonic_time."""
+        return self.receive_monotonic_time
 
 
 class MultiPersonTracker:
@@ -111,9 +129,14 @@ class MultiPersonTracker:
     def reset(self):
         """Reset tracker state on source switch, video loop, or stream reset."""
         self.previous_track_ids.clear()
-        # Re-initialize tracker predictor in Ultralytics to clear ByteTrack tracks
         if hasattr(self.model, 'predictor') and self.model.predictor is not None:
             if hasattr(self.model.predictor, 'trackers'):
+                for t in self.model.predictor.trackers:
+                    if hasattr(t, 'reset'):
+                        try:
+                            t.reset()
+                        except Exception:
+                            pass
                 self.model.predictor.trackers = []
         self.total_processed_frames = 0
 
@@ -184,7 +207,7 @@ class MultiPersonTracker:
                     )
 
                     person = PersonDetection(
-                        bbox=box,
+                        bbox_xyxy=box,
                         confidence=conf,
                         keypoints=kp_list,
                         track_id=track_id,
@@ -211,11 +234,12 @@ class MultiPersonTracker:
         return MultiPersonObservation(
             stamp_sec=obs_frame.stamp_sec,
             stamp_nanosec=obs_frame.stamp_nanosec,
-            receive_monotonic=obs_frame.receive_monotonic,
+            receive_monotonic_time=obs_frame.receive_monotonic,
             frame_id=obs_frame.frame_id,
             source_mode=obs_frame.source_mode,
+            source_session_id=getattr(obs_frame, 'source_session_id', ''),
             data_quality=obs_frame.data_quality,
-            persons=detected_persons,
+            candidates=detected_persons,
             active_track_ids=active_track_ids,
             lost_track_ids=lost_track_ids,
             processing_time_ms=t_elapsed,
@@ -230,10 +254,18 @@ class MultiPersonTracker:
         h: int,
         w: int,
     ) -> Tuple[Optional[float], bool]:
-        """Extract depth from torso ROI using Median Absolute Deviation (MAD) filtering."""
+        """Extract depth from torso ROI using Median Absolute Deviation (MAD) filtering.
+        
+        Depth reliability constraint:
+        - If obs_frame.data_quality == VALID_RGBD: depth_valid is True when MAD converges.
+        - If obs_frame.data_quality == UNVERIFIED_ALIGNMENT (or unverified/missing):
+          torso_depth_m may contain raw measured depth for logging, but depth_valid
+          MUST BE FALSE to prevent downstream nearest passenger selection from relying on it.
+        """
         if not obs_frame.has_depth or obs_frame.depth is None:
             return None, False
 
+        alignment_proven = (obs_frame.data_quality == DataQuality.VALID_RGBD.value)
         depth_img = obs_frame.depth
         x1, y1, x2, y2 = [int(v) for v in box]
         x1 = max(0, min(w - 1, x1))
@@ -265,7 +297,9 @@ class MultiPersonTracker:
         if mad > 0.25:
             return None, False
 
-        return median_d, True
+        # Only valid for nearest passenger selection if alignment is field-proven!
+        depth_valid = alignment_proven
+        return median_d, depth_valid
 
     def _flag_ambiguities(self, persons: List[PersonDetection]):
         """Check pairwise bbox IoU to detect crossing / occlusion ambiguities."""

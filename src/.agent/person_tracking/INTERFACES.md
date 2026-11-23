@@ -160,22 +160,73 @@
 ---
 
 ### 2.4. Giao diện Nội bộ: `/tracking/observation`
-- **Chủ quản:** `passenger_perception`
-- **Bên tiêu thụ:** `escort_tracking_manager`
-- **Kiểu ROS 2:** Topic nội bộ (custom struct hoặc dictionary serialize)
-- **Tần số:** 15–20 Hz (chu kỳ theo frame xử lý của YOLO Pose)
-- **Các trường dữ liệu:**
-  - `header`: stamp (thời điểm chụp ảnh) và frame_id quang học (`camera_color_optical_frame`).
-  - `receive_monotonic_time`: Thời điểm nhận ảnh tính bằng clock monotonic (chống giật `/clock`).
-  - `candidates`: Mảng các đối tượng người phát hiện:
-    - `track_id`: Integer.
-    - `bbox_xyxy`: Tọa độ hộp bao pixel $[x_1, y_1, x_2, y_2]$.
-    - `torso_depth_m`: Giá trị depth đo được (mét) bằng bộ lọc MAD.
-    - `depth_valid`: Boolean (true nếu depth hội tụ trong khoảng $[0.4m, 5.0m]$).
-    - `hand_raised`: Boolean (cổ tay cao hơn đầu với độ tin cậy $\ge 0.5$).
-    - `raise_duration_sec`: Thời gian duy trì giơ tay liên tục (giây).
-    - `center_offset_x_norm`: Độ lệch tâm ngang của người chuẩn hóa trong $[-1.0, 1.0]$.
-    - `near_edge`: Boolean (cảnh báo người tiến sát mép ảnh $\le 10\%$).
+- **Chủ quản (Producer):** `person_detector` (`PersonDetectorNode`)
+- **Bên tiêu thụ (Consumer):** `escort_tracking_manager` (Phase 4 & 6)
+- **Kiểu ROS 2:** `std_msgs/msg/String` (JSON format với schema chuẩn)
+- **QoS:** Depth=10, Reliability=RELIABLE
+- **Tần số:** 15 Hz (đồng bộ theo camera đầu vào)
+- **JSON Schema Chính Thức (Schema Version 1.0):**
+  ```json
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "TrackingObservation",
+    "type": "object",
+    "properties": {
+      "schema_version": { "type": "string", "enum": ["1.0"] },
+      "stamp": {
+        "type": "object",
+        "properties": {
+          "sec": { "type": "integer" },
+          "nanosec": { "type": "integer" }
+        },
+        "required": ["sec", "nanosec"]
+      },
+      "frame_id": { "type": "string" },
+      "receive_monotonic_time": { "type": "number" },
+      "source_mode": { "type": "string", "enum": ["live_astra", "video_replay", "bag_replay", "synthetic_fixture"] },
+      "source_session_id": { "type": "string" },
+      "data_quality": {
+        "type": "string",
+        "enum": ["VALID_RGBD", "RGB_ONLY", "UNVERIFIED_ALIGNMENT", "DEGRADED_NO_INFO", "STALE", "DIMENSION_MISMATCH", "FRAME_ID_MISMATCH", "INVALID_DEPTH"]
+      },
+      "processing_time_ms": { "type": "number", "minimum": 0.0 },
+      "device": { "type": "string" },
+      "active_track_ids": { "type": "array", "items": { "type": "integer" } },
+      "lost_track_ids": { "type": "array", "items": { "type": "integer" } },
+      "candidates": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "track_id": { "type": ["integer", "null"] },
+            "is_confirmed": { "type": "boolean" },
+            "is_ambiguous": { "type": "boolean" },
+            "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+            "bbox_xyxy": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
+            "torso_depth_m": { "type": ["number", "null"], "minimum": 0.0 },
+            "depth_valid": { "type": "boolean" },
+            "center_offset_x_norm": { "type": "number", "minimum": -1.0, "maximum": 1.0 },
+            "near_edge": { "type": "boolean" },
+            "keypoints": { "type": "array", "items": { "type": "array", "minItems": 3, "maxItems": 3 } }
+          },
+          "required": ["is_confirmed", "is_ambiguous", "confidence", "bbox_xyxy", "depth_valid", "center_offset_x_norm", "near_edge"]
+        }
+      }
+    },
+    "required": ["schema_version", "stamp", "frame_id", "receive_monotonic_time", "source_mode", "data_quality", "active_track_ids", "lost_track_ids", "candidates"]
+  }
+  ```
+- **Ý nghĩa & Ràng buộc Kỹ thuật của Các Trường:**
+  1. `stamp`: Thời điểm camera chụp ảnh quang học (lấy từ Header của ảnh RGB).
+  2. `receive_monotonic_time`: Thời điểm node nhận ảnh đo bằng clock monotonic máy chủ; hoàn toàn miễn nhiễm với hiện tượng pause/nhảy của `/clock`.
+  3. `source_session_id`: UUID của phiên nguồn hiện tại; khi đổi nguồn hoặc video loop sang vòng lặp mới, phiên được cấp mới để cô lập triệt để dữ liệu cũ.
+  4. `track_id` & `is_confirmed`: ID do ByteTrack duy trì liên tục qua các frame. Chỉ có giá trị trong cùng một `source_session_id`. `track_id = null` hoặc `is_confirmed = false` biểu thị người mới xuất hiện chưa đủ độ tin cậy.
+  5. `lost_track_ids`: Danh sách các track ID từng xuất hiện trong frame trước nhưng biến mất ở frame hiện tại; là tín hiệu cơ sở để kích hoạt bộ đếm grace period (0.25s) và visibility timeout (0.4s/1.2s) của FSM.
+  6. `is_ambiguous`: Đánh dấu `true` khi có từ 2 bounding box giao nhau với $IoU > 0.35$ (cắt ngang, che khuất một phần). Khi cờ này bật, FSM bị cấm khóa khách mới.
+  7. `depth_valid`: **Quy tắc an toàn tối cao về đo khoảng cách**:
+     - Chỉ được mang giá trị `true` khi `data_quality == VALID_RGBD` VÀ các pixel depth vùng thân hội tụ trong dải an toàn $[0.4m, 5.0m]$ với độ phân tán $MAD \le 0.25m$.
+     - Khi `data_quality == UNVERIFIED_ALIGNMENT` (camera Astra thật chưa kiểm chứng căn chỉnh), trường `depth_valid` **BẮT BUỘC PHẢI LÀ `false`**. Trường `torso_depth_m` có thể mang giá trị thô để chẩn đoán nhưng thuật toán chọn người gần nhất ở Phase 4 tuyệt đối không được sử dụng.
+  8. **Phân định phạm vi:** Các logic ngữ nghĩa cử chỉ (`hand_raised`, `raise_duration_sec`), thuật toán chọn người gần nhất (`nearest_candidate_selection`), và quản lý phiên phục vụ (`session_id`) được bàn giao cho **Phase 4** và **Phase 6** thực thi.
 
 ---
 

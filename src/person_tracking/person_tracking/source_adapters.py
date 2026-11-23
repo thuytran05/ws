@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from enum import Enum
 import math
 import time
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, List
 
 import cv2
 import numpy as np
@@ -50,6 +50,7 @@ class ObservationFrame:
     source_mode: str
     data_quality: str
     error_reason: str = ""
+    source_session_id: str = ""
 
     @property
     def has_depth(self) -> bool:
@@ -129,6 +130,8 @@ class VideoReplayAdapter:
 
         self.current_frame_idx = 0
         self.eof = False
+        self.loop_count = 0
+        self.just_looped = False
         self.camera_info = create_simulated_camera_info(self.width, self.height, frame_id=self.frame_id)
 
     def read_frame(self, current_ros_time: Optional[Tuple[int, int]] = None) -> Optional[ObservationFrame]:
@@ -141,6 +144,8 @@ class VideoReplayAdapter:
             if self.loop and self.total_frames > 0:
                 self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                 self.current_frame_idx = 0
+                self.loop_count += 1
+                self.just_looped = True
                 ret, bgr = self.cap.read()
                 if not ret:
                     self.eof = True
@@ -255,6 +260,53 @@ class SyntheticFixtureGenerator:
             source_mode=SourceMode.SYNTHETIC_FIXTURE.value,
             data_quality=DataQuality.VALID_RGBD.value,
             error_reason="",
+        )
+
+    @staticmethod
+    def generate_multi_person_scene(
+        width: int = 640,
+        height: int = 480,
+        persons: Optional[List[Dict[str, Any]]] = None,
+        bg_depth_m: float = 3.5,
+        frame_id: str = "camera_color_optical_frame",
+        stamp: Tuple[int, int] = (1700000000, 0),
+        data_quality: str = DataQuality.VALID_RGBD.value,
+        source_session_id: str = "",
+    ) -> ObservationFrame:
+        """Generate a synthetic frame containing multiple persons at specified boxes and depths."""
+        if persons is None:
+            persons = [
+                {"bbox": (100, 80, 260, 420), "depth_m": 1.6, "color": (50, 120, 220)},
+                {"bbox": (380, 80, 540, 420), "depth_m": 2.2, "color": (200, 100, 60)},
+            ]
+
+        rgb = np.full((height, width, 3), 180, dtype=np.uint8)
+        depth = np.full((height, width), bg_depth_m, dtype=np.float32)
+
+        for p in persons:
+            x1, y1, x2, y2 = p["bbox"]
+            color = p.get("color", (50, 120, 220))
+            d_val = p.get("depth_m", 1.8)
+            rgb[y1:y2, x1:x2] = color
+            depth[y1:y2, x1:x2] = d_val
+
+        depth_raw = (depth * 1000.0).astype(np.uint16)
+        info = create_simulated_camera_info(width, height, frame_id=frame_id)
+        info.header.stamp.sec, info.header.stamp.nanosec = stamp
+
+        return ObservationFrame(
+            rgb=rgb,
+            depth=depth,
+            depth_raw=depth_raw,
+            camera_info=info,
+            stamp_sec=stamp[0],
+            stamp_nanosec=stamp[1],
+            receive_monotonic=time.monotonic(),
+            frame_id=frame_id,
+            source_mode=SourceMode.SYNTHETIC_FIXTURE.value,
+            data_quality=data_quality,
+            error_reason="",
+            source_session_id=source_session_id,
         )
 
     @staticmethod
@@ -516,6 +568,12 @@ class TopicSynchronizer:
         self.depth_buffer = []  # List of tuples: (t_depth, stamp_tuple, depth_img, frame_id, encoding)
         self.max_depth_buffer = max_depth_buffer
         self.last_camera_info: Optional[CameraInfo] = None
+
+    def reset(self):
+        """Clear internal depth buffer, cached CameraInfo, and reset adapter clock."""
+        self.depth_buffer.clear()
+        self.last_camera_info = None
+        self.adapter.reset()
 
     def add_depth(
         self,

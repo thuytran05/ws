@@ -2,32 +2,37 @@
 platform linux -- Python 3.12.3, pytest-7.4.4, pluggy-1.4.0 -- /usr/bin/python3
 cachedir: .pytest_cache
 rootdir: /home/ws/src/person_tracking
-plugins: ament-flake8-0.17.5, launch-testing-3.4.11, ament-lint-0.17.5, ament-xmllint-0.17.5, ament-copyright-0.17.5, launch-testing-ros-0.26.12, ament-pep257-0.17.5, typeguard-4.1.5, colcon-core-0.21.3
-collecting ... collected 24 items
+plugins: anyio-4.15.1, ament-flake8-0.17.5, launch-testing-3.4.11, ament-lint-0.17.5, ament-xmllint-0.17.5, ament-copyright-0.17.5, launch-testing-ros-0.26.12, ament-pep257-0.17.5, typeguard-4.1.5, colcon-core-0.21.3
+collecting ... collected 29 items
 
-src/person_tracking/test/test_multi_person_tracker.py::test_tracker_initialization PASSED [  4%]
-src/person_tracking/test/test_multi_person_tracker.py::test_empty_scene_inference PASSED [  8%]
-src/person_tracking/test/test_multi_person_tracker.py::test_tracker_reset PASSED [ 12%]
-src/person_tracking/test/test_multi_person_tracker.py::test_ambiguity_flag PASSED [ 16%]
-src/person_tracking/test/test_multi_person_tracker.py::test_edge_proximity_flag PASSED [ 20%]
-src/person_tracking/test/test_multi_person_tracker.py::test_debug_overlay_drawing PASSED [ 25%]
-src/person_tracking/test/test_multi_person_tracker.py::test_gpu_and_cpu_benchmarks PASSED [ 29%]
-src/person_tracking/test/test_perception_source_smoke.py::test_perception_source_node_smoke PASSED [ 33%]
-src/person_tracking/test/test_person_detector_smoke.py::test_person_detector_node_smoke PASSED [ 37%]
-src/person_tracking/test/test_source_adapters.py::test_observation_frame_contract PASSED [ 41%]
-src/person_tracking/test/test_source_adapters.py::test_compute_mad PASSED [ 45%]
-src/person_tracking/test/test_source_adapters.py::test_create_simulated_camera_info PASSED [ 50%]
-src/person_tracking/test/test_source_adapters.py::test_synthetic_fixture_generator_empty PASSED [ 54%]
-src/person_tracking/test/test_source_adapters.py::test_synthetic_fixture_generator_person PASSED [ 58%]
-src/person_tracking/test/test_source_adapters.py::test_synthetic_fixture_generator_corrupted_depth PASSED [ 62%]
-src/person_tracking/test/test_source_adapters.py::test_video_replay_adapter PASSED [ 66%]
-src/person_tracking/test/test_source_adapters.py::test_live_astra_adapter_valid PASSED [ 70%]
-src/person_tracking/test/test_source_adapters.py::test_live_astra_adapter_stale PASSED [ 75%]
-src/person_tracking/test/test_source_adapters.py::test_live_astra_adapter_dimension_mismatch PASSED [ 79%]
-src/person_tracking/test/test_source_adapters.py::test_live_astra_adapter_frame_id_mismatch PASSED [ 83%]
-src/person_tracking/test/test_source_adapters.py::test_live_astra_adapter_sync_slop_exceeded PASSED [ 87%]
-src/person_tracking/test/test_source_adapters.py::test_live_astra_adapter_out_of_order PASSED [ 91%]
-src/person_tracking/test/test_source_adapters.py::test_live_astra_adapter_degraded_no_info PASSED [ 95%]
+src/person_tracking/test/test_multi_person_tracker.py::test_tracker_initialization PASSED [  3%]
+src/person_tracking/test/test_multi_person_tracker.py::test_empty_scene_inference PASSED [  6%]
+src/person_tracking/test/test_multi_person_tracker.py::test_tracker_reset PASSED [ 10%]
+src/person_tracking/test/test_multi_person_tracker.py::test_ambiguity_flag PASSED [ 13%]
+src/person_tracking/test/test_multi_person_tracker.py::test_edge_proximity_flag PASSED [ 17%]
+src/person_tracking/test/test_multi_person_tracker.py::test_debug_overlay_drawing PASSED [ 20%]
+src/person_tracking/test/test_multi_person_tracker.py::test_gpu_and_cpu_benchmarks PASSED [ 24%]
+src/person_tracking/test/test_multi_person_tracker.py::test_depth_valid_strictly_false_when_unverified_alignment PASSED [ 27%]
+src/person_tracking/test/test_multi_person_tracker.py::test_depth_valid_true_when_proven_valid_rgbd PASSED [ 31%]
+src/person_tracking/test/test_multi_person_tracker.py::test_tracker_reset_allows_continued_tracking PASSED [ 34%]
+src/person_tracking/test/test_perception_source_smoke.py::test_perception_source_node_smoke PASSED [ 37%]
+src/person_tracking/test/test_person_detector_smoke.py::test_person_detector_node_smoke PASSED [ 41%]
+src/person_tracking/test/test_person_detector_smoke.py::test_observation_schema_types PASSED [ 44%]
+src/person_tracking/test/test_person_detector_smoke.py::test_detector_pipeline_reset_on_source_loop PASSED [ 48%]
+src/person_tracking/test/test_source_adapters.py::test_observation_frame_contract PASSED [ 51%]
+src/person_tracking/test/test_source_adapters.py::test_compute_mad PASSED [ 55%]
+src/person_tracking/test/test_source_adapters.py::test_create_simulated_camera_info PASSED [ 58%]
+src/person_tracking/test/test_source_adapters.py::test_synthetic_fixture_generator_empty PASSED [ 62%]
+src/person_tracking/test/test_source_adapters.py::test_synthetic_fixture_generator_person PASSED [ 65%]
+src/person_tracking/test/test_source_adapters.py::test_synthetic_fixture_generator_corrupted_depth PASSED [ 68%]
+src/person_tracking/test/test_source_adapters.py::test_video_replay_adapter PASSED [ 72%]
+src/person_tracking/test/test_source_adapters.py::test_live_astra_adapter_valid PASSED [ 75%]
+src/person_tracking/test/test_source_adapters.py::test_live_astra_adapter_stale PASSED [ 79%]
+src/person_tracking/test/test_source_adapters.py::test_live_astra_adapter_dimension_mismatch PASSED [ 82%]
+src/person_tracking/test/test_source_adapters.py::test_live_astra_adapter_frame_id_mismatch PASSED [ 86%]
+src/person_tracking/test/test_source_adapters.py::test_live_astra_adapter_sync_slop_exceeded PASSED [ 89%]
+src/person_tracking/test/test_source_adapters.py::test_live_astra_adapter_out_of_order PASSED [ 93%]
+src/person_tracking/test/test_source_adapters.py::test_live_astra_adapter_degraded_no_info PASSED [ 96%]
 src/person_tracking/test/test_source_adapters.py::test_topic_synchronizer PASSED [100%]
 
-============================== 24 passed in 6.32s ==============================
+============================== 29 passed in 6.98s ==============================

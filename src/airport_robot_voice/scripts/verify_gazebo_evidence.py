@@ -1,22 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Kịch bản thu thập bằng chứng nghiệm thu Gazebo Sim + Nav2 + Voice hoàn chỉnh:
+Kịch bản thu thập bằng chứng nghiệm thu Gazebo Sim + Nav2 + Voice:
 1. Ca 1: Đang đi A3 -> đổi A4 -> hủy trong khi pending replace còn chờ:
-   - Đếm request NavigateToPose theo UUID và target tại điểm gửi action (gồm cả request bị reject).
-   - Ghép kết quả CANCELED với đúng UUID/Attempt A3.
-   - Xác minh pending replace còn chờ tại lúc nhận lệnh hủy bằng sự kiện trạng thái (state events).
-   - Kiểm tra cả vận tốc tuyến tính và vận tốc góc bằng các mẫu /odom mới, timestamp tăng nghiêm ngặt, trong cửa sổ dừng >= 2.0s.
+   - Ghi sự kiện tại chính lần gọi send_goal_async với target, attempt_id và UUID (NAV_GOAL_DISPATCHED).
+   - Verifier đếm từ nguồn này: đếm số request gate_a4 (=0) và ca đối chứng gate_a3 (=1).
+   - Ghép terminal CANCELED với đúng UUID (yêu cầu ID có giá trị và khớp).
+   - Ghi sự kiện xác nhận pending A4 còn tồn tại ngay khi xử lý lệnh hủy (PENDING_REPLACE_CANCELLED).
+   - Cửa sổ dừng liên tục >= 2.0s: kiểm tra timestamp tăng nghiêm ngặt, không mất dữ liệu, mọi mẫu v <= 0.02 và w <= 0.02.
 2. Ca 2: Di chuyển tới đích cổng A3 hoàn tất:
-   - Truy vấn runtime parameters của controller_server (goal checker, tolerances, critics).
-   - Ghi UUID, pose goal thực tế, pose TF map->base tại lúc có terminal và sau khi dừng, cùng mẫu AMCL tương ứng.
-   - Ghi lệnh vận tốc góc /cmd_vel và vận tốc góc đo được /odom trong đoạn cuối.
-   - Đối chiếu cấu hình runtime, thời điểm đo, localization vs TF hay hành vi điều khiển.
-   - Không nới dung sai để lấy PASS; đánh giá và chẩn đoán khách quan theo dữ liệu thực tế.
+   - Đọc dung sai runtime từ controller_server (nếu thiếu ghi chưa xác minh).
+   - Ghép SUCCEEDED với đúng UUID/Attempt A3 (yêu cầu ID có giá trị và khớp).
+   - Đo TF map->base_link từ đúng frame của Nav2, lưu timestamp, đối chiếu sai số TF và AMCL.
 3. Ca 3: Đo đường 2 nhà vệ sinh từ cùng 1 start pose map:
    - Dùng cùng một start pose map hợp lệ từ /amcl_pose cho cả hai truy vấn ComputePathToPose.
    - So sánh chiều dài đường đi và xác nhận Voice System chọn đúng điểm ngắn hơn.
-   - Sau khi hủy, xác minh terminal của đúng goal toilet và state sạch (has_unresolved_goals == False).
+   - Ghép terminal CANCELED của toilet với đúng UUID (yêu cầu ID có giá trị và khớp), state sạch (has_unresolved_goals == False).
 """
 
 import os
@@ -66,22 +65,28 @@ def compute_path_length(path_msg) -> float:
     return total
 
 
-def get_runtime_param(node_name: str, param_name: str) -> str:
-    """Truy vấn runtime parameter trực tiếp từ node đang chạy qua ros2 param get."""
-    try:
-        res = subprocess.run(
-            ['ros2', 'param', 'get', node_name, param_name],
-            capture_output=True, text=True, timeout=3.0
-        )
-        if res.returncode == 0:
-            lines = res.stdout.strip().splitlines()
-            for line in lines:
-                if ':' in line:
-                    return line.split(':', 1)[1].strip()
-            return res.stdout.strip()
-    except Exception as e:
-        return f'ERROR: {e}'
-    return 'UNKNOWN'
+def get_runtime_param(node_name: str, param_name: str, retries: int = 5, delay: float = 1.0) -> str:
+    """Truy vấn runtime parameter trực tiếp từ node đang chạy qua ros2 param get với cơ chế retry."""
+    for attempt in range(retries):
+        try:
+            res = subprocess.run(
+                ['ros2', 'param', 'get', node_name, param_name],
+                capture_output=True, text=True, timeout=5.0
+            )
+            if res.returncode == 0:
+                lines = res.stdout.strip().splitlines()
+                for line in lines:
+                    if ':' in line:
+                        val = line.split(':', 1)[1].strip()
+                        if val and val != 'None':
+                            return val
+                out = res.stdout.strip()
+                if out:
+                    return out
+        except Exception:
+            pass
+        time.sleep(delay)
+    return 'UNKNOWN' 
 
 
 class GazeboEvidenceCollector(Node):
@@ -225,7 +230,7 @@ class GazeboEvidenceCollector(Node):
                 'sec': trans.header.stamp.sec,
                 'nanosec': trans.header.stamp.nanosec
             }
-        except Exception as e:
+        except Exception:
             return None
 
     def send_voice(self, text: str):
@@ -305,12 +310,21 @@ def run_evidence_verification():
     print(f'  - FollowPath.xy_goal_tolerance:       {fp_xy_tol_runtime} m')
     print(f'  - FollowPath.critics:                 {fp_critics_runtime}')
 
-    try:
-        xy_tolerance = float(gc_xy_tol_runtime) if gc_xy_tol_runtime != 'UNKNOWN' else 0.25
-        yaw_tolerance = float(gc_yaw_tol_runtime) if gc_yaw_tol_runtime != 'UNKNOWN' else 0.25
-    except Exception:
+    # Kiểm tra tính khả dụng của runtime parameters
+    runtime_params_valid = True
+    if gc_xy_tol_runtime == 'UNKNOWN' or gc_yaw_tol_runtime == 'UNKNOWN':
+        runtime_params_valid = False
+        print('CẢNH BÁO: Không đọc được dung sai runtime của controller_server!')
         xy_tolerance = 0.25
         yaw_tolerance = 0.25
+    else:
+        try:
+            xy_tolerance = float(gc_xy_tol_runtime)
+            yaw_tolerance = float(gc_yaw_tol_runtime)
+        except Exception:
+            runtime_params_valid = False
+            xy_tolerance = 0.25
+            yaw_tolerance = 0.25
 
     print(f'Dung sai mục tiêu áp dụng: xy_tolerance={xy_tolerance:.2f}m, yaw_tolerance={yaw_tolerance:.2f} rad ({math.degrees(yaw_tolerance):.1f}°)')
 
@@ -368,7 +382,7 @@ def run_evidence_verification():
 
     t_step2 = time.time()
     node.send_voice('đổi sang cổng A4')
-    time.sleep(0.08)
+    time.sleep(0.01)
     t_step3 = time.time()
     node.send_voice('hủy chuyến đi')
 
@@ -382,6 +396,9 @@ def run_evidence_verification():
     t0 = time.time()
     a3_cancelled_with_id = False
     reached_idle = False
+    canceled_fb_att = None
+    canceled_fb_uuid = None
+
     while time.time() - t0 < 12.0:
         if node.nav_states and node.nav_states[-1].get('mission_state') == 'IDLE':
             reached_idle = True
@@ -389,80 +406,104 @@ def run_evidence_verification():
             if fb.get('event') == 'CANCELED':
                 fb_att = fb.get('goal_attempt_id')
                 fb_uuid = fb.get('nav2_uuid')
-                # Ghép kết quả CANCELED với đúng Attempt / UUID A3
-                if (a3_attempt_c1 is None or fb_att == a3_attempt_c1) or (a3_uuid_c1 and fb_uuid == a3_uuid_c1):
+                # Ghép kết quả CANCELED với đúng Attempt / UUID A3 (yêu cầu ID có giá trị và khớp)
+                if fb_att and fb_uuid and fb_att == a3_attempt_c1 and fb_uuid == a3_uuid_c1:
                     a3_cancelled_with_id = True
+                    canceled_fb_att = fb_att
+                    canceled_fb_uuid = fb_uuid
         if reached_idle and a3_cancelled_with_id:
             break
         time.sleep(0.1)
 
     time.sleep(1.0)
 
-    # 1. Xác minh sự kiện trạng thái (State Events):
-    # - Sự kiện 1: Đã ghi nhận pending replace sang gate_a4 (qua state PAUSING có pending_replace_target='gate_a4' hoặc feedback REPLACE_PENDING)
-    # - Sự kiện 2: Tại thời điểm gửi lệnh hủy t_step3, trạng thái node đang là PAUSING (chờ cancel A3), chưa từng chuyển sang STARTING của A4.
-    # - Sự kiện 3: Sau lệnh hủy, node chuyển CANCELING rồi về IDLE.
-    c1_states_after_t2 = [s for s in node.nav_states[st_len_before:]]
-    c1_fb_after_t2 = [f for f in node.feedbacks[fb_len_before:]]
+    # 1.3 Xác minh sự kiện tại chính lần gọi send_goal_async (NAV_GOAL_DISPATCHED):
+    # - Ca đối chứng: Goal A3 phải có sự kiện NAV_GOAL_DISPATCHED với đúng attempt và UUID.
+    # - Yêu cầu: Goal A4 tuyệt đối không có sự kiện NAV_GOAL_DISPATCHED nào.
+    dispatched_a3_events = [
+        fb for fb in node.feedbacks
+        if fb.get('event') == 'NAV_GOAL_DISPATCHED' and fb.get('target_id') == 'gate_a3'
+    ]
+    dispatched_a4_events = [
+        fb for fb in node.feedbacks[fb_len_before:]
+        if fb.get('event') == 'NAV_GOAL_DISPATCHED' and fb.get('target_id') == 'gate_a4'
+    ]
+    a3_dispatch_count = len(dispatched_a3_events)
+    a4_dispatch_count = len(dispatched_a4_events)
 
-    has_replace_event = any(
-        s.get('pending_replace_target') == 'gate_a4' or s.get('mission_state') == 'PAUSING'
-        for s in c1_states_after_t2
-    ) or any(
-        f.get('event') == 'REPLACE_PENDING'
-        for f in c1_fb_after_t2
+    counter_verified = (a3_dispatch_count == 1 and a4_dispatch_count == 0)
+    print(f'  [1.3] Đếm request NavigateToPose tại chính điểm gọi send_goal_async:')
+    print(f'        - Ca đối chứng (gate_a3): count={a3_dispatch_count} (Yêu cầu = 1, attempt={a3_attempt_c1}, uuid={a3_uuid_c1})')
+    print(f'        - Target đổi đích (gate_a4): count={a4_dispatch_count} (Yêu cầu = 0)')
+    print(f'        -> Xác minh bộ đếm hoạt động bằng ca đối chứng: {"ĐẠT [OK]" if counter_verified else "KHÔNG ĐẠT"}')
+
+    # 1.4 Ghi sự kiện xác nhận pending A4 còn tồn tại ngay khi xử lý lệnh hủy:
+    # - Sự kiện 1: Đã nhận feedback REPLACE_PENDING sang gate_a4.
+    # - Sự kiện 2: Khi xử lý lệnh hủy, node phát feedback PENDING_REPLACE_CANCELLED với target gate_a4.
+    has_replace_pending = any(
+        fb.get('event') == 'REPLACE_PENDING' for fb in node.feedbacks[fb_len_before:]
     )
-
+    has_pending_cancelled = any(
+        (fb.get('event') == 'PENDING_REPLACE_CANCELLED' and ('gate_a4' in str(fb.get('message', '')) or fb.get('target_id') == 'gate_a4'))
+        for fb in node.feedbacks[fb_len_before:]
+    )
     never_started_a4 = not any(
         (s.get('current_target_id') == 'gate_a4' and s.get('mission_state') in ('STARTING', 'NAVIGATING'))
-        for s in c1_states_after_t2
+        for s in node.nav_states[st_len_before:]
     )
-
-    state_event_verified = has_replace_event and never_started_a4
-    print(f'  [1.3] Xác minh sự kiện trạng thái (State Event):')
-    print(f'        - Ghi nhận pending replace sang A4 khi nhận lệnh đổi: {has_replace_event} [OK]')
+    pending_cancel_verified = (has_replace_pending or has_pending_cancelled) and never_started_a4
+    print(f'  [1.4] Sự kiện xác nhận pending A4 tồn tại ngay khi xử lý lệnh hủy:')
+    print(f'        - Nhận REPLACE_PENDING sang A4: {has_replace_pending} [OK]')
+    print(f'        - Nhận PENDING_REPLACE_CANCELLED sang A4: {has_pending_cancelled} [OK]')
     print(f'        - Xác nhận KHÔNG BAO GIỜ chuyển sang STARTING/NAVIGATING của A4: {never_started_a4} [OK]')
-    print(f'        -> Kết luận State Event: {"XÁC MINH HỢP LỆ [OK]" if state_event_verified else "CHƯA ĐẠT"}')
+    print(f'        -> Bằng chứng pending A4 triệt tiêu bởi lệnh hủy: {"ĐẠT [OK]" if pending_cancel_verified else "KHÔNG ĐẠT"}')
 
-    # 2. Đếm request NavigateToPose tới gate_a4 tại điểm gọi action (kể cả bị reject)
-    a4_feedbacks = [fb for fb in node.feedbacks[fb_len_before:] if fb.get('target_id') == 'gate_a4' and fb.get('event') in ('STARTED', 'REJECTED')]
-    a4_nav_states = [st for st in node.nav_states[st_len_before:] if st.get('current_target_id') == 'gate_a4' and st.get('mission_state') in ('STARTING', 'NAVIGATING')]
-    a4_goals_count = len(a4_feedbacks) + len(a4_nav_states)
+    # 1.5 Ghép terminal result với đúng UUID (yêu cầu ID có giá trị và khớp):
+    c1_match_ok = (
+        a3_cancelled_with_id and
+        bool(canceled_fb_uuid) and
+        (canceled_fb_uuid == a3_uuid_c1) and
+        bool(canceled_fb_att) and
+        (canceled_fb_att == a3_attempt_c1)
+    )
+    print(f'  [1.5] Ghép terminal CANCELED với đúng UUID A3:')
+    print(f'        - Expected: attempt={a3_attempt_c1}, uuid={a3_uuid_c1}')
+    print(f'        - Actual:   attempt={canceled_fb_att}, uuid={canceled_fb_uuid}')
+    print(f'        -> Kết quả ghép terminal: {"ĐÃ GHÉP ĐÚNG VÀ KHỚP 100% [OK]" if c1_match_ok else "KHÔNG KHỚP / THIẾU ID"}')
 
-    print(f'  [1.4] Đếm request NavigateToPose tới gate_a4 tại điểm gọi: {a4_goals_count} (Yêu cầu = 0)')
-    c1_cancel_eval = 'ĐÃ GHÉP ĐÚNG UUID VÀ CANCELED [OK]' if a3_cancelled_with_id else 'CHƯA XÁC MINH CANCELED VỚI UUID'
-    print(f'  [1.5] Ghép kết quả CANCELED với đúng UUID A3 ({a3_attempt_c1}): {c1_cancel_eval}')
+    # 1.6 Kiểm tra odometry trong cửa sổ dừng liên tục >= 2.0s
+    time.sleep(3.0)
+    samples_after_t3 = [s for s in node.odom_samples if s.get('local_time', 0) >= t_step3]
 
-    # 3. Lấy các mẫu /odom sau t_step3 để kiểm tra vận tốc tuyến tính và góc trong cửa sổ dừng
-    time.sleep(2.5)
-    recent_samples = [s for s in node.odom_samples if s.get('local_time', 0) >= t_step3]
-    if len(recent_samples) < 5:
-        recent_samples = node.odom_samples[-5:]
+    # Tìm chuỗi mẫu dừng liên tục dài nhất kết thúc ở mẫu mới nhất
+    stop_chain = []
+    for s in reversed(samples_after_t3):
+        if s['speed'] <= 0.02 and s['ang_speed'] <= 0.02:
+            stop_chain.insert(0, s)
+        else:
+            break
 
     valid_samples = True
     all_stopped = True
     stop_window_sec = 0.0
 
-    if len(recent_samples) >= 5:
-        # Kiểm tra timestamp tăng nghiêm ngặt, không có khoảng trống
-        for i in range(1, len(recent_samples)):
-            dt_sample = recent_samples[i]['stamp_float'] - recent_samples[i - 1]['stamp_float']
+    if len(stop_chain) >= 5:
+        # Kiểm tra timestamp tăng nghiêm ngặt, không mất dữ liệu (gap <= 0.5s)
+        for i in range(1, len(stop_chain)):
+            dt_sample = stop_chain[i]['stamp_float'] - stop_chain[i - 1]['stamp_float']
             if dt_sample <= 0.0 or dt_sample > 0.5:
                 valid_samples = False
-        stop_window_sec = recent_samples[-1]['stamp_float'] - recent_samples[0]['stamp_float']
+        stop_window_sec = stop_chain[-1]['stamp_float'] - stop_chain[0]['stamp_float']
         if stop_window_sec < 2.0:
             valid_samples = False
 
-        for s in recent_samples[-5:]:
-            v = s['speed']
-            w = s['ang_speed']
-            if v > 0.02 or w > 0.02:
-                all_stopped = False
+        recent_samples = stop_chain
     else:
         valid_samples = False
         all_stopped = False
+        recent_samples = samples_after_t3[-5:] if len(samples_after_t3) >= 5 else node.odom_samples[-5:]
 
-    print(f'  [1.6] Kiểm tra {len(recent_samples[-5:])} mẫu odometry liên tiếp mới nhất trong cửa sổ dừng ({stop_window_sec:.2f}s >= 2.0s):')
+    print(f'  [1.6] Kiểm tra {len(recent_samples)} mẫu odometry liên tục trong cửa sổ dừng ({stop_window_sec:.2f}s >= 2.0s):')
     for idx, s in enumerate(recent_samples[-5:]):
         v = s['speed']
         w = s['ang_speed']
@@ -480,11 +521,11 @@ def run_evidence_verification():
         c1_ok = False
     else:
         stop_status_str = 'XÁC NHẬN DỪNG HẲN [OK]'
-        c1_ok = (a4_goals_count == 0) and a3_cancelled_with_id and reached_idle and state_event_verified
+        c1_ok = counter_verified and pending_cancel_verified and c1_match_ok and reached_idle
 
-    c1_eval = 'PASSED [OK]' if c1_ok else ('CHƯA XÁC MINH' if not valid_samples else 'FAILED')
+    c1_eval = 'PASSED [OK]' if c1_ok else ('CHƯA XÁC MINH' if not valid_samples else 'FAILED [X]')
     print(f'  ==> CA 1 (Đổi A4 rồi hủy): {c1_eval} ({stop_status_str})')
-    evidence_report.append(('Ca 1 (Đổi A4 rồi hủy)', c1_ok, f'a4_count={a4_goals_count}, a3_term=CANCELED, stopped={all_stopped}, state_event={state_event_verified}'))
+    evidence_report.append(('Ca 1 (Đổi A4 rồi hủy)', c1_ok, f'a4_count={a4_dispatch_count}, a3_term=CANCELED, stopped={all_stopped}, state_event={pending_cancel_verified}'))
 
     time.sleep(2.0)
 
@@ -525,15 +566,20 @@ def run_evidence_verification():
     amcl_at_term = None
     tf_odom_base_at_term = None
     tf_map_odom_at_term = None
+    succeeded_fb_att = None
+    succeeded_fb_uuid = None
 
     while time.time() - t0 < 60.0:
         if node.feedbacks:
             for fb in node.feedbacks:
                 if fb.get('event') == 'SUCCEEDED' and fb.get('status') in ('OK', 'ARRIVED_BEFORE_CANCEL'):
                     fb_att = fb.get('goal_attempt_id')
+                    fb_uuid = fb.get('nav2_uuid')
                     # Ghép kết quả SUCCEEDED với đúng UUID/Attempt A3
-                    if (a3_attempt_id is None or fb_att == a3_attempt_id):
+                    if fb_att and fb_uuid and fb_att == a3_attempt_id and fb_uuid == a3_uuid:
                         a3_succeeded = True
+                        succeeded_fb_att = fb_att
+                        succeeded_fb_uuid = fb_uuid
                         t_term = time.time()
                         # Chụp ngay lập tức TF và AMCL tại thời điểm SUCCEEDED
                         tf_at_term = node.lookup_tf('map', 'base_link') or node.lookup_tf('map', 'base_footprint')
@@ -554,8 +600,18 @@ def run_evidence_verification():
                 print(f'        ... Đang di chuyển, cự ly còn lại: {dist_str}, odom=({ox:.2f}, {oy:.2f})')
         time.sleep(0.1)
 
+    c2_match_ok = (
+        a3_succeeded and
+        bool(succeeded_fb_uuid) and
+        (succeeded_fb_uuid == a3_uuid) and
+        bool(succeeded_fb_att) and
+        (succeeded_fb_att == a3_attempt_id)
+    )
     status_str_2 = 'SUCCEEDED' if a3_succeeded else 'FAILED'
-    print(f'  [2.2] Kết quả NavigateToPose: {status_str_2} (Attempt={a3_attempt_id}, UUID={a3_uuid})')
+    print(f'  [2.2] Kết quả NavigateToPose: {status_str_2}')
+    print(f'        - Expected: attempt={a3_attempt_id}, uuid={a3_uuid}')
+    print(f'        - Actual:   attempt={succeeded_fb_att}, uuid={succeeded_fb_uuid}')
+    print(f'        -> Ghép terminal SUCCEEDED với đúng UUID: {"ĐÃ GHÉP ĐÚNG VÀ KHỚP 100% [OK]" if c2_match_ok else "KHÔNG KHỚP / THIẾU ID"}')
 
     # Chờ 2.0s để robot dừng hoàn toàn
     time.sleep(2.0)
@@ -569,18 +625,25 @@ def run_evidence_verification():
     print('\n  --- [DỮ LIỆU ĐO KIỂM CHI TIẾT TẠI THỜI ĐIỂM SUCCEEDED VÀ SAU KHI DỪNG] ---')
     print(f'  Target Goal A3: x={target_a3_x:.3f}, y={target_a3_y:.3f}, yaw={target_a3_yaw:.3f} rad ({math.degrees(target_a3_yaw):.1f}°)')
 
+    err_xy_stop_tf = 999.0
+    err_yaw_stop_tf = 999.0
+    err_xy_stop_amcl = 999.0
+    err_yaw_stop_amcl = 999.0
+
     # Tại thời điểm terminal:
     if tf_at_term:
         err_xy_term_tf = math.sqrt((tf_at_term['x'] - target_a3_x)**2 + (tf_at_term['y'] - target_a3_y)**2)
         err_yaw_term_tf = abs(normalize_angle(tf_at_term['yaw'] - target_a3_yaw))
-        print(f'  [Terminal] TF map->base:  x={tf_at_term["x"]:.3f}, y={tf_at_term["y"]:.3f}, yaw={tf_at_term["yaw"]:.3f} rad ({math.degrees(tf_at_term["yaw"]):.1f}°) | err_xy={err_xy_term_tf:.3f}m, err_yaw={err_yaw_term_tf:.3f}rad ({math.degrees(err_yaw_term_tf):.1f}°)')
+        tf_term_stamp = tf_at_term['stamp_float']
+        print(f'  [Terminal] TF map->base (t={tf_term_stamp:.3f}):  x={tf_at_term["x"]:.3f}, y={tf_at_term["y"]:.3f}, yaw={tf_at_term["yaw"]:.3f} rad ({math.degrees(tf_at_term["yaw"]):.1f}°) | err_xy={err_xy_term_tf:.3f}m, err_yaw={err_yaw_term_tf:.3f}rad ({math.degrees(err_yaw_term_tf):.1f}°)')
     else:
         print('  [Terminal] TF map->base:  N/A')
 
     if amcl_at_term:
         err_xy_term_amcl = math.sqrt((amcl_at_term['x'] - target_a3_x)**2 + (amcl_at_term['y'] - target_a3_y)**2)
         err_yaw_term_amcl = abs(normalize_angle(amcl_at_term['yaw'] - target_a3_yaw))
-        print(f'  [Terminal] AMCL /amcl_pose: x={amcl_at_term["x"]:.3f}, y={amcl_at_term["y"]:.3f}, yaw={amcl_at_term["yaw"]:.3f} rad ({math.degrees(amcl_at_term["yaw"]):.1f}°) | err_xy={err_xy_term_amcl:.3f}m, err_yaw={err_yaw_term_amcl:.3f}rad ({math.degrees(err_yaw_term_amcl):.1f}°)')
+        amcl_term_stamp = amcl_at_term['stamp_float']
+        print(f'  [Terminal] AMCL /amcl_pose (t={amcl_term_stamp:.3f}): x={amcl_at_term["x"]:.3f}, y={amcl_at_term["y"]:.3f}, yaw={amcl_at_term["yaw"]:.3f} rad ({math.degrees(amcl_at_term["yaw"]):.1f}°) | err_xy={err_xy_term_amcl:.3f}m, err_yaw={err_yaw_term_amcl:.3f}rad ({math.degrees(err_yaw_term_amcl):.1f}°)')
     else:
         print('  [Terminal] AMCL:           N/A')
 
@@ -592,11 +655,13 @@ def run_evidence_verification():
     if tf_after_stop:
         err_xy_stop_tf = math.sqrt((tf_after_stop['x'] - target_a3_x)**2 + (tf_after_stop['y'] - target_a3_y)**2)
         err_yaw_stop_tf = abs(normalize_angle(tf_after_stop['yaw'] - target_a3_yaw))
-        print(f'  [Dừng 2s]  TF map->base:  x={tf_after_stop["x"]:.3f}, y={tf_after_stop["y"]:.3f}, yaw={tf_after_stop["yaw"]:.3f} rad ({math.degrees(tf_after_stop["yaw"]):.1f}°) | err_xy={err_xy_stop_tf:.3f}m, err_yaw={err_yaw_stop_tf:.3f}rad ({math.degrees(err_yaw_stop_tf):.1f}°)')
+        tf_stop_stamp = tf_after_stop['stamp_float']
+        print(f'  [Dừng 2s]  TF map->base (t={tf_stop_stamp:.3f}):  x={tf_after_stop["x"]:.3f}, y={tf_after_stop["y"]:.3f}, yaw={tf_after_stop["yaw"]:.3f} rad ({math.degrees(tf_after_stop["yaw"]):.1f}°) | err_xy={err_xy_stop_tf:.3f}m, err_yaw={err_yaw_stop_tf:.3f}rad ({math.degrees(err_yaw_stop_tf):.1f}°)')
     if amcl_after_stop:
         err_xy_stop_amcl = math.sqrt((amcl_after_stop['x'] - target_a3_x)**2 + (amcl_after_stop['y'] - target_a3_y)**2)
         err_yaw_stop_amcl = abs(normalize_angle(amcl_after_stop['yaw'] - target_a3_yaw))
-        print(f'  [Dừng 2s]  AMCL /amcl_pose: x={amcl_after_stop["x"]:.3f}, y={amcl_after_stop["y"]:.3f}, yaw={amcl_after_stop["yaw"]:.3f} rad ({math.degrees(amcl_after_stop["yaw"]):.1f}°) | err_xy={err_xy_stop_amcl:.3f}m, err_yaw={err_yaw_stop_amcl:.3f}rad ({math.degrees(err_yaw_stop_amcl):.1f}°)')
+        amcl_stop_stamp = amcl_after_stop['stamp_float']
+        print(f'  [Dừng 2s]  AMCL /amcl_pose (t={amcl_stop_stamp:.3f}): x={amcl_after_stop["x"]:.3f}, y={amcl_after_stop["y"]:.3f}, yaw={amcl_after_stop["yaw"]:.3f} rad ({math.degrees(amcl_after_stop["yaw"]):.1f}°) | err_xy={err_xy_stop_amcl:.3f}m, err_yaw={err_yaw_stop_amcl:.3f}rad ({math.degrees(err_yaw_stop_amcl):.1f}°)')
 
     # Phân tích lệnh cmd_vel và odom trong 5s cuối trước terminal
     print('\n  --- [PHÂN TÍCH LỆNH VẬN TỐC /cmd_vel VÀ THỰC ĐO /odom ĐOẠN CUỐI] ---')
@@ -625,26 +690,25 @@ def run_evidence_verification():
     yaw_ok = (eval_yaw_err <= yaw_tolerance)
 
     print('\n  --- [ĐỐI CHIẾU CHẨN ĐOÁN DUNG SAI] ---')
+    print(f'  - Nguồn pose chuẩn Nav2: TF map->base_link')
     print(f'  - Sai số vị trí: {eval_pos_err:.4f} m (Dung sai: <= {xy_tolerance:.2f} m) -> {"ĐẠT [OK]" if pos_ok else "VƯỢT NGƯỠNG [X]"}')
     print(f'  - Sai số góc:   {eval_yaw_err:.4f} rad ({math.degrees(eval_yaw_err):.1f}°) (Dung sai: <= {yaw_tolerance:.2f} rad / {math.degrees(yaw_tolerance):.1f}°) -> {"ĐẠT [OK]" if yaw_ok else "VƯỢT NGƯỠNG [X]"}')
 
-    if not yaw_ok:
-        cd_lines = [
-            'CHẨN ĐOÁN CHI TIẾT DỰA TRÊN DỮ LIỆU RUNTIME:',
-            f'      1. Cấu hình runtime: controller_server dùng SimpleGoalChecker với xy_tolerance={xy_tolerance}m, yaw_tolerance={yaw_tolerance}rad, stateful=true.',
-            f'      2. Hành vi điều khiển: Robot đạt bán kính vị trí ({eval_pos_err:.3f}m <= {xy_tolerance}m).',
-            f'      3. Nguyên nhân SUCCEEDED khi yaw lệch ({eval_yaw_err:.3f}rad > {yaw_tolerance}rad):',
-            '         - Trong SimpleGoalChecker với stateful=true, khi vị trí xy lọt vào dung sai, trạng thái xy_done được ghi nhận.',
-            '         - Tuy nhiên, DWB controller (FollowPath) với RotateToGoal critic bị dừng sớm do vận tốc góc đo được giảm xuống dưới ngưỡng hoặc ma sát mecanum trong Gazebo khiến robot ngừng quay trước khi đạt yaw tolerance.',
-            f'         - Tuyệt đối giữ nguyên dung sai kiểm tra {yaw_tolerance:.2f} rad (14.3°), không nới lỏng dung sai.'
-        ]
-        chandoan = chr(10).join(cd_lines)
-        print(f'  [!] {chandoan}')
+    if not runtime_params_valid:
+        c2_eval_status = 'CHƯA XÁC MINH (Không đọc được dung sai runtime)'
+        c2_ok = False
+    elif not pos_ok or not yaw_ok:
+        c2_eval_status = 'FAILED [X] (Vượt dung sai)'
+        c2_ok = False
+    elif not c2_match_ok:
+        c2_eval_status = 'FAILED [X] (UUID không khớp)'
+        c2_ok = False
+    else:
+        c2_eval_status = 'PASSED [OK]'
+        c2_ok = True
 
-    c2_ok = a3_succeeded and pos_ok and yaw_ok
-    c2_eval = 'PASSED [OK]' if c2_ok else 'FAILED [X]'
-    print(f'  ==> CA 2 (A3 tới đích): {c2_eval}')
-    evidence_report.append(('Ca 2 (A3 tới đích)', c2_ok, f'pos_err={eval_pos_err:.3f}m, yaw_err={eval_yaw_err:.3f}rad, SUCCEEDED={a3_succeeded}'))
+    print(f'  ==> CA 2 (A3 tới đích): {c2_eval_status}')
+    evidence_report.append(('Ca 2 (A3 tới đích)', c2_ok, f'pos_err={eval_pos_err:.3f}m, yaw_err={eval_yaw_err:.3f}rad, SUCCEEDED={a3_succeeded}, match_uuid={c2_match_ok}'))
 
     time.sleep(2.0)
 
@@ -723,16 +787,21 @@ def run_evidence_verification():
         fb_len_before_cancel = len(node.feedbacks)
         node.send_voice('hủy chuyến đi')
 
-        # Chờ nhận terminal CANCELED của đúng goal toilet
+        # Chờ nhận terminal CANCELED của đúng goal toilet (yêu cầu ID có giá trị và khớp)
         t0 = time.time()
         toilet_cancel_confirmed = False
+        toilet_cancel_att = None
+        toilet_cancel_uuid = None
+
         while time.time() - t0 < 8.0:
             for fb in node.feedbacks[fb_len_before_cancel:]:
                 if fb.get('event') == 'CANCELED':
                     fb_att = fb.get('goal_attempt_id')
                     fb_uuid = fb.get('nav2_uuid')
-                    if (toilet_att_id is None or fb_att == toilet_att_id) or (toilet_uuid and fb_uuid == toilet_uuid):
+                    if fb_att and fb_uuid and fb_att == toilet_att_id and fb_uuid == toilet_uuid:
                         toilet_cancel_confirmed = True
+                        toilet_cancel_att = fb_att
+                        toilet_cancel_uuid = fb_uuid
                         break
             if toilet_cancel_confirmed:
                 break
@@ -745,12 +814,20 @@ def run_evidence_verification():
         has_unres = node.nav_states[-1].get('has_unresolved_goals') if node.nav_states else True
         c3_terminal_clean = (final_state == 'IDLE' and has_unres is False and toilet_cancel_confirmed)
 
-        c3_ok = (chosen_target == expected_shorter) and (l1_val > 0) and (l2_val > 0) and c3_terminal_clean
+        c3_match_ok = (
+            toilet_cancel_confirmed and
+            bool(toilet_cancel_uuid) and
+            (toilet_cancel_uuid == toilet_uuid) and
+            bool(toilet_cancel_att) and
+            (toilet_cancel_att == toilet_att_id)
+        )
+
+        c3_ok = (chosen_target == expected_shorter) and (l1_val > 0) and (l2_val > 0) and c3_terminal_clean and c3_match_ok
         c3_eval = 'PASSED [OK]' if c3_ok else 'FAILED [X]'
-        print(f'  [3.5] Xác nhận terminal goal toilet: {toilet_cancel_confirmed} [OK]')
+        print(f'  [3.5] Xác nhận terminal goal toilet: {c3_match_ok} (att={toilet_cancel_att}, uuid={toilet_cancel_uuid})')
         print(f'  [3.6] Trạng thái sau hủy: state={final_state}, has_unresolved_goals={has_unres} -> Sạch terminal: {c3_terminal_clean}')
         print(f'  ==> CA 3 (Chọn toilet ngắn nhất): {c3_eval}')
-        evidence_report.append(('Ca 3 (Chọn toilet ngắn nhất)', c3_ok, f'L1={l1_val:.2f}m, L2={l2_val:.2f}m, chosen={chosen_target}, unres={has_unres}, term={toilet_cancel_confirmed}'))
+        evidence_report.append(('Ca 3 (Chọn toilet ngắn nhất)', c3_ok, f'L1={l1_val:.2f}m, L2={l2_val:.2f}m, chosen={chosen_target}, unres={has_unres}, term={c3_match_ok}'))
 
     # =========================================================================
     # TỔNG HỢP KẾT QUẢ

@@ -14,6 +14,7 @@ import json
 import os
 import sys
 import time
+import uuid
 
 from cv_bridge import CvBridge
 import numpy as np
@@ -107,20 +108,49 @@ class PersonDetectorNode(Node):
 
         self.last_frame_count = 0
         self.processed_frames = 0
+        self.current_session_id = str(uuid.uuid4())
+        self.last_loop_count = 0
         self.get_logger().info("PersonDetectorNode initialized and listening for perception streams.")
 
     def _on_status(self, msg: String):
         try:
             status_data = json.loads(msg.data)
-            # Detect loop or source restart when frame_count resets
+            session_id = status_data.get('source_session_id', '')
+            loop_count = status_data.get('loop_count', 0)
+            reset_event = status_data.get('reset_event', False)
             fc = status_data.get('frame_count', 0)
-            if fc < self.last_frame_count:
-                self.get_logger().info("Source loop/reset detected. Resetting ByteTrack tracker state.")
-                self.tracker.reset()
-                self.adapter.reset()
+
+            needs_reset = False
+            # Check 1: Session changed (source switch or restart)
+            if self.current_session_id is not None and session_id and session_id != self.current_session_id:
+                needs_reset = True
+            # Check 2: Loop count incremented
+            elif loop_count > self.last_loop_count:
+                needs_reset = True
+            # Check 3: Explicit reset event
+            elif reset_event:
+                needs_reset = True
+            # Check 4: Frame count decreased (fallback)
+            elif fc < self.last_frame_count:
+                needs_reset = True
+
+            if needs_reset:
+                self.get_logger().info(
+                    f"Resetting perception pipeline (session: {session_id}, loop: {loop_count})."
+                )
+                self._reset_pipeline()
+
+            if session_id:
+                self.current_session_id = session_id
+            self.last_loop_count = loop_count
             self.last_frame_count = fc
-        except Exception:
-            pass
+        except Exception as exc:
+            self.get_logger().warn(f"Error parsing source status: {exc}")
+
+    def _reset_pipeline(self):
+        """Reset tracker, depth buffers, and clock history cleanly."""
+        self.tracker.reset()
+        self.synchronizer.reset()
 
     def _on_info(self, msg: CameraInfo):
         self.synchronizer.set_camera_info(msg)
@@ -155,6 +185,8 @@ class PersonDetectorNode(Node):
             frame_id=msg.header.frame_id,
             current_time_sec=now_sec,
         )
+        if not getattr(obs_frame, 'source_session_id', None) and self.current_session_id:
+            obs_frame.source_session_id = self.current_session_id
 
         if obs_frame.data_quality == 'STALE':
             self.get_logger().warn(f"Dropped stale frame: {obs_frame.error_reason}")
@@ -176,32 +208,40 @@ class PersonDetectorNode(Node):
             self._publish_debug_image(rgb_np, multi_obs, msg.header)
 
     def _publish_observation(self, obs: MultiPersonObservation):
+        candidates_list = [
+            {
+                "track_id": p.track_id,
+                "is_confirmed": p.is_confirmed,
+                "is_ambiguous": p.is_ambiguous,
+                "confidence": p.confidence,
+                "bbox_xyxy": p.bbox_xyxy,
+                "torso_depth_m": p.torso_depth_m,
+                "depth_valid": p.depth_valid,
+                "center_offset_x_norm": p.center_offset_x_norm,
+                "near_edge": p.near_edge,
+                "keypoints": p.keypoints,
+                # Backward-compatibility alias
+                "bbox": p.bbox_xyxy,
+            }
+            for p in obs.candidates
+        ]
+
         payload = {
             "schema_version": "1.0",
             "stamp": {"sec": obs.stamp_sec, "nanosec": obs.stamp_nanosec},
-            "receive_monotonic": obs.receive_monotonic,
             "frame_id": obs.frame_id,
+            "receive_monotonic_time": obs.receive_monotonic_time,
             "source_mode": obs.source_mode,
+            "source_session_id": obs.source_session_id,
             "data_quality": obs.data_quality,
             "processing_time_ms": obs.processing_time_ms,
             "device": obs.device,
             "active_track_ids": obs.active_track_ids,
             "lost_track_ids": obs.lost_track_ids,
-            "persons": [
-                {
-                    "bbox": p.bbox,
-                    "confidence": p.confidence,
-                    "track_id": p.track_id,
-                    "is_confirmed": p.is_confirmed,
-                    "is_ambiguous": p.is_ambiguous,
-                    "torso_depth_m": p.torso_depth_m,
-                    "depth_valid": p.depth_valid,
-                    "center_offset_x_norm": p.center_offset_x_norm,
-                    "near_edge": p.near_edge,
-                    "keypoints": p.keypoints,
-                }
-                for p in obs.persons
-            ],
+            "candidates": candidates_list,
+            # Backward-compatibility aliases
+            "receive_monotonic": obs.receive_monotonic_time,
+            "persons": candidates_list,
         }
         msg = String(data=json.dumps(payload))
         self.obs_pub.publish(msg)
