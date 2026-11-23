@@ -361,3 +361,127 @@ def test_tracking_manager_node_smoke():
     finally:
         if rclpy.ok():
             rclpy.shutdown()
+
+
+def test_repeated_zero_stamps_over_1_5s_never_locks():
+    """Section A.1: Multiple frames repeating stamp 0/0 over 2.0s MUST NOT accumulate time or lock."""
+    manager = PassengerLockManager(gesture_hold_time_sec=1.5)
+    cand_up = _create_mock_candidate(track_id=1, hand_raised=True)
+
+    # Send 25 frames, all with stamp (0, 0) spaced 0.1s apart in wall-clock time
+    for i in range(25):
+        t_sec = round(i * 0.1, 2)
+        obs = {
+            "source_session_id": "session-zero",
+            "candidates": [cand_up],
+            "stamp": {"sec": 0, "nanosec": 0},
+        }
+        snap = manager.process_observation(obs, current_time_sec=t_sec)
+        assert manager.locked is False, f"SAFETY VIOLATION: Locked on repeating stamp 0/0 at step {i}!"
+        assert manager.state == TrackingState.IDLE
+
+
+def test_missing_or_invalid_stamps_never_accumulate():
+    """Section A.1: Missing, negative, or unparseable stamps are rejected without accumulating."""
+    manager = PassengerLockManager(gesture_hold_time_sec=1.5)
+    cand_up = _create_mock_candidate(track_id=1, hand_raised=True)
+
+    # Frame with missing stamp
+    obs_no_stamp = {"source_session_id": "session-bad", "candidates": [cand_up]}
+    snap1 = manager.process_observation(obs_no_stamp, current_time_sec=1.0)
+    assert manager.locked is False
+
+    # Frame with negative stamp
+    obs_neg_stamp = {"source_session_id": "session-bad", "candidates": [cand_up], "stamp": {"sec": -1, "nanosec": 0}}
+    snap2 = manager.process_observation(obs_neg_stamp, current_time_sec=2.0)
+    assert manager.locked is False
+
+
+def test_locked_passenger_continuous_presence_past_0_4s_remains_fresh():
+    """Section A.1: Passenger present continuously past 0.4s remains fresh."""
+    manager = PassengerLockManager(gesture_hold_time_sec=1.5)
+    cand_up = _create_mock_candidate(track_id=3, hand_raised=True, depth_m=1.8, depth_valid=True)
+
+    # Feed frames to lock at t=1.5s
+    for i in range(16):
+        t_sec = round(i * 0.1, 2)
+        sec = int(t_sec)
+        nsec = int(round((t_sec - sec) * 1e9))
+        obs = {"source_session_id": "session-fresh", "candidates": [cand_up], "stamp": {"sec": sec, "nanosec": nsec}}
+        manager.process_observation(obs, current_time_sec=t_sec)
+
+    assert manager.locked is True
+    assert manager.locked_track_id == 3
+
+    # Continue feeding frames up to t=2.5s (1.0s after lock)
+    for i in range(16, 26):
+        t_sec = round(i * 0.1, 2)
+        sec = int(t_sec)
+        nsec = int(round((t_sec - sec) * 1e9))
+        cand_track = _create_mock_candidate(track_id=3, hand_raised=False, depth_m=1.8, depth_valid=True)
+        obs = {"source_session_id": "session-fresh", "candidates": [cand_track], "stamp": {"sec": sec, "nanosec": nsec}}
+        snap = manager.process_observation(obs, current_time_sec=t_sec)
+        assert snap.locked is True
+        assert snap.obs_fresh is True
+        assert snap.reason_code == "LOCKED_TRACKING_ACTIVE"
+
+
+def test_empty_frames_cause_passenger_freshness_timeout_despite_advancing_stamps():
+    """Section A.1: Empty frames (or different person) cause passenger freshness to expire after 0.4s despite advancing stamps."""
+    manager = PassengerLockManager(gesture_hold_time_sec=1.5)
+    cand_up = _create_mock_candidate(track_id=4, hand_raised=True, depth_m=1.8, depth_valid=True)
+
+    # Feed frames to lock at t=1.5s
+    for i in range(16):
+        t_sec = round(i * 0.1, 2)
+        sec = int(t_sec)
+        nsec = int(round((t_sec - sec) * 1e9))
+        obs = {"source_session_id": "session-empty-test", "candidates": [cand_up], "stamp": {"sec": sec, "nanosec": nsec}}
+        manager.process_observation(obs, current_time_sec=t_sec)
+
+    assert manager.locked is True
+
+    # Now feed frames with advancing stamps, but candidates is EMPTY
+    # At t=1.6s to 1.8s (unseen for <= 0.30s): grace / temporarily unseen
+    for i in range(16, 19):
+        t_sec = round(i * 0.1, 2)
+        sec = int(t_sec)
+        nsec = int(round((t_sec - sec) * 1e9))
+        obs_empty = {"source_session_id": "session-empty-test", "candidates": [], "stamp": {"sec": sec, "nanosec": nsec}}
+        snap = manager.process_observation(obs_empty, current_time_sec=t_sec)
+
+    # At t=2.0s (unseen for 0.5s > 0.40s): passenger is no longer fresh!
+    t_sec = 2.0
+    sec = 2
+    nsec = 0
+    obs_empty = {"source_session_id": "session-empty-test", "candidates": [], "stamp": {"sec": sec, "nanosec": nsec}}
+    snap_stale = manager.process_observation(obs_empty, current_time_sec=t_sec)
+
+    assert snap_stale.locked is True
+    assert snap_stale.obs_fresh is False
+    assert snap_stale.reason_code == "PASSENGER_TEMPORARILY_UNSEEN"
+
+
+def test_publisher_freeze_and_heartbeat_staleness():
+    """Section A.1: Stream halting (>0.4s) causes staleness; heartbeat alone DOES NOT revive freshness."""
+    manager = PassengerLockManager(gesture_hold_time_sec=1.5)
+    cand_up = _create_mock_candidate(track_id=5, hand_raised=True, depth_m=1.8, depth_valid=True)
+
+    # Lock at t=1.5s
+    for i in range(16):
+        t_sec = round(i * 0.1, 2)
+        sec = int(t_sec)
+        nsec = int(round((t_sec - sec) * 1e9))
+        obs = {"source_session_id": "session-freeze", "candidates": [cand_up], "stamp": {"sec": sec, "nanosec": nsec}}
+        manager.process_observation(obs, current_time_sec=t_sec)
+
+    assert manager.locked is True
+    assert manager.is_observation_fresh(1.5) is True
+
+    # Publisher dies: 0.5s pass with no observations
+    freeze_time = 2.05
+    assert manager.is_observation_fresh(freeze_time) is False
+
+    # Heartbeat snapshot at t=2.05s
+    snap_hb = manager._make_snapshot(stamp_sec=2, stamp_nanosec=50000000, current_time_sec=freeze_time)
+    assert snap_hb.obs_fresh is False

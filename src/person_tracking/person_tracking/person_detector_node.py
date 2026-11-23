@@ -47,6 +47,7 @@ class PersonDetectorNode(Node):
         self.declare_parameter('iou_threshold', 0.45)
         self.declare_parameter('sync_slop_sec', 0.06)
         self.declare_parameter('publish_debug_image', True)
+        self.declare_parameter('use_synthetic_mount', False)
         self.declare_parameter('rgb_topic', '/camera/color/image_raw')
         self.declare_parameter('depth_topic', '/camera/depth/image_raw')
         self.declare_parameter('info_topic', '/camera/color/camera_info')
@@ -60,6 +61,7 @@ class PersonDetectorNode(Node):
         iou_thresh = float(self.get_parameter('iou_threshold').value)
         sync_slop = float(self.get_parameter('sync_slop_sec').value)
         self.publish_debug_image = bool(self.get_parameter('publish_debug_image').value)
+        use_synthetic_mount = bool(self.get_parameter('use_synthetic_mount').value)
 
         # Initialize CV Bridge
         self.bridge = CvBridge()
@@ -75,6 +77,7 @@ class PersonDetectorNode(Node):
                 device=device,
                 conf_threshold=conf_thresh,
                 iou_threshold=iou_thresh,
+                use_synthetic_mount=use_synthetic_mount,
             )
             self.get_logger().info(
                 f"MultiPersonTracker loaded model '{model_path}' on device '{self.tracker.device}'."
@@ -228,14 +231,15 @@ class PersonDetectorNode(Node):
         remaining = []
         for queue_time, frame_msg in self.pending_rgb_frames:
             stamp = (frame_msg.header.stamp.sec, frame_msg.header.stamp.nanosec)
-            if stamp in self.status_by_stamp:
+            if (now_mono - queue_time) > self.max_pending_age_sec:
+                # Timeout expired: drop frame regardless of whether status matches now!
+                self.status_by_stamp.pop(stamp, None)
+                self.get_logger().warn(
+                    f"Dropped frame with stamp {stamp}: status timeout in replay mode (waited > {self.max_pending_age_sec}s without status match)."
+                )
+            elif stamp in self.status_by_stamp:
                 matched_status = self.status_by_stamp.pop(stamp)
                 self._process_rgb_message(frame_msg, matched_status=matched_status)
-            elif (now_mono - queue_time) > self.max_pending_age_sec:
-                # Timeout expired and no status match: drop frame, DO NOT guess with latest_status!
-                self.get_logger().warn(
-                    f"Dropped frame with stamp {stamp}: status timeout in replay mode (waited > 0.04s without status match)."
-                )
             else:
                 remaining.append((queue_time, frame_msg))
         self.pending_rgb_frames = remaining
@@ -329,6 +333,9 @@ class PersonDetectorNode(Node):
                 "bearing_optical_rad": getattr(p, 'bearing_optical_rad', None),
                 "bearing_base_rad": getattr(p, 'bearing_base_rad', None),
                 "position_base": getattr(p, 'position_base', None),
+                "geometry_valid": getattr(p, 'geometry_valid', False),
+                "geometry_source": getattr(p, 'geometry_source', 'OPTICAL_ONLY'),
+                "geometry_error": getattr(p, 'geometry_error', ''),
                 # Backward-compatibility alias
                 "bbox": p.bbox_xyxy,
             }

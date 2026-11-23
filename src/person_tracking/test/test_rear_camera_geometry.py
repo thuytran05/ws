@@ -380,3 +380,102 @@ def test_critical_safety_zero_motion_output_in_geometry_module():
     assert "create_publisher" not in source_code
     assert "linear.x" not in source_code
     assert "angular.z" not in source_code
+
+
+def test_rear_mount_transform_frame_id_mismatch():
+    """Section A.3: Transform parent/child frame mismatch returns geometry_valid=False with descriptive error."""
+    geom_engine = RearCameraGeometry(expected_frame_id="camera_color_optical_frame")
+    intr = CameraIntrinsics.from_camera_info(_create_mock_camera_info())
+
+    # 1. Wrong parent frame (e.g. odom instead of base_link)
+    bad_parent_tf = CameraMountTransform(
+        translation=np.array([-0.2, 0, 0.25]),
+        rotation_matrix=np.eye(3),
+        parent_frame="odom",
+        child_frame="camera_color_optical_frame",
+    )
+    res1 = geom_engine.compute_geometry(
+        u=320, v=240, torso_depth_m=1.5, depth_valid=True,
+        intrinsics=intr, mount_tf=bad_parent_tf,
+    )
+    assert res1.geometry_valid is False
+    assert res1.position_base is None
+    assert res1.base_bearing_rad is None
+    assert res1.geometry_source == "OPTICAL_ONLY"
+    assert "TF_FRAME_MISMATCH" in res1.error_reason
+    assert "expected parent 'base_link'" in res1.error_reason
+
+    # 2. Wrong child frame (e.g. camera_link instead of camera_color_optical_frame)
+    bad_child_tf = CameraMountTransform(
+        translation=np.array([-0.2, 0, 0.25]),
+        rotation_matrix=np.eye(3),
+        parent_frame="base_link",
+        child_frame="camera_link",
+    )
+    res2 = geom_engine.compute_geometry(
+        u=320, v=240, torso_depth_m=1.5, depth_valid=True,
+        intrinsics=intr, mount_tf=bad_child_tf,
+    )
+    assert res2.geometry_valid is False
+    assert res2.position_base is None
+    assert res2.base_bearing_rad is None
+    assert res2.geometry_source == "OPTICAL_ONLY"
+    assert "TF_FRAME_MISMATCH" in res2.error_reason
+    assert "camera_link" in res2.error_reason
+
+
+def test_tracker_observation_geometry_opt_in_and_unverified_depth():
+    """Section A.3: MultiPersonTracker runtime defaults to no synthetic TF (position_base=None); explicit opt-in enables projection."""
+    from person_tracking.multi_person_tracker import MultiPersonTracker, PersonDetection
+    from person_tracking.source_adapters import ObservationFrame, SourceMode, DataQuality
+
+    # Mock candidate
+    mock_cand = PersonDetection(
+        bbox_xyxy=[100.0, 80.0, 260.0, 420.0],
+        confidence=0.92,
+        keypoints=[[200.0, 200.0, 0.9]] * 17,
+        track_id=1,
+        is_confirmed=True,
+        is_ambiguous=False,
+    )
+    cam_info = _create_mock_camera_info()
+    rgb_dummy = np.zeros((480, 640, 3), dtype=np.uint8)
+    depth_valid = np.full((480, 640), 1.5, dtype=np.float32)
+
+    # 1. Runtime default: use_synthetic_mount=False
+    tracker_no_tf = MultiPersonTracker(use_synthetic_mount=False)
+    tracker_no_tf.mock_backend_candidates = [mock_cand]
+    obs_frame_no_tf = ObservationFrame(
+        rgb=rgb_dummy, depth=depth_valid, depth_raw=None, camera_info=cam_info,
+        stamp_sec=1, stamp_nanosec=0, receive_monotonic=1.0, frame_id="camera_color_optical_frame",
+        source_mode=SourceMode.SYNTHETIC_FIXTURE.value, data_quality=DataQuality.VALID_RGBD.value,
+    )
+    obs_out1 = tracker_no_tf.process_frame(obs_frame_no_tf)
+    c1 = obs_out1.candidates[0]
+    assert c1.position_base is None, "SAFETY VIOLATION: position_base generated without mount TF!"
+    assert c1.bearing_base_rad is None
+    assert c1.geometry_valid is False
+    assert c1.geometry_source == "OPTICAL_ONLY"
+    assert c1.bearing_optical_rad is not None  # Optical bearing is valid
+
+    # 2. Test/Offline opt-in: use_synthetic_mount=True
+    tracker_syn_tf = MultiPersonTracker(use_synthetic_mount=True)
+    tracker_syn_tf.mock_backend_candidates = [mock_cand]
+    obs_out2 = tracker_syn_tf.process_frame(obs_frame_no_tf)
+    c2 = obs_out2.candidates[0]
+    assert c2.geometry_valid is True
+    assert c2.position_base is not None
+    assert c2.bearing_base_rad is not None
+    assert c2.geometry_source == "SYNTHETIC_TEST"
+
+    # 3. UNVERIFIED_ALIGNMENT with synthetic mount enabled: depth_valid MUST be False, geometry_valid MUST be False
+    obs_frame_unverified = ObservationFrame(
+        rgb=rgb_dummy, depth=depth_valid, depth_raw=None, camera_info=cam_info,
+        stamp_sec=1, stamp_nanosec=0, receive_monotonic=1.0, frame_id="camera_color_optical_frame",
+        source_mode=SourceMode.SYNTHETIC_FIXTURE.value, data_quality=DataQuality.UNVERIFIED_ALIGNMENT.value,
+    )
+    obs_out3 = tracker_syn_tf.process_frame(obs_frame_unverified)
+    c3 = obs_out3.candidates[0]
+    assert c3.depth_valid is False, "SAFETY VIOLATION: depth_valid must be False when UNVERIFIED_ALIGNMENT!"
+    assert c3.geometry_valid is False, "SAFETY VIOLATION: geometry_valid must be False when depth is unverified!"
+    assert c3.position_base is None

@@ -1,60 +1,86 @@
-# BẢN ĐỀ XUẤT TÍCH HỢP GIAO DIỆN GỬI PHÂN HỆ AIRPORT_ROBOT_VOICE
+# BẢN YÊU CẦU TÍCH HỢP GIAO DIỆN LIÊN PHÂN HỆ: TRACKING <-> VOICE (PHASE 6 SPECIFICATION)
 
 **Gửi:** Kỹ sư / Agent phụ trách phân hệ `airport_robot_voice`  
 **Từ:** Kỹ sư phụ trách phân hệ `person_tracking`  
-**Dự án:** Robot dẫn đường hành khách sân bay (Airport Escort Robot)  
-**Thời điểm lập:** 23/11/2026 — Phase 1 Design  
-**Mục đích:** Đề xuất thống nhất hợp đồng giao tiếp giữa Phân hệ Nhận diện Hành khách (Tracking) và Phân hệ Giọng nói / Quản lý Điều hướng (Voice) để chuẩn bị tích hợp ở Phase 9.
+**Dự án:** Robot dẫn đường hành khách sân bay (Airport Escort Robot) — ROS 2 Jazzy  
+**Thời điểm cập nhật:** 23/11/2026 — Phase 6 Offline Implementation  
+**Mục đích:** Chuẩn hóa toàn bộ hợp đồng giao tiếp, quan hệ định danh phiên/nhiệm vụ, cơ chế handshake xác nhận hai pha (ACK vs Terminal), và quy tắc kiểm soát an toàn trước khi tích hợp trực tiếp ở Phase 9.
 
 ---
 
-## 1. Tôn chỉ Thiết kế và Phân định Quyền hạn
+## 1. Tôn chỉ Thiết kế và Phân quyền Tuyệt đối
 
-1. **Voice là Chủ sở hữu DUY NHẤT của Nav2 Action:**
-   - Phân hệ Tracking **tuyệt đối không khởi tạo `ActionClient<NavigateToPose>`**, không tự ý gửi Goal và không tự ý gọi lệnh Cancel trên Nav2.
-   - Toàn bộ việc nhận diện điểm đến bằng NLU, gửi Goal cho Nav2, theo dõi tiến trình và hủy Goal đều do `nav_command_node.py` của phân hệ Voice toàn quyền đảm nhiệm.
-2. **Tracking là Cổng An toàn và Quản lý Trạng thái Khách hàng:**
-   - Phân hệ Tracking phát hiện người đi kèm qua camera sau, nhận diện cử chỉ giơ tay để khóa khách hàng, sinh `session_id` cho phiên, và quản lý cổng an toàn vận tốc (`escort_velocity_guard`).
-   - Tracking cần phối hợp với Voice để đảm bảo: **Robot chỉ nhận lệnh điểm đến và di chuyển khi ĐÃ KHÓA ĐƯỢC HÀNH KHÁCH ở phía sau**.
+1. **Voice là Chủ sở hữu DUY NHẤT của Nav2 Action Server:**
+   - Phân hệ `person_tracking` **tuyệt đối không khởi tạo `ActionClient<NavigateToPose>`**, không gửi Goal và không gọi hàm `cancel_goal_async` trực tiếp lên Nav2.
+   - Toàn bộ NLU điểm đến, khởi tạo Goal, vòng đời NavigateToPose, chọn đường ComputePathToPose, và tương tác âm thanh TTS do `nav_command_node.py` của phân hệ Voice toàn quyền sở hữu.
+2. **Tracking là Cơ quan Duy nhất Giữ Lock và Giám sát An toàn Bám theo (Single Lock Authority):**
+   - Phân hệ `person_tracking` phát hiện khách qua camera sau, nhận diện cử chỉ giơ tay để khóa khách, sinh `session_id`, giám sát độ mới quan sát (`obs_fresh`), và quản lý FSM bám theo.
+   - Tracking ép dừng xe khi khách mất dấu quá thời hạn cho phép và gửi yêu cầu hủy an toàn sang Voice.
+   - **Robot chỉ được phép khởi hành khi đã khóa đúng khách, quan sát còn mới và phiên trước đã kết thúc trọn vẹn.**
 
 ---
 
-## 2. Các Thay đổi Đề xuất từ Phía Phân hệ Voice (Tại Phase 9)
+## 2. Chuẩn hóa Quan hệ giữa 5 Định danh (Correlation & Identity Architecture)
 
-### 2.1. Lắng nghe Trạng thái Khóa Khách hàng: `/tracking/session_state`
-- **Topic:** `/tracking/session_state`
-- **Kiểu bản tin:** `std_msgs/msg/String` (JSON format)
+Để đảm bảo hai phân hệ hoạt động song song không bao giờ xung đột trạng thái hoặc bị kích hoạt bởi bản tin cũ:
+
+| Tên Định danh | Kiểu dữ liệu | Phân hệ khởi tạo | Ý nghĩa & Vòng đời |
+| :--- | :--- | :--- | :--- |
+| **`session_id`** | UUIDv4 (String) | `escort_tracking_manager` | Định danh duy nhất cho một phiên phục vụ một hành khách cụ thể từ lúc giơ tay khóa thành công đến khi tới đích hoặc bị hủy. |
+| **`mission_id`** | UUIDv4 (String) | `nav_command_node` | Định danh phiên nhiệm vụ dẫn đường tổng thể do Voice khởi tạo khi nhận diện xong điểm đến. |
+| **`goal_attempt_id`**| UUIDv4 (String) | `nav_command_node` | Định danh mỗi lần thử gửi Goal cụ thể tới Nav2 Action Server. |
+| **`nav2_uuid`** | UUID 16 bytes | Nav2 Action Client | ID kỹ thuật nội bộ của ROS 2 Action Goal handle. |
+| **`request_id`** | UUIDv4 (String) | `escort_tracking_manager` | Định danh duy nhất cho từng yêu cầu an toàn (ví dụ lệnh hủy `ABORT`) để phục vụ bắt tay ACK và retry. |
+
+**Quy tắc tương quan:**
+- Một `session_id` của khách có thể chứa một `mission_id` của Voice.
+- Một `mission_id` có thể trải qua một hoặc nhiều `goal_attempt_id` (nếu có cơ chế thử lại hoặc đổi đích).
+- Mỗi lệnh `safety_request` (ABORT) sinh một `request_id` độc lập để Voice ACK chính xác.
+
+---
+
+## 3. Chi tiết Các Topic và Hợp đồng Giao tiếp
+
+### 3.1. Giao diện Cấp phép: `/tracking/session_state`
+- **Chủ quản:** `escort_tracking_manager`
+- **Bên tiêu thụ:** `airport_robot_voice/nav_command_node`
+- **Kiểu:** `std_msgs/msg/String` (JSON format)
 - **QoS:** Depth=1, Durability=TRANSIENT_LOCAL, Reliability=RELIABLE
-- **Cấu trúc JSON do Tracking phát hành:**
+- **Tần số:** 5 Hz Heartbeat + Event-driven khi chuyển trạng thái.
+- **Cấu trúc JSON Payload:**
   ```json
   {
     "schema_version": "1.0",
-    "stamp": { "sec": 1732320000, "nanosec": 123456789 },
+    "stamp": { "sec": 1732320000, "nanosec": 500000000 },
+    "last_observation_stamp": { "sec": 1732320000, "nanosec": 420000000 },
+    "obs_fresh": true,
     "sequence_num": 42,
     "session_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
     "state": "LOCKED_WAIT_DESTINATION",
     "locked": true,
     "person_track_id": 3,
     "person_distance_m": 1.45,
+    "depth_proven": true,
     "confidence": 0.94,
     "reason_code": "HAND_RAISE_HELD_NEAREST"
   }
   ```
-- **Hành vi đề xuất thêm vào `nav_command_node.py`:**
-  - Tạo subscription lắng nghe topic `/tracking/session_state`.
-  - Khi nhận intent điểm đến từ người dùng (ví dụ: *"Dẫn tôi tới Cổng 1"*):
-    - Kiểm tra `locked == true` và `state == "LOCKED_WAIT_DESTINATION"`.
-    - **Nếu ĐÃ KHÓA:** Ghi nhận `session_id` vào phiên hiện tại, chấp nhận điểm đến và gửi Goal sang Nav2 như bình thường.
-    - **Nếu CHƯA KHÓA (`locked == false`):** Từ chối tiếp nhận và phát TTS phản hồi:
-      > *"Xin quý khách vui lòng đứng phía sau và giơ một tay để robot nhận diện trước khi chọn điểm đến."*
+- **Quy tắc Kiểm tra tại Voice (Gating Rule):**
+  Khi người dùng phát âm lệnh điểm đến, Voice **chỉ được chấp nhận và gửi Goal sang Nav2** khi:
+  1. `locked == true`
+  2. `state == "LOCKED_WAIT_DESTINATION"`
+  3. `obs_fresh == true` (nếu `obs_fresh == false` hoặc `reason_code == "PASSENGER_TEMPORARILY_UNSEEN"`: từ chối vì mất dấu trước xuất phát)
+  4. Tuổi bản tin heartbeat $\le 1.0$ giây và Voice không còn goal cũ nào ở trạng thái chưa xác nhận terminal (`has_unresolved_goals == false`).
 
 ---
 
-### 2.2. Tiếp nhận Yêu cầu Hủy khẩn cấp từ Tracking: `/tracking/safety_request`
-- **Topic:** `/tracking/safety_request`
-- **Kiểu bản tin:** `std_msgs/msg/String` (JSON format)
+### 3.2. Giao diện Yêu cầu An toàn: `/tracking/safety_request`
+- **Chủ quản:** `escort_tracking_manager`
+- **Bên tiêu thụ:** `airport_robot_voice/nav_command_node`
+- **Kiểu:** `std_msgs/msg/String` (JSON format)
 - **QoS:** Depth=10, Reliability=RELIABLE
-- **Cấu trúc JSON do Tracking phát hành:**
+- **Cơ chế Retry:** Phát ngay khi vào `ABORTING`. Tự động gửi lại tối đa 3 lần sau mỗi 200 ms (tổng 4 lần) nếu chưa nhận được ACK từ Voice.
+- **Cấu trúc JSON Payload:**
   ```json
   {
     "schema_version": "1.0",
@@ -62,45 +88,95 @@
     "request_id": "8b0a1d63-3b1a-4f5e-9e7f-6d2c1e8a9b0c",
     "session_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
     "command": "ABORT",
-    "reason_code": "TARGET_LOST_PROLONGED",
-    "message": "Không thấy hành khách trong hơn 1.2 giây"
+    "reason_code": "VISIBILITY_TIMEOUT_EXCEEDED",
+    "message": "Escort abort triggered: VISIBILITY_TIMEOUT_ABORT"
   }
   ```
-- **Hành vi đề xuất thêm vào `nav_command_node.py`:**
-  - Khi nhận `command == "ABORT"` có `session_id` khớp với phiên đang dẫn đường:
-    1. Gọi ngay `cancel_goal_async()` để hủy Goal đang chạy trên Nav2.
-    2. Chuyển `mission_state` sang trạng thái hủy (`CANCELING` -> `IDLE`).
-    3. Phát âm thanh TTS thông báo: *"Đã mất dấu hành khách, robot dừng hành trình dẫn đường."*
-    4. (Lưu ý: Phía Tracking đã chủ động ép vận tốc motor về 0 ngay lập tức, Voice chỉ cần thực hiện dọn dẹp Goal trên Nav2 và tương tác âm thanh).
+- **Hành vi xử lý bắt buộc tại Voice:**
+  1. Khi nhận bản tin, so sánh `session_id`. Nếu khớp với phiên hiện tại:
+     - Gửi ngay bản tin **ACK** trên `/voice/nav_status` với `request_id` tương ứng và `nav_event: "CANCEL_ACKNOWLEDGED"`.
+     - Lập tức gọi `cancel_goal_async` trên ActionClient của Nav2.
+     - Phát câu thông báo TTS thông báo hành khách: *"Đã mất dấu hành khách, robot dừng hành trình dẫn đường."*
 
 ---
 
-### 2.3. Phát hành Trạng thái Hoàn tất để Tracking Xóa Khóa: `/voice/nav_status`
-- **Topic:** `/voice/nav_status` (hoặc bổ sung các trường vào `/voice/nav_state` hiện có)
-- **Kiểu bản tin:** `std_msgs/msg/String` (JSON format)
+### 3.3. Giao diện Trạng thái Nav2 từ Voice: `/voice/nav_status`
+- **Chủ quản:** `airport_robot_voice/nav_command_node`
+- **Bên tiêu thụ:** `escort_tracking_manager`
+- **Kiểu:** `std_msgs/msg/String` (JSON format)
 - **QoS:** Depth=1, Durability=TRANSIENT_LOCAL, Reliability=RELIABLE
-- **Cấu trúc JSON đề xuất:**
-  ```json
-  {
-    "schema_version": "1.0",
-    "stamp": { "sec": 1732320060, "nanosec": 987654321 },
-    "session_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-    "mission_id": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
-    "goal_attempt_id": "11223344-5566-7788-99aa-bbccddeeff00",
-    "destination_id": "gate_1",
-    "status": "SUCCEEDED",
-    "nav_event": "GOAL_COMPLETED",
-    "is_terminal": true,
-    "message": "Đã đến Cổng 1 thành công."
-  }
-  ```
-- **Ý nghĩa:** Khi Voice phát bản tin có `status == "SUCCEEDED"` và `is_terminal == true` đúng với `session_id`, Tracking sẽ xác nhận đến đích, xóa ID khóa của khách, dọn dẹp phiên và đưa hệ thống về trạng thái `IDLE` sẵn sàng đón lượt khách mới.
+
+#### Quy định Tách Biệt Hai Pha (Handshake vs Terminal Result):
+Phân hệ Tracking yêu cầu **tách riêng rẽ bản tin ACK và bản tin Kết quả Kết thúc (Terminal)**:
+
+1. **Pha 1: ACK Tiếp nhận Yêu cầu Hủy (`is_terminal: false`)**
+   ```json
+   {
+     "schema_version": "1.0",
+     "stamp": { "sec": 1732320005, "nanosec": 470000000 },
+     "session_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+     "request_id": "8b0a1d63-3b1a-4f5e-9e7f-6d2c1e8a9b0c",
+     "status": "CANCELING",
+     "nav_event": "CANCEL_ACKNOWLEDGED",
+     "is_terminal": false,
+     "message": "Voice đã tiếp nhận lệnh ABORT và đang yêu cầu Nav2 hủy Goal."
+   }
+   ```
+   *Tác dụng:* Tracking ngừng gửi retry cho `request_id` này nhưng tiếp tục giữ trạng thái `ABORTING` (chưa cho phép phiên mới).
+
+2. **Pha 2: Kết quả Kết thúc Goal (`is_terminal: true`)**
+   ```json
+   {
+     "schema_version": "1.0",
+     "stamp": { "sec": 1732320005, "nanosec": 980000000 },
+     "session_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+     "mission_id": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
+     "goal_attempt_id": "11223344-5566-7788-99aa-bbccddeeff00",
+     "destination_id": "gate_1",
+     "status": "CANCELED",
+     "nav_event": "GOAL_COMPLETED",
+     "is_terminal": true,
+     "message": "Nav2 Action Server đã xác nhận Goal hủy hoàn tất."
+   }
+   ```
+   *Tác dụng:* Tracking xóa cờ `unconfirmed_terminal`, dọn dẹp phiên một lần duy nhất về `IDLE` sẵn sàng nhận khách mới.
+
+3. **Pha Dẫn đường Thành công Đến Đích (`is_terminal: true`, `status: "SUCCEEDED"`)**
+   ```json
+   {
+     "schema_version": "1.0",
+     "stamp": { "sec": 1732320060, "nanosec": 123456789 },
+     "session_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+     "status": "SUCCEEDED",
+     "nav_event": "GOAL_COMPLETED",
+     "is_terminal": true,
+     "message": "Đã dẫn hành khách đến Cổng 1 an toàn."
+   }
+   ```
+   *Tác dụng:* Tracking chuyển trạng thái `ARRIVED` -> dọn dẹp phiên về `IDLE`.
 
 ---
 
-## 3. Lộ trình Triển khai Phối hợp
+## 4. Xử lý Các Trường hợp Biên (Edge Cases)
 
-- **Giai đoạn hiện tại (Phase 1–8):** Phân hệ Tracking sẽ sử dụng node giả lập `mock_voice_owner` bên trong package tracking để tự động hóa toàn bộ kiểm thử nội bộ mà **không yêu cầu Voice phải sửa đổi code ngay**.
-- **Giai đoạn tích hợp chính thức (Phase 9):** Sau khi phân hệ Tracking hoàn thành các bài test độc lập, bản đề xuất này sẽ được chủ dự án phê duyệt để áp dụng chính thức vào mã nguồn của Voice.
+1. **Bản tin đến muộn từ phiên cũ (Stale Goal Status):**
+   Nếu Voice phát bản tin mang `session_id` cũ hoặc `is_terminal == true` nhưng không trùng `session_id` hiện tại của Tracking, Tracking **hoàn toàn bỏ qua**, không cho phép kết quả cũ làm xóa nhầm phiên đang chạy.
+2. **Goal chưa xác nhận kết thúc (Unconfirmed Terminal Timeout):**
+   Nếu lệnh `ABORT` sau 3 lần retry vẫn không nhận được ACK/Terminal từ Voice, Tracking đánh dấu `unconfirmed_terminal = true`, chuyển sang `FAULT` và **chặn tuyệt đối không cho bất kỳ khách hàng nào khác khóa phiên mới**.
+3. **Mất dấu tạm thời (Grace Period 0.25s & Wait 0.40s):**
+   - Mất khách $< 0.25$s: Tracking giữ `NAVIGATING` (`LOCKED_TARGET_GRACE_PERIOD`), không gây xáo trộn.
+   - Mất khách $> 0.40$s: Tracking chuyển `WAITING_FOR_PASSENGER` (vận tốc ép về 0).
+   - Nếu khách quay lại trước 1.20s: Tracking tự phục hồi về `NAVIGATING` mà không cần hủy Goal.
+   - Quá 1.20s: Lập tức `ABORT` sang Voice. Sau khi đã `ABORT`, việc khách quay lại **tuyệt đối không được mở khóa lại**.
 
-*Rất mong nhận được phản hồi và thống nhất từ phía phân hệ Voice!*
+---
+
+## 5. Danh mục Việc Cần Triển Khai từ Phía Phân hệ Voice (Phase 9 Checklist)
+
+1. [ ] Thêm subscription lắng nghe `/tracking/session_state` trong `nav_command_node.py`.
+2. [ ] Thêm logic kiểm tra gating khởi hành: `locked == true && state == "LOCKED_WAIT_DESTINATION" && obs_fresh == true`.
+3. [ ] Thêm subscription lắng nghe `/tracking/safety_request` trong `nav_command_node.py`.
+4. [ ] Triển khai hàm phản hồi ACK hai pha trên topic `/voice/nav_status`:
+   - Gửi ngay ACK `CANCEL_ACKNOWLEDGED` kèm `request_id`.
+   - Gửi `is_terminal: true` kèm `session_id` khi Nav2 xác nhận goal đã kết thúc.
+5. [ ] Đảm bảo gán trường `session_id` từ `session_state` vào các bản tin trạng thái của Voice.

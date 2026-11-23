@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rear Camera Geometry & Spatial Projection for Person Tracking Phase 5.
+"""Rear Camera Geometry & Spatial Projection for Person Tracking Phase 5 & 6.
 
 Implements ADR-10 (Rear Camera Coordinate Conventions):
 - Decouples normalized pixel offset (center_offset_x_norm) from optical bearing (bearing_optical_rad).
@@ -57,6 +57,7 @@ class CameraMountTransform:
     rotation_matrix: np.ndarray  # 3x3 orthonormal rotation matrix
     parent_frame: str = "base_link"
     child_frame: str = "camera_color_optical_frame"
+    is_synthetic: bool = False
 
     def transform_point(self, p_opt: np.ndarray) -> np.ndarray:
         """Transform 3D point from optical frame to base_link frame: P_base = R * P_opt + T."""
@@ -92,7 +93,12 @@ class CameraMountTransform:
         ], dtype=np.float64)
 
         t_vec = np.array(translation, dtype=np.float64)
-        return cls(translation=t_vec, rotation_matrix=r_mat, child_frame=child_frame)
+        return cls(
+            translation=t_vec,
+            rotation_matrix=r_mat,
+            child_frame=child_frame,
+            is_synthetic=True,
+        )
 
 
 @dataclass
@@ -104,6 +110,8 @@ class TargetGeometryResult:
     position_optical: Optional[List[float]] = None  # [X_opt, Y_opt, Z_opt] meters
     position_base: Optional[List[float]] = None  # [X_base, Y_base, Z_base] meters
     is_metric_valid: bool = False
+    geometry_valid: bool = False
+    geometry_source: str = "OPTICAL_ONLY"  # "TF_TRANSFORM", "SYNTHETIC_TEST", "OPTICAL_ONLY"
     error_reason: str = ""
 
 
@@ -156,6 +164,8 @@ class RearCameraGeometry:
                 center_offset_x_norm=center_offset_x,
                 optical_bearing_rad=None,
                 is_metric_valid=False,
+                geometry_valid=False,
+                geometry_source="OPTICAL_ONLY",
                 error_reason="INVALID_OR_MISSING_CAMERA_INFO",
             )
 
@@ -165,6 +175,8 @@ class RearCameraGeometry:
                 center_offset_x_norm=center_offset_x,
                 optical_bearing_rad=optical_bearing,
                 is_metric_valid=False,
+                geometry_valid=False,
+                geometry_source="OPTICAL_ONLY",
                 error_reason=f"FRAME_ID_MISMATCH: expected '{self.expected_frame_id}', got '{frame_id}'",
             )
 
@@ -174,7 +186,29 @@ class RearCameraGeometry:
                 center_offset_x_norm=center_offset_x,
                 optical_bearing_rad=optical_bearing,
                 is_metric_valid=False,
+                geometry_valid=False,
+                geometry_source="OPTICAL_ONLY",
                 error_reason="MISSING_TF_TRANSFORM",
+            )
+
+        if mount_tf.parent_frame != "base_link":
+            return TargetGeometryResult(
+                center_offset_x_norm=center_offset_x,
+                optical_bearing_rad=optical_bearing,
+                is_metric_valid=False,
+                geometry_valid=False,
+                geometry_source="OPTICAL_ONLY",
+                error_reason=f"TF_FRAME_MISMATCH: expected parent 'base_link', got '{mount_tf.parent_frame}'",
+            )
+
+        if mount_tf.child_frame != frame_id:
+            return TargetGeometryResult(
+                center_offset_x_norm=center_offset_x,
+                optical_bearing_rad=optical_bearing,
+                is_metric_valid=False,
+                geometry_valid=False,
+                geometry_source="OPTICAL_ONLY",
+                error_reason=f"TF_FRAME_MISMATCH: mount child '{mount_tf.child_frame}' != camera frame '{frame_id}'",
             )
 
         # 5. Depth validity check
@@ -183,6 +217,8 @@ class RearCameraGeometry:
                 center_offset_x_norm=center_offset_x,
                 optical_bearing_rad=optical_bearing,
                 is_metric_valid=False,
+                geometry_valid=False,
+                geometry_source="OPTICAL_ONLY",
                 error_reason="UNVERIFIED_OR_INVALID_DEPTH",
             )
 
@@ -201,6 +237,8 @@ class RearCameraGeometry:
         # 8. Base Bearing
         base_bearing = float(math.atan2(y_base, x_base))
 
+        geom_src = "SYNTHETIC_TEST" if getattr(mount_tf, 'is_synthetic', False) else "TF_TRANSFORM"
+
         return TargetGeometryResult(
             center_offset_x_norm=center_offset_x,
             optical_bearing_rad=optical_bearing,
@@ -208,5 +246,7 @@ class RearCameraGeometry:
             position_optical=[x_opt, y_opt, z_opt],
             position_base=[x_base, y_base, z_base],
             is_metric_valid=True,
+            geometry_valid=True,
+            geometry_source=geom_src,
             error_reason="",
         )

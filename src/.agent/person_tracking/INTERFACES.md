@@ -227,7 +227,10 @@
             "keypoints": { "type": "array", "items": { "type": "array", "minItems": 3, "maxItems": 3 } },
             "bearing_optical_rad": { "type": ["number", "null"], "description": "Góc lệch phương vị quang học theta_opt = atan2(u - cx, fx)" },
             "bearing_base_rad": { "type": ["number", "null"], "description": "Góc lệch phương vị hệ robot base_link [-pi, pi]" },
-            "position_base": { "type": ["array", "null"], "items": { "type": "number" }, "minItems": 3, "maxItems": 3, "description": "[X, Y, Z] trong base_link (meters)" }
+            "position_base": { "type": ["array", "null"], "items": { "type": "number" }, "minItems": 3, "maxItems": 3, "description": "[X, Y, Z] trong base_link (meters)" },
+            "geometry_valid": { "type": "boolean", "description": "True chỉ khi cả TF transform và depth đo lường đều hợp lệ" },
+            "geometry_source": { "type": "string", "enum": ["TF_TRANSFORM", "SYNTHETIC_TEST", "OPTICAL_ONLY"] },
+            "geometry_error": { "type": "string", "description": "Mã nguyên nhân khi không tính được tọa độ base (MISSING_TF, FRAME_ID_MISMATCH, v.v.)" }
           },
           "required": ["is_confirmed", "is_ambiguous", "confidence", "bbox_xyxy", "depth_valid", "center_offset_x_norm", "near_edge"]
         }

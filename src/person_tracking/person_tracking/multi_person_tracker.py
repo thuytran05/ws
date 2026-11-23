@@ -55,6 +55,9 @@ class PersonDetection:
     bearing_optical_rad: Optional[float] = None
     bearing_base_rad: Optional[float] = None
     position_base: Optional[List[float]] = None
+    geometry_valid: bool = False
+    geometry_source: str = "OPTICAL_ONLY"
+    geometry_error: str = ""
     bbox: Optional[List[float]] = None  # Backward-compatibility alias
 
     def __post_init__(self):
@@ -102,6 +105,7 @@ class MultiPersonTracker:
         iou_threshold: float = 0.45,
         tracker_config: str = "bytetrack.yaml",
         edge_margin_ratio: float = 0.08,
+        use_synthetic_mount: bool = False,
     ):
         self.model_path = model_path
         self.conf_threshold = conf_threshold
@@ -135,8 +139,11 @@ class MultiPersonTracker:
         self.previous_track_ids = set()
         self.total_processed_frames = 0
         self.mock_backend_candidates: Optional[List[PersonDetection]] = None
+        self.use_synthetic_mount = use_synthetic_mount
         self.geometry = RearCameraGeometry()
-        self.mount_tf: Optional[CameraMountTransform] = CameraMountTransform.create_synthetic_rear_mount()
+        self.mount_tf: Optional[CameraMountTransform] = (
+            CameraMountTransform.create_synthetic_rear_mount() if use_synthetic_mount else None
+        )
 
     def reset(self):
         """Reset tracker state on source switch, video loop, or stream reset."""
@@ -185,7 +192,7 @@ class MultiPersonTracker:
                 eff_depth = torso_depth_m if cand.torso_depth_m is None else cand.torso_depth_m
                 intrinsics = CameraIntrinsics.from_camera_info(obs_frame.camera_info)
                 geom_engine = getattr(self, 'geometry', None) or RearCameraGeometry()
-                mount_tf = getattr(self, 'mount_tf', None) or CameraMountTransform.create_synthetic_rear_mount()
+                mount_tf = getattr(self, 'mount_tf', None)
                 geom = geom_engine.compute_geometry(
                     u=box_cx,
                     v=(y1 + y2) / 2.0,
@@ -210,6 +217,9 @@ class MultiPersonTracker:
                     bearing_optical_rad=geom.optical_bearing_rad,
                     bearing_base_rad=geom.base_bearing_rad,
                     position_base=geom.position_base,
+                    geometry_valid=geom.geometry_valid,
+                    geometry_source=geom.geometry_source,
+                    geometry_error=geom.error_reason,
                 )
                 detected_persons.append(person)
         else:
@@ -271,7 +281,7 @@ class MultiPersonTracker:
 
                         intrinsics = CameraIntrinsics.from_camera_info(obs_frame.camera_info)
                         geom_engine = getattr(self, 'geometry', None) or RearCameraGeometry()
-                        mount_tf = getattr(self, 'mount_tf', None) or CameraMountTransform.create_synthetic_rear_mount()
+                        mount_tf = getattr(self, 'mount_tf', None)
                         geom = geom_engine.compute_geometry(
                             u=box_cx,
                             v=(y1 + y2) / 2.0,
@@ -296,6 +306,9 @@ class MultiPersonTracker:
                             bearing_optical_rad=geom.optical_bearing_rad,
                             bearing_base_rad=geom.base_bearing_rad,
                             position_base=geom.position_base,
+                            geometry_valid=geom.geometry_valid,
+                            geometry_source=geom.geometry_source,
+                            geometry_error=geom.error_reason,
                         )
                         detected_persons.append(person)
 

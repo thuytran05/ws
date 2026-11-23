@@ -17,7 +17,7 @@
 | **Phase 3** | Multi-person perception, pose & Tracking ID | **PARTIAL / CODE_READY** | 23/11/2026 | `.agent/person_tracking/evidence/phase_3/` |
 | **Phase 4** | Giơ tay, chọn khách gần nhất & Khóa phiên | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_4/` |
 | **Phase 5** | RGB-D, depth & Hình học camera sau | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_5/` |
-| **Phase 6** | Session FSM, timeout & Giao tiếp voice | **NOT_STARTED** | — | — |
+| **Phase 6** | Session FSM, timeout & Giao tiếp voice | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_6/` |
 | **Phase 7** | Velocity guard, mecanum & Watchdog | **NOT_STARTED** | — | — |
 | **Phase 8** | End-to-end ROS 2 integration (không sửa Gazebo) | **NOT_STARTED** | — | — |
 | **Phase 9** | Giao tiếp song song với agent voice | **NOT_STARTED** | — | — |
@@ -254,3 +254,40 @@
   - Phân hệ Voice tiếp tục sở hữu duy nhất `NavigateToPose`.
   - Phân hệ Tracking tuyệt đối KHÔNG phát bất kỳ lệnh `/cmd_vel` hay mục tiêu di chuyển nào.
   - DỪNG TRƯỚC PHASE 6 theo đúng quy định bàn giao.
+
+
+---
+
+### Phase 6 — Session FSM, timeout & Giao tiếp voice — [PASS]
+- **Ngày/giờ hoàn thành:** 23/11/2026 17:15:00+07:00
+- **Baseline Git Commit:** `043d0050c92562d3c96d7fc1b73d29d573d5006a`
+- **Mục tiêu đạt được:** Hoàn tất toàn diện Phase 6 Offline, sửa triệt để các lỗi hồi quy đầu vào (Observation/Watchdog, Replay Queue Timeout, Geometry Input), triển khai đầy đủ máy trạng thái phiên FSM (Single Lock Authority), cơ chế bắt tay 2 pha (ACK vs Terminal), mạch retry lệnh hủy an toàn sang Voice, và bộ kiểm thử tích hợp 100% PASS với Mock Voice.
+
+- **Các nội dung kỹ thuật đã hoàn thành:**
+  1. **Sửa Hồi quy Đầu vào trước khi nối FSM (Section A):**
+     - *Observation & Watchdog:* Chặn dứt điểm lỗi lặp stamp 0/0 tích lũy thời gian khóa; yêu cầu timestamp đơn điệu $0 < \Delta t \le 0.25$s; loại bỏ hoàn toàn fallback sang receive monotonic time khi tích lũy cử chỉ; tách biệt rạch ròi giữa thời điểm nhận frame và thời điểm nhìn thấy đúng khách đã khóa. Khách xuất hiện liên tục quá 0.4s vẫn fresh; frame rỗng liên tục quá 0.4s làm mất fresh dù camera stamp vẫn tăng; duplicate/backwards stamp và publisher đóng băng không làm tươi khách; heartbeat timer định kỳ không làm sống lại quan sát cũ.
+     - *Replay Queue & Timeout:* Trong `_drain_pending_frames()`, kiểm tra hạn chót `(now_mono - queue_time) > self.max_pending_age_sec` TRƯỚC KHI xử lý cặp status-frame đã khớp. Khung hình có status đến sau 0.30s (timeout) bị HỦY (DROP) và xóa status kèm cảnh báo log, không bị xử lý nhầm; đồng bộ toàn bộ log message dùng timeout cấu hình (loại bỏ hoàn toàn chuỗi sót 0.04s). Giữ nguyên luồng nhận live camera / bag không có status.
+     - *Đầu vào Hình học cho FSM:* Mặc định runtime không tự ý chèn mount giả (`use_synthetic_mount=False`, `position_base=None`, `bearing_base_rad=None`, `geometry_valid=False`, `geometry_source="OPTICAL_ONLY"`, `optical_bearing_rad` vẫn tính từ CameraInfo). Chỉ bật phép chiếu khi có opt-in tường minh (`use_synthetic_mount=True`). Kiểm tra source/target frame ID của transform (`base_link` vs camera frame). Phân tách độc lập hoàn toàn giữa `depth_valid` và `geometry_valid`. Thiết bị Astra thật tiếp tục duy trì trạng thái `HARDWARE_VALIDATION_PENDING` (Phase 11).
+  2. **Triển khai Máy trạng thái Phiên & Giao tiếp Voice (Section B):**
+     - *Cơ quan duy nhất giữ Lock:* `tracking_manager_node.py` quản lý toàn bộ vòng đời FSM: `IDLE`, `LOCKED_WAIT_DESTINATION`, `NAVIGATING`, `WAITING_FOR_PASSENGER`, `ABORTING`, `ARRIVED`, `FAULT`.
+     - *Khởi hành an toàn:* Chỉ chuyển sang `NAVIGATING` khi đã khóa (`locked == True`), quan sát còn mới (`obs_fresh == True`), không có goal cũ unresolved, và Voice gửi tín hiệu bắt đầu.
+     - *Ngưỡng thời gian an toàn:* Grace period 0.25s (giữ `NAVIGATING`, lý do `LOCKED_TARGET_GRACE_PERIOD`), Stop threshold 0.40s (chuyển `WAITING_FOR_PASSENGER`, ép dừng), Abort threshold 1.20s (chuyển `ABORTING`, phát lệnh hủy).
+     - *Watchdog độc lập 10 Hz:* Tự động kích hoạt chuyển trạng thái và phát lệnh hủy ngay cả khi luồng ảnh camera bị đóng băng hoặc ngắt kết nối hoàn toàn.
+     - *Phục hồi sau WAIT:* Đúng khách quay lại trước 1.20s tự động phục hồi về `NAVIGATING` (`PASSENGER_RETURNED_RESUMED`). Sau khi đã `ABORTING`, chốt dừng vĩnh viễn (latched stop), khách quay lại không được tự unlatch.
+     - *Giao thức Bắt tay 2 pha trên `/voice/nav_status`:*
+       * Pha 1: Voice gửi ACK (`nav_event: "CANCEL_ACKNOWLEDGED"`, `is_terminal: false`) kèm `request_id` -> Tracking dừng vòng lặp retry nhưng tiếp tục giữ `ABORTING`.
+       * Pha 2: Nav2 kết thúc và Voice gửi Terminal (`is_terminal: true`, `status: "CANCELED"` / `"SUCCEEDED"`) -> Tracking dọn dẹp phiên về `IDLE`.
+       * Unconfirmed Terminal: Nếu sau 3 lần retry không nhận được ACK/Terminal, chuyển sang `FAULT`, chặn tuyệt đối không cho mở phiên mới (`UNCONFIRMED_TERMINAL_BLOCK`).
+       * Bản tin cũ / sai `session_id` bị loại bỏ hoàn toàn.
+     - *Tài liệu tích hợp Voice:* Cập nhật đầy đủ trong [.agent/person_tracking/VOICE_INTEGRATION_REQUEST.md](file:///home/thuytran/ws/src/.agent/person_tracking/VOICE_INTEGRATION_REQUEST.md).
+  3. **Kết quả Kiểm thử Toàn diện (100% PASS):**
+     - Toàn bộ **70/70 tests** của phân hệ `person_tracking` đều PASS trong 11.48s (ROS 2 Jazzy, ROS_DOMAIN_ID=42).
+     - Riêng file tích hợp FSM & Mock Voice `test_session_fsm_mock_voice.py`: 7/7 tests PASS trong 4.14s.
+     - Kiểm thử an toàn tuyệt đối: Khẳng định **ZERO `/cmd_vel` publishers** và **ZERO `geometry_msgs/Twist`** trên toàn bộ các node của phân hệ `person_tracking`. Phân hệ Voice tiếp tục là chủ sở hữu duy nhất của `NavigateToPose`.
+
+- **Bằng chứng kỹ thuật:**
+  - Log kiểm thử FSM & Mock Voice: [.agent/person_tracking/evidence/phase_6/phase_6_fsm_mock_voice.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_6/phase_6_fsm_mock_voice.log).
+  - Kết quả kiểm thử pytest tổng hợp: [.agent/person_tracking/evidence/phase_6/pytest_results.txt](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_6/pytest_results.txt).
+  - Bản yêu cầu tích hợp Voice: [.agent/person_tracking/VOICE_INTEGRATION_REQUEST.md](file:///home/thuytran/ws/src/.agent/person_tracking/VOICE_INTEGRATION_REQUEST.md).
+
+- **Điểm dừng bàn giao:** Dừng chính xác trước Phase 7 (Velocity guard, mecanum & Watchdog). User tự commit và push lên Git.

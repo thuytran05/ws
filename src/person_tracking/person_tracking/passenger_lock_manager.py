@@ -1,13 +1,17 @@
-"""Passenger lock and gesture management module for person_tracking Phase 4.
+"""Passenger lock and gesture management module for person_tracking Phase 4 & Phase 6.
 
 Implements ADR-01 (Single Lock Authority):
 - Ingests /tracking/observation frames.
 - Analyzes 17 body keypoints for one-hand raise gesture.
 - Requires gesture hold duration >= gesture_hold_time_sec (default 1.5s).
+- Rejects missing, zero (0/0), duplicate, backwards, or gapped timestamps (>0.25s).
 - Disambiguates multiple candidates using valid torso depth (or proxy area if unambiguous).
-- Transitions FSM from IDLE to LOCKED_WAIT_DESTINATION.
-- Ensures dropping hand does NOT break session.
-- Isolates track IDs by source_session_id to prevent lock hopping across loops.
+- Transitions FSM through states:
+    IDLE -> LOCKED_WAIT_DESTINATION -> NAVIGATING -> WAITING_FOR_PASSENGER -> ABORTING / ARRIVED / FAULT.
+- Decouples raw camera frame arrival time from locked passenger observation time.
+- Enforces safety thresholds: grace 0.25s, WAIT/stop 0.40s, ABORT 1.20s.
+- Latching stop in ABORTING: cannot be resumed by new detections or matching IDs.
+- Terminal result confirmation from Voice required before resetting to IDLE.
 """
 
 from dataclasses import dataclass
@@ -52,17 +56,23 @@ class SessionStateSnapshot:
 
 
 class PassengerLockManager:
-    """Core logic for hand raise detection, passenger selection, and session locking."""
+    """Core logic for hand raise detection, passenger selection, and session FSM lifecycle."""
 
     def __init__(
         self,
         gesture_hold_time_sec: float = 1.5,
         min_keypoint_conf: float = 0.35,
         max_ambiguity_ratio: float = 0.20,
+        grace_period_sec: float = 0.25,
+        visibility_stop_sec: float = 0.40,
+        visibility_abort_sec: float = 1.20,
     ):
         self.gesture_hold_time_sec = gesture_hold_time_sec
         self.min_keypoint_conf = min_keypoint_conf
         self.max_ambiguity_ratio = max_ambiguity_ratio
+        self.grace_period_sec = grace_period_sec
+        self.visibility_stop_sec = visibility_stop_sec
+        self.visibility_abort_sec = visibility_abort_sec
 
         # FSM State
         self.state = TrackingState.IDLE
@@ -75,12 +85,20 @@ class PassengerLockManager:
         self.locked_confidence: float = 0.0
         self.reason_code: str = "NO_LOCK"
         self.sequence_num: int = 0
+        self.unconfirmed_terminal: bool = False
 
         # Gesture tracking: (source_session_id, track_id) -> GestureTrackState
         self.gesture_state: Dict[Tuple[str, int], GestureTrackState] = {}
         self.gesture_raise_start: Dict[int, float] = {}
+
+        # Timing decoupled:
+        # 1) last_observation_mono_time: when ANY valid observation stream frame arrived
         self.last_observation_stamp: Dict[str, int] = {"sec": 0, "nanosec": 0}
         self.last_observation_mono_time: float = 0.0
+
+        # 2) last_locked_passenger_seen_mono_time: when the LOCKED passenger was specifically seen
+        self.last_locked_passenger_stamp: Dict[str, int] = {"sec": 0, "nanosec": 0}
+        self.last_locked_passenger_seen_mono_time: float = 0.0
 
     def reset_session(self, reason: str = "SESSION_RESET"):
         """Reset lock and return to IDLE state."""
@@ -93,6 +111,8 @@ class PassengerLockManager:
         self.locked_depth_proven = False
         self.locked_confidence = 0.0
         self.reason_code = reason
+        self.last_locked_passenger_seen_mono_time = 0.0
+        self.last_locked_passenger_stamp = {"sec": 0, "nanosec": 0}
         self.gesture_state.clear()
         self.gesture_raise_start.clear()
 
@@ -121,6 +141,70 @@ class PassengerLockManager:
 
         return left_raised or right_raised
 
+    def is_observation_fresh(self, current_time_sec: float) -> bool:
+        """Check if observation is fresh (< 0.40s).
+        
+        If locked, both observation stream and locked passenger must be fresh!
+        """
+        if self.last_observation_mono_time <= 0.0:
+            return False
+        stream_age = current_time_sec - self.last_observation_mono_time
+        if stream_age > self.visibility_stop_sec:
+            return False
+        if self.locked:
+            if self.last_locked_passenger_seen_mono_time <= 0.0:
+                return False
+            passenger_age = current_time_sec - self.last_locked_passenger_seen_mono_time
+            if passenger_age > self.visibility_stop_sec:
+                return False
+        return True
+
+    def _update_watchdog(self, current_time_sec: float):
+        """Evaluate timeouts and trigger FSM transitions according to project thresholds."""
+        if not self.locked:
+            return
+
+        # Check raw stream staleness (camera freeze or publisher killed)
+        if self.last_observation_mono_time > 0.0:
+            stream_age = current_time_sec - self.last_observation_mono_time
+            if stream_age >= self.visibility_abort_sec and self.state in (TrackingState.NAVIGATING, TrackingState.WAITING_FOR_PASSENGER):
+                self.state = TrackingState.ABORTING
+                self.reason_code = "OBSERVATION_STALE_ABORT"
+                return
+            elif stream_age >= self.visibility_stop_sec and self.state == TrackingState.NAVIGATING:
+                self.state = TrackingState.WAITING_FOR_PASSENGER
+                self.reason_code = "OBSERVATION_STALE_WAIT"
+                return
+
+        # Check locked passenger unseen duration
+        if self.last_locked_passenger_seen_mono_time > 0.0:
+            unseen_sec = current_time_sec - self.last_locked_passenger_seen_mono_time
+        else:
+            unseen_sec = 999.0
+
+        if self.state == TrackingState.NAVIGATING:
+            if unseen_sec >= self.visibility_abort_sec:
+                self.state = TrackingState.ABORTING
+                self.reason_code = "VISIBILITY_TIMEOUT_ABORT"
+            elif unseen_sec >= self.visibility_stop_sec:
+                self.state = TrackingState.WAITING_FOR_PASSENGER
+                self.reason_code = "VISIBILITY_TIMEOUT_STOP"
+            elif unseen_sec >= self.grace_period_sec:
+                self.reason_code = "LOCKED_TARGET_TEMPORARILY_UNSEEN"
+            elif unseen_sec > 0.05:
+                self.reason_code = "LOCKED_TARGET_GRACE_PERIOD"
+
+        elif self.state == TrackingState.WAITING_FOR_PASSENGER:
+            if unseen_sec >= self.visibility_abort_sec:
+                self.state = TrackingState.ABORTING
+                self.reason_code = "VISIBILITY_TIMEOUT_ABORT"
+            else:
+                self.reason_code = "VISIBILITY_TIMEOUT_STOP"
+
+        elif self.state == TrackingState.LOCKED_WAIT_DESTINATION:
+            if unseen_sec >= self.visibility_stop_sec:
+                self.reason_code = "PASSENGER_TEMPORARILY_UNSEEN"
+
     def process_observation(self, obs_payload: dict, current_time_sec: Optional[float] = None) -> SessionStateSnapshot:
         """Process an incoming /tracking/observation payload and update session state."""
         if current_time_sec is None:
@@ -132,44 +216,100 @@ class PassengerLockManager:
         source_session_id = obs_payload.get("source_session_id", "")
         candidates = obs_payload.get("candidates", [])
 
-        # Invariant 1: Source session switch or reset invalidates existing session lock
-        if self.locked:
-            if self.locked_source_session_id and source_session_id != self.locked_source_session_id:
-                # Source session changed (e.g. video loop or source reset)
-                self.reset_session(reason="SOURCE_RESET_DISCONNECT")
-                return self._make_snapshot(stamp_sec, stamp_nanosec)
+        stamp_dict = obs_payload.get("stamp")
+        has_valid_stamp = (
+            isinstance(stamp_dict, dict) and
+            isinstance(stamp_dict.get("sec"), int) and
+            isinstance(stamp_dict.get("nanosec"), int) and
+            stamp_dict["sec"] >= 0 and
+            stamp_dict["nanosec"] >= 0
+        )
+        if has_valid_stamp:
+            stamp_sec = stamp_dict["sec"]
+            stamp_nanosec = stamp_dict["nanosec"]
+            t_obs = stamp_sec + stamp_nanosec * 1e-9
+        else:
+            stamp_sec = 0
+            stamp_nanosec = 0
+            t_obs = -1.0  # Invalid stamp marker
 
-            # Invariant 2: Once locked, dropping hand DOES NOT lose lock
-            # Find the locked person candidate
+        # Check old or duplicate observation
+        last_t = self.last_observation_stamp["sec"] + self.last_observation_stamp["nanosec"] * 1e-9
+        is_old_frame = (has_valid_stamp and last_t > 0.0 and t_obs <= last_t)
+
+        if has_valid_stamp and not is_old_frame:
+            self.last_observation_stamp = {"sec": stamp_sec, "nanosec": stamp_nanosec}
+            self.last_observation_mono_time = current_time_sec
+
+        # -------------------------------------------------------------
+        # 1. ALREADY LOCKED
+        # -------------------------------------------------------------
+        if self.locked:
+            # Source session switch or reset during active lock
+            if self.locked_source_session_id and source_session_id != self.locked_source_session_id:
+                if self.state in (TrackingState.NAVIGATING, TrackingState.WAITING_FOR_PASSENGER):
+                    self.state = TrackingState.ABORTING
+                    self.reason_code = "SOURCE_RESET_DISCONNECT"
+                    return self._make_snapshot(stamp_sec, stamp_nanosec, current_time_sec)
+                else:
+                    self.reset_session(reason="SOURCE_RESET_DISCONNECT")
+                    return self._make_snapshot(stamp_sec, stamp_nanosec, current_time_sec)
+
+            # If already in ABORTING: latched! Reappearance of passenger cannot unlatch
+            if self.state == TrackingState.ABORTING:
+                return self._make_snapshot(stamp_sec, stamp_nanosec, current_time_sec)
+
+            # Search for locked candidate in fresh frame
             matched_cand = None
-            for cand in candidates:
-                if cand.get("track_id") == self.locked_track_id:
-                    matched_cand = cand
-                    break
+            if not is_old_frame:
+                for cand in candidates:
+                    if cand.get("track_id") == self.locked_track_id:
+                        if not cand.get("is_ambiguous", False):
+                            matched_cand = cand
+                        break
 
             if matched_cand is not None:
-                # Update distance and confidence from observation
+                # Update observation of locked passenger
+                self.last_locked_passenger_seen_mono_time = current_time_sec
+                self.last_locked_passenger_stamp = {"sec": stamp_sec, "nanosec": stamp_nanosec}
                 self.locked_confidence = matched_cand.get("confidence", 0.0)
                 if matched_cand.get("depth_valid", False):
                     self.locked_distance_m = matched_cand.get("torso_depth_m")
                     self.locked_depth_proven = True
                 else:
+                    self.locked_distance_m = None
                     self.locked_depth_proven = False
-                self.reason_code = "LOCKED_TRACKING_ACTIVE"
+
+                if self.state == TrackingState.WAITING_FOR_PASSENGER:
+                    # Resumed: matching passenger returned before visibility_abort_sec
+                    self.state = TrackingState.NAVIGATING
+                    self.reason_code = "PASSENGER_RETURNED_RESUMED"
+                elif self.state == TrackingState.NAVIGATING:
+                    self.reason_code = "LOCKED_TRACKING_ACTIVE"
+                elif self.state == TrackingState.LOCKED_WAIT_DESTINATION:
+                    self.reason_code = "LOCKED_TRACKING_ACTIVE"
             else:
-                self.reason_code = "LOCKED_TARGET_TEMPORARILY_UNSEEN"
+                # Candidate not seen, ambiguous, or old frame:
+                # self.last_locked_passenger_seen_mono_time is NOT updated!
+                pass
 
-            return self._make_snapshot(stamp_sec, stamp_nanosec)
+            self._update_watchdog(current_time_sec)
+            return self._make_snapshot(stamp_sec, stamp_nanosec, current_time_sec)
 
-        # Record observation arrival
-        self.last_observation_stamp = {"sec": stamp_sec, "nanosec": stamp_nanosec}
-        self.last_observation_mono_time = current_time_sec
+        # -------------------------------------------------------------
+        # 2. NOT LOCKED (Evaluating Gesture for Lock)
+        # -------------------------------------------------------------
+        # If unconfirmed terminal from previous mission: block new locks!
+        if self.unconfirmed_terminal:
+            self.reason_code = "UNCONFIRMED_TERMINAL_BLOCK"
+            return self._make_snapshot(stamp_sec, stamp_nanosec, current_time_sec)
 
-        t_obs = stamp_sec + stamp_nanosec * 1e-9
-        if t_obs == 0.0 and current_time_sec is not None:
-            t_obs = current_time_sec
+        # Invariant: Observation stamp MUST be valid (has_valid_stamp == True).
+        # Multiple frames repeating stamp 0/0 or missing stamps CANNOT accumulate time!
+        if not has_valid_stamp:
+            self.reason_code = "INVALID_STAMP_NO_ACCUMULATION"
+            return self._make_snapshot(stamp_sec, stamp_nanosec, current_time_sec)
 
-        # If not locked: evaluate candidates for hand raise gesture
         active_keys = set()
         eligible_candidates = []
 
@@ -195,7 +335,7 @@ class PassengerLockManager:
                     delta_t = t_obs - g_state.last_stamp_total
 
                     if delta_t <= 0.0:
-                        # Duplicate or out-of-order stamp: do NOT accumulate time
+                        # Duplicate or backwards stamp: do NOT accumulate hold time
                         pass
                     elif delta_t > 0.25:
                         # Gap exceeded max interval (0.25s): reset gesture timer for this track!
@@ -226,30 +366,40 @@ class PassengerLockManager:
         # Disambiguate and select passenger
         if len(eligible_candidates) == 1:
             best_cand, _ = eligible_candidates[0]
-            self._lock_candidate(best_cand, source_session_id, reason="HAND_RAISE_HELD_SINGLE")
+            self._lock_candidate(
+                best_cand,
+                source_session_id,
+                current_time_sec,
+                stamp_sec,
+                stamp_nanosec,
+                reason="HAND_RAISE_HELD_SINGLE",
+            )
         elif len(eligible_candidates) > 1:
-            # Multiple candidates raised hand: select nearest
             best_cand = self._select_nearest_candidate(eligible_candidates)
             if best_cand is not None:
-                self._lock_candidate(best_cand, source_session_id, reason="HAND_RAISE_HELD_NEAREST")
+                self._lock_candidate(
+                    best_cand,
+                    source_session_id,
+                    current_time_sec,
+                    stamp_sec,
+                    stamp_nanosec,
+                    reason="HAND_RAISE_HELD_NEAREST",
+                )
             else:
                 self.reason_code = "AMBIGUOUS_GESTURE"
 
-        return self._make_snapshot(stamp_sec, stamp_nanosec)
+        return self._make_snapshot(stamp_sec, stamp_nanosec, current_time_sec)
 
     def _select_nearest_candidate(self, eligible_candidates: List[Tuple[dict, float]]) -> Optional[dict]:
         """Disambiguate multiple eligible candidates based on depth or bbox proxy."""
-        # 1. Depth check: if candidates have valid depth, pick minimum distance
         all_have_valid_depth = all(
             c[0].get("depth_valid", False) and c[0].get("torso_depth_m") is not None
             for c in eligible_candidates
         )
         if all_have_valid_depth:
-            # Sort by torso_depth_m ascending
             sorted_by_depth = sorted(eligible_candidates, key=lambda c: c[0]["torso_depth_m"])
             return sorted_by_depth[0][0]
 
-        # 2. If depth is invalid/unavailable: compare bbox area proxy
         areas = []
         for cand, _ in eligible_candidates:
             bbox = cand.get("bbox_xyxy", [0, 0, 0, 0])
@@ -260,14 +410,20 @@ class PassengerLockManager:
         largest_cand, largest_area = areas[0]
         second_cand, second_area = areas[1]
 
-        # If largest is significantly bigger (> 30% larger than second), consider it clearly nearer
         if largest_area > 0 and (largest_area - second_area) / largest_area > 0.30:
             return largest_cand
 
-        # Otherwise ambiguous: refuse to lock tentatively!
         return None
 
-    def _lock_candidate(self, cand: dict, source_session_id: str, reason: str):
+    def _lock_candidate(
+        self,
+        cand: dict,
+        source_session_id: str,
+        current_time_sec: float,
+        stamp_sec: int,
+        stamp_nanosec: int,
+        reason: str,
+    ):
         """Lock on the qualified candidate and transition FSM to LOCKED_WAIT_DESTINATION."""
         self.state = TrackingState.LOCKED_WAIT_DESTINATION
         self.locked = True
@@ -275,6 +431,8 @@ class PassengerLockManager:
         self.locked_track_id = cand.get("track_id")
         self.locked_source_session_id = source_session_id
         self.locked_confidence = cand.get("confidence", 0.0)
+        self.last_locked_passenger_seen_mono_time = current_time_sec
+        self.last_locked_passenger_stamp = {"sec": stamp_sec, "nanosec": stamp_nanosec}
 
         if cand.get("depth_valid", False):
             self.locked_distance_m = cand.get("torso_depth_m")
@@ -285,18 +443,78 @@ class PassengerLockManager:
 
         self.reason_code = reason
 
+    def on_destination_accepted(self, session_id: str, current_time_sec: Optional[float] = None) -> Tuple[bool, str]:
+        """Handle event: Voice accepts destination for the current session."""
+        if current_time_sec is None:
+            current_time_sec = time.monotonic()
+
+        if self.state != TrackingState.LOCKED_WAIT_DESTINATION:
+            return False, f"INVALID_STATE_{self.state.value}"
+        if not self.session_id or self.session_id != session_id:
+            return False, "SESSION_ID_MISMATCH"
+        if self.unconfirmed_terminal:
+            return False, "UNCONFIRMED_TERMINAL_BLOCK"
+        if not self.is_observation_fresh(current_time_sec):
+            return False, "OBSERVATION_NOT_FRESH"
+
+        self.state = TrackingState.NAVIGATING
+        self.reason_code = "DESTINATION_ACCEPTED_START"
+        return True, "OK"
+
+    def on_voice_nav_status(self, status_payload: dict, current_time_sec: Optional[float] = None) -> Tuple[bool, str]:
+        """Handle status updates from /voice/nav_status."""
+        if current_time_sec is None:
+            current_time_sec = time.monotonic()
+
+        session_id = status_payload.get("session_id", "")
+        if not session_id or session_id != self.session_id:
+            # Stale or mismatched session status: completely ignore!
+            return False, "IGNORED_STALE_SESSION"
+
+        is_terminal = bool(status_payload.get("is_terminal", False))
+        status = str(status_payload.get("status", "")).upper()
+        nav_event = str(status_payload.get("nav_event", "")).upper()
+
+        if is_terminal:
+            if status == "SUCCEEDED":
+                self.state = TrackingState.ARRIVED
+                self.reason_code = "GOAL_SUCCEEDED"
+                self.unconfirmed_terminal = False
+                self.reset_session(reason="GOAL_SUCCEEDED_CLEANUP")
+                return True, "TERMINAL_SUCCEEDED"
+            elif status in ("CANCELED", "ABORTED"):
+                self.unconfirmed_terminal = False
+                self.reset_session(reason=f"GOAL_{status}_CLEANUP")
+                return True, f"TERMINAL_{status}"
+            else:
+                self.unconfirmed_terminal = False
+                self.reset_session(reason="TERMINAL_UNKNOWN_CLEANUP")
+                return True, "TERMINAL_OTHER"
+
+        return True, f"STATUS_UPDATE_{nav_event or status}"
+
     def _make_snapshot(
         self,
         stamp_sec: int,
         stamp_nanosec: int,
-        obs_fresh: bool = True,
+        current_time_sec: Optional[float] = None,
     ) -> SessionStateSnapshot:
+        if current_time_sec is None:
+            current_time_sec = time.monotonic()
+
+        fresh = self.is_observation_fresh(current_time_sec)
+        reason = self.reason_code
+
+        if not fresh and self.locked:
+            if reason in ("LOCKED_TRACKING_ACTIVE", "HAND_RAISE_HELD_SINGLE", "HAND_RAISE_HELD_NEAREST"):
+                reason = "PASSENGER_TEMPORARILY_UNSEEN"
+
         return SessionStateSnapshot(
             schema_version="1.0",
             stamp_sec=stamp_sec,
             stamp_nanosec=stamp_nanosec,
             last_observation_stamp=dict(self.last_observation_stamp),
-            obs_fresh=obs_fresh,
+            obs_fresh=fresh,
             sequence_num=self.sequence_num,
             session_id=self.session_id,
             state=self.state.value,
@@ -305,7 +523,7 @@ class PassengerLockManager:
             person_distance_m=self.locked_distance_m,
             depth_proven=self.locked_depth_proven,
             confidence=self.locked_confidence,
-            reason_code=self.reason_code,
+            reason_code=reason,
         )
 
     def to_json_dict(self, snapshot: SessionStateSnapshot) -> dict:

@@ -624,3 +624,64 @@ def test_first_frame_of_new_loop_with_detection_runs_cleanly():
     finally:
         if rclpy.ok():
             rclpy.shutdown()
+
+
+def test_status_arriving_after_timeout_before_drain_drops_frame():
+    """Section A.2: Status matching frame stamp arriving after timeout (>0.30s) drops frame even if status is present before drain."""
+    if not rclpy.ok():
+        rclpy.init()
+    try:
+        detector_node = PersonDetectorNode()
+        test_sub = PerceptionObserverSubscriber()
+        status_pub = detector_node.create_publisher(String, '/tracking/source_status', 10)
+        rgb_pub = detector_node.create_publisher(Image, '/camera/color/image_raw', qos_profile_sensor_data)
+
+        # Establish status mode
+        init_status = {
+            "source_mode": "video_replay",
+            "source_session_id": "session-drain-test",
+            "loop_count": 0,
+            "reset_event": False,
+            "stamp": {"sec": 1, "nanosec": 0}
+        }
+        status_pub.publish(String(data=json.dumps(init_status)))
+        for _ in range(5):
+            rclpy.spin_once(detector_node, timeout_sec=0.01)
+
+        # Cancel periodic drain timer to test manual drain boundary
+        detector_node.drain_timer.cancel()
+
+        # Queue frame at stamp (200, 0)
+        rgb_arr = np.zeros((480, 640, 3), dtype=np.uint8)
+        rgb_msg = detector_node.bridge.cv2_to_imgmsg(rgb_arr, encoding="bgr8")
+        rgb_msg.header.stamp.sec = 200
+        rgb_msg.header.stamp.nanosec = 0
+        rgb_msg.header.frame_id = "camera_color_optical_frame"
+
+        # Inject frame directly into pending_rgb_frames with timestamp 0.35s in the past
+        past_time = time.monotonic() - 0.35
+        detector_node.pending_rgb_frames.append((past_time, rgb_msg))
+        assert len(detector_node.pending_rgb_frames) == 1
+
+        # Now status arrives for stamp (200, 0) BEFORE drain is called!
+        matching_status = {
+            "source_mode": "video_replay",
+            "source_session_id": "session-drain-test",
+            "loop_count": 0,
+            "reset_event": False,
+            "stamp": {"sec": 200, "nanosec": 0}
+        }
+        detector_node.status_by_stamp[(200, 0)] = matching_status
+
+        # Execute drain: deadline check must drop frame rather than process matching status!
+        detector_node._drain_pending_frames()
+
+        assert len(detector_node.pending_rgb_frames) == 0, "Frame was not dropped!"
+        assert (200, 0) not in detector_node.status_by_stamp, "Matching status was not cleared!"
+        assert detector_node.processed_frames == 0, "SAFETY VIOLATION: Expired frame was processed!"
+
+        detector_node.destroy_node()
+        test_sub.destroy_node()
+    finally:
+        if rclpy.ok():
+            rclpy.shutdown()

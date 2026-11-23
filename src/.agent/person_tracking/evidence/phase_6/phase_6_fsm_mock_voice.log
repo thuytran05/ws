@@ -1,0 +1,16 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-7.4.4, pluggy-1.4.0 -- /usr/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/ws/src/person_tracking
+plugins: anyio-4.15.1, ament-flake8-0.17.5, launch-testing-3.4.11, ament-lint-0.17.5, ament-xmllint-0.17.5, ament-copyright-0.17.5, launch-testing-ros-0.26.12, ament-pep257-0.17.5, typeguard-4.1.5, colcon-core-0.21.3
+collecting ... collected 7 items
+
+src/person_tracking/test/test_session_fsm_mock_voice.py::test_mock_voice_departure_gating_unlocked_stale_fresh PASSED
+src/person_tracking/test/test_session_fsm_mock_voice.py::test_fsm_brief_loss_grace_wait_and_resume PASSED
+src/person_tracking/test/test_session_fsm_mock_voice.py::test_fsm_abort_safety_request_retry_and_terminal_cleanup PASSED
+src/person_tracking/test/test_session_fsm_mock_voice.py::test_fsm_goal_completion_succeeded_vs_late_stale_goal PASSED
+src/person_tracking/test/test_session_fsm_mock_voice.py::test_unconfirmed_terminal_blocks_new_session PASSED
+src/person_tracking/test/test_session_fsm_mock_voice.py::test_ros2_topic_integration_tracking_manager_with_mock_voice PASSED
+src/person_tracking/test/test_session_fsm_mock_voice.py::test_critical_safety_zero_cmd_vel_publishers_across_all_tracking_nodes PASSED
+
+============================== 7 passed in 4.24s ===============================
