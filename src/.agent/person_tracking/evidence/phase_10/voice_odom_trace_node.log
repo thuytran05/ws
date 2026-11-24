@@ -1,10 +1,53 @@
-[INFO] [1795497659.906457548] [nav_command_node]: NavCommandNode đã khởi động và sẵn sàng.
-[INFO] [1795497669.117834833] [nav_command_node]: Nhận được TTS ACK hợp lệ cho [sp_1_69116] (status=COMPLETED, played=False). Tiến hành gửi goal Nav2.
-[INFO] [1795497669.118327042] [nav_command_node]: [att_1795497659873_1] Gửi goal tới Nav2 cho mission mis_1795497659873_1 (cổng 15, uuid=3aabb9dcaaf04671a7c792c071c07807)...
-[INFO] [1795497669.119467784] [nav_command_node]: [att_1795497659873_1] Goal được Nav2 chấp nhận (uuid=3aabb9dcaaf04671a7c792c071c07807). Bắt đầu di chuyển.
-[INFO] [1795497669.166880880] [nav_command_node]: Bỏ qua request trùng lặp: intent-tracer-gate15
-[INFO] [1795497669.217078403] [nav_command_node]: Bỏ qua request trùng lặp: intent-tracer-gate15
-[INFO] [1795497675.069917711] [nav_command_node]: [att_1795497659873_1] Goal kết thúc terminal với status: 4
+[INFO] [1795501405.866442292] [nav_command_node]: NavCommandNode đã khởi động và sẵn sàng.
+[INFO] [1795501413.970000520] [nav_command_node]: Nhận được TTS ACK hợp lệ cho [sp_1_13969] (status=COMPLETED, played=False). Tiến hành gửi goal Nav2.
+[INFO] [1795501413.970549010] [nav_command_node]: [att_1795501405832_1] Gửi goal tới Nav2 cho mission mis_1795501405832_1 (cổng 15, uuid=300ddc45fb524a2eae6b8a943843694f)...
+[INFO] [1795501413.971751062] [nav_command_node]: [att_1795501405832_1] Goal được Nav2 chấp nhận (uuid=300ddc45fb524a2eae6b8a943843694f). Bắt đầu di chuyển.
+[INFO] [1795501414.019343454] [nav_command_node]: Bỏ qua request trùng lặp: intent-tracer-r1
+[INFO] [1795501414.069587552] [nav_command_node]: Bỏ qua request trùng lặp: intent-tracer-r1
+[INFO] [1795501419.372169989] [nav_command_node]: [att_1795501405832_1] Goal kết thúc terminal với status: 4
+[INFO] [1795501420.670400689] [nav_command_node]: Bỏ qua request trùng lặp: cancel-tracer-r1
+[INFO] [1795501420.720644062] [nav_command_node]: Bỏ qua request trùng lặp: cancel-tracer-r1
+[INFO] [1795501427.123780220] [nav_command_node]: Nhận được TTS ACK hợp lệ cho [sp_4_27122] (status=COMPLETED, played=False). Tiến hành gửi goal Nav2.
+[INFO] [1795501427.124279863] [nav_command_node]: [att_1795501405832_2] Gửi goal tới Nav2 cho mission mis_1795501405832_2 (cổng 15, uuid=9feb28f5c42f4981be5be8e001f95719)...
+[INFO] [1795501427.125392889] [nav_command_node]: [att_1795501405832_2] Goal được Nav2 chấp nhận (uuid=9feb28f5c42f4981be5be8e001f95719). Bắt đầu di chuyển.
+[INFO] [1795501427.173096381] [nav_command_node]: Bỏ qua request trùng lặp: intent-tracer-r2
+[INFO] [1795501427.223252874] [nav_command_node]: Bỏ qua request trùng lặp: intent-tracer-r2
+[WARN] [1795501433.546619639] [nav_command_node]: Tiếp nhận ABORT từ tracking cho session=cd684e2f-1979-4f7f-a3a7-a603c720231d, req_id=3309bc05-17ac-4378-a613-039f25b9daee, reason=CAMERA_FREEZE.
+[INFO] [1795501433.547006727] [nav_command_node]: [att_1795501405832_2] Gọi cancel_goal_async cho active goal do ABORT.
+[INFO] [1795501433.548064205] [nav_command_node]: [att_1795501405832_2] Server chấp nhận yêu cầu hủy. Đang chờ goal kết thúc terminal...
+[INFO] [1795501433.576562340] [nav_command_node]: [att_1795501405832_2] Goal kết thúc terminal với status: 5
+[INFO] [1795501433.824092535] [nav_command_node]: Bỏ qua request trùng lặp: cancel-tracer-r2
+[INFO] [1795501433.874278890] [nav_command_node]: Bỏ qua request trùng lặp: cancel-tracer-r2
+[INFO] [1795501440.278619287] [nav_command_node]: Nhận được TTS ACK hợp lệ cho [sp_8_40277] (status=COMPLETED, played=False). Tiến hành gửi goal Nav2.
+[INFO] [1795501440.279104472] [nav_command_node]: [att_1795501405832_3] Gửi goal tới Nav2 cho mission mis_1795501405832_3 (cổng 15, uuid=dd1b6267bb434b4086f29926badb3b27)...
+[INFO] [1795501440.280014880] [nav_command_node]: [att_1795501405832_3] Goal được Nav2 chấp nhận (uuid=dd1b6267bb434b4086f29926badb3b27). Bắt đầu di chuyển.
+[INFO] [1795501440.328032357] [nav_command_node]: Bỏ qua request trùng lặp: intent-tracer-r3
+[INFO] [1795501440.378202751] [nav_command_node]: Bỏ qua request trùng lặp: intent-tracer-r3
+[WARN] [1795501446.646396889] [nav_command_node]: Tiếp nhận ABORT từ tracking cho session=4211b3b4-b85b-44e5-af68-82a35a016391, req_id=6cb1af71-5e19-471e-81e4-90bf2ea53de3, reason=CAMERA_FREEZE.
+[INFO] [1795501446.646783408] [nav_command_node]: [att_1795501405832_3] Gọi cancel_goal_async cho active goal do ABORT.
+[INFO] [1795501446.647750542] [nav_command_node]: [att_1795501405832_3] Server chấp nhận yêu cầu hủy. Đang chờ goal kết thúc terminal...
+[INFO] [1795501446.650797439] [nav_command_node]: [att_1795501405832_3] Goal kết thúc terminal với status: 5
+[INFO] [1795501446.978932286] [nav_command_node]: Bỏ qua request trùng lặp: cancel-tracer-r3
+[INFO] [1795501447.029192184] [nav_command_node]: Bỏ qua request trùng lặp: cancel-tracer-r3
+[INFO] [1795501453.432297420] [nav_command_node]: Nhận được TTS ACK hợp lệ cho [sp_12_53431] (status=COMPLETED, played=False). Tiến hành gửi goal Nav2.
+[INFO] [1795501453.432769233] [nav_command_node]: [att_1795501405832_4] Gửi goal tới Nav2 cho mission mis_1795501405832_4 (cổng 15, uuid=520c795984414741bf82bb68d00360d1)...
+[INFO] [1795501453.433807298] [nav_command_node]: [att_1795501405832_4] Goal được Nav2 chấp nhận (uuid=520c795984414741bf82bb68d00360d1). Bắt đầu di chuyển.
+[INFO] [1795501453.481834141] [nav_command_node]: Bỏ qua request trùng lặp: intent-tracer-r4
+[INFO] [1795501453.531834409] [nav_command_node]: Bỏ qua request trùng lặp: intent-tracer-r4
+[INFO] [1795501459.584107207] [nav_command_node]: [att_1795501405832_4] Goal kết thúc terminal với status: 4
+[INFO] [1795501460.132601007] [nav_command_node]: Bỏ qua request trùng lặp: cancel-tracer-r4
+[INFO] [1795501460.182805123] [nav_command_node]: Bỏ qua request trùng lặp: cancel-tracer-r4
+[INFO] [1795501466.586907140] [nav_command_node]: Nhận được TTS ACK hợp lệ cho [sp_15_66585] (status=COMPLETED, played=False). Tiến hành gửi goal Nav2.
+[INFO] [1795501466.587547160] [nav_command_node]: [att_1795501405832_5] Gửi goal tới Nav2 cho mission mis_1795501405832_5 (cổng 15, uuid=a6e8d4b7ab6844a09626852a46fefe94)...
+[INFO] [1795501466.588952122] [nav_command_node]: [att_1795501405832_5] Goal được Nav2 chấp nhận (uuid=a6e8d4b7ab6844a09626852a46fefe94). Bắt đầu di chuyển.
+[INFO] [1795501466.635704110] [nav_command_node]: Bỏ qua request trùng lặp: intent-tracer-r5
+[INFO] [1795501466.685750261] [nav_command_node]: Bỏ qua request trùng lặp: intent-tracer-r5
+[WARN] [1795501472.946334985] [nav_command_node]: Tiếp nhận ABORT từ tracking cho session=b0195ac1-70a3-40a7-a7e7-626271b4f593, req_id=e6ef37b7-38d3-4ecd-8d4e-e1f7c6ab1aa1, reason=CAMERA_FREEZE.
+[INFO] [1795501472.946719063] [nav_command_node]: [att_1795501405832_5] Gọi cancel_goal_async cho active goal do ABORT.
+[INFO] [1795501472.947726861] [nav_command_node]: [att_1795501405832_5] Server chấp nhận yêu cầu hủy. Đang chờ goal kết thúc terminal...
+[INFO] [1795501472.959532476] [nav_command_node]: [att_1795501405832_5] Goal kết thúc terminal với status: 5
+[INFO] [1795501473.287019088] [nav_command_node]: Bỏ qua request trùng lặp: cancel-tracer-r5
+[INFO] [1795501473.337087839] [nav_command_node]: Bỏ qua request trùng lặp: cancel-tracer-r5
 Traceback (most recent call last):
   File "/home/ws/build/airport_robot_voice/airport_robot_voice/nav_command_node.py", line 2285, in main
     rclpy.spin(node)

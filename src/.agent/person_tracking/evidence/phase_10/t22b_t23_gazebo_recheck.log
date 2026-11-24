@@ -1,0 +1,20 @@
+================================================================================
+PHASE 10: GAZEBO RUNTIME RE-VERIFICATION OF T23 AND T22B
+================================================================================
+1. CA KIỂM THỬ T23 — COLLISION MONITOR PRIORITY LASER VETO:
+---------------------------------------------------------------------------
+- Trạng thái trước khi thử: Robot đang chạy, cmd_vel=0.250 m/s, odom=0.050 m/s
+- Thời điểm bơm vật cản laser (0.25m): mono=12025.378s, sim=15.090s
+- Thời điểm Collision Monitor dập /cmd_vel về 0.000: mono=12025.429s, delay=0.050s
+- Thời điểm xe dừng hẳn trên /odom (vx < 0.01): mono=12025.679s, delay=0.301s (<=2.5s)
+- Kết quả T23: PASS
+
+2. CA KIỂM THỬ T22B — GUARD CRASH WITHOUT HANDLER WATCHDOG (SIGKILL):
+---------------------------------------------------------------------------
+- Trạng thái trước khi kill: Robot đang chạy, cmd_vel=0.250 m/s, odom=0.075 m/s
+- Thời điểm gửi SIGKILL vào PID Guard (55564): mono=12031.449s, sim=21.160s
+- Thời điểm Watchdog độc lập phát zero vào Collision Monitor: mono=12031.650s, delay=0.200s (<=0.25s)
+- Thời điểm /cmd_vel về 0.000: mono=12031.650s, delay=0.200s
+- Thời điểm xe dừng hẳn trên /odom (vx < 0.01): mono=12032.301s, delay=0.851s (<=2.5s)
+- Kết quả T22B: PASS
+================================================================================

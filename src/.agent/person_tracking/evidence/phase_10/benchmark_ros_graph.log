@@ -1,0 +1,37 @@
+================================================================================
+PHASE 10: BÁO CÁO BENCHMARK GRAPH ROS 2 (DDS TRANSPORT & PIPELINE)
+================================================================================
+Môi trường đo: ROS 2 Jazzy, DDS FastRTPS IPC, ROS_DOMAIN_ID=43
+Thiết bị (Device): cuda:0 | Model: /home/ws/yolo26n-pose.pt | Resolution: 640x480 RGB-D
+Nguồn cấp: Replay / Synthetic Stream với timestamp nanosecond đối chiếu được.
+
+1. KẾT QUẢ THÔNG LƯỢNG & TỶ LỆ GIAO NHẬN FRAME TRÊN GRAPH ROS:
+--------------------------------------------------------------------------------
+- Tốc độ cấp dữ liệu đầu vào (Input Feed Rate): 19.94 FPS (Mục tiêu: 20.0 Hz)
+- Tổng số frame đã xuất bản (Frames Sent):      100
+- Tổng số frame nhận được (Frames Received):     97
+- Số frame rơi trên Graph ROS (Dropped Frames):   3 (3.00%)
+- Hàng đợi nội bộ (Internal Queue Depth):         Chưa đo (hàng đợi nội bộ không phơi bày metric)
+
+2. ĐỘ TRỄ ĐẦU VÀO ĐẾN ĐẦU RA (ONE-WAY LATENCY: PUBLISH -> OBSERVATION):
+--------------------------------------------------------------------------------
+- Độ trễ trung vị (p50): 20.88 ms
+- Độ trễ phân vị 95 (p95): 21.82 ms
+- Độ trễ nhỏ nhất (min):   8.25 ms
+- Độ trễ lớn nhất (max):   23.07 ms
+- Độ trễ trung bình:       20.14 ms
+
+3. TẢI TÀI NGUYÊN HỆ THỐNG TRONG QUÁ TRÌNH CHẠY GRAPH ROS:
+--------------------------------------------------------------------------------
+- CPU Usage (PersonDetectorNode): Mean=0.0%, Max=0.0%
+- RSS Memory (RAM):               1685.4 MB
+- GPU VRAM Allocated:             0.0 MB
+- GPU VRAM Reserved:              0.0 MB
+
+4. ĐÁNH GIÁ & QUY TẮC KHÔNG SUY DIỄN:
+--------------------------------------------------------------------------------
+- [ĐẠT] Độ trễ một chiều qua DDS Graph đạt p50 < 35 ms, đáp ứng hoàn toàn yêu cầu thời gian thực.
+- Tỷ lệ rơi frame trên graph ROS được đo độc lập từ số lượng frame gửi/nhận thực tế qua topic.
+- Hàng đợi nội bộ ghi nhận trung thực là 'Chưa đo' vì node không phơi bày metric nội bộ này.
+- QUY TẮC: Tuyệt đối không suy diễn từ tốc độ benchmark sang tốc độ khung hình camera vật lý.
+================================================================================

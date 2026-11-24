@@ -9,6 +9,9 @@ Records high-frequency timestamps and kinematic values across all 6 topics:
 4. /cmd_vel (collision_monitor)
 5. /odom/unfiltered (Gazebo MecanumDrive system)
 6. /odom (robot_localization EKF)
+
+Supports multi-run repetition of Ca 2 (destination gate_15) with Gate 9 configuration
+to attempt reproducing any odometry velocity peak > 0.500 m/s.
 """
 
 import csv
@@ -90,6 +93,7 @@ class OdomPeakTracerNode(Node):
         self._obs_track_id = 1
         self._obs_dist_m = 1.6
         self._obs_hand_raised = False
+        self._obs_session_source = "src-tracer-01"
         self._last_obs_stamp = (0, 0)
         self.obs_timer = self.create_timer(0.05, self._obs_tick)
 
@@ -211,9 +215,10 @@ class OdomPeakTracerNode(Node):
         scan.ranges = list(self.active_scan_ranges)
         self.pub_test_scan.publish(scan)
 
-    def start_obs_stream(self, hand_raised=True, dist_m=1.6):
+    def start_obs_stream(self, hand_raised=True, dist_m=1.6, source_session="src-tracer-01"):
         self._obs_hand_raised = hand_raised
         self._obs_dist_m = dist_m
+        self._obs_session_source = source_session
         self._obs_timer_running = True
 
     def stop_obs_stream(self):
@@ -258,7 +263,7 @@ class OdomPeakTracerNode(Node):
             "frame_id": "camera_color_optical_frame",
             "receive_monotonic_time": now_mono,
             "source_mode": "live_astra",
-            "source_session_id": "src-tracer-01",
+            "source_session_id": self._obs_session_source,
             "data_quality": "VALID_RGBD",
             "processing_time_ms": 5.0,
             "device": "cuda:0",
@@ -283,6 +288,106 @@ class OdomPeakTracerNode(Node):
             time.sleep(0.05)
 
 
+def run_single_iteration(node: OdomPeakTracerNode, run_idx: int) -> dict:
+    print(f"\n--- [Tracer] Starting Run {run_idx} (Destination: gate_15) ---")
+    node.publish_initial_pose(x=-1.0, y=-0.5, yaw=0.0)
+    time.sleep(1.0)
+
+    # 1. Raise hand to lock
+    src_session = f"src-tracer-run{run_idx}"
+    node.start_obs_stream(hand_raised=True, dist_m=1.6, source_session=src_session)
+
+    locked_session_id = None
+    t0 = time.time()
+    while time.time() - t0 < 10.0:
+        if node.latest_session_state and node.latest_session_state.get("locked") and node.latest_session_state.get("state") == "LOCKED_WAIT_DESTINATION":
+            locked_session_id = node.latest_session_state.get("session_id")
+            break
+        time.sleep(0.1)
+
+    print(f"[Tracer Run {run_idx}] Locked session_id: {locked_session_id}")
+    if not locked_session_id:
+        print(f"[Tracer Run {run_idx}] ERROR: Failed to lock passenger!")
+        node.stop_obs_stream()
+        return {"run": run_idx, "success": False, "error": "LOCK_FAILED"}
+
+    # 2. Lower hand, maintain tracking
+    node.start_obs_stream(hand_raised=False, dist_m=1.6, source_session=src_session)
+    time.sleep(0.5)
+
+    rec_idx_start = len(node.records)
+    status_len_before = len(node.nav_statuses)
+
+    # 3. Send navigation intent
+    req_id = f"intent-tracer-r{run_idx}"
+    node.send_voice_intent(action="navigate", target_id="gate_15", req_id=req_id)
+
+    # 4. Wait for NAVIGATION_STARTED
+    nav_started = False
+    t0 = time.time()
+    while time.time() - t0 < 8.0:
+        for s in node.nav_statuses[status_len_before:]:
+            if s.get("nav_event") == "NAVIGATION_STARTED":
+                nav_started = True
+                break
+        if nav_started:
+            break
+        time.sleep(0.1)
+
+    if not nav_started:
+        print(f"[Tracer Run {run_idx}] WARNING: Did not receive NAVIGATION_STARTED within timeout!")
+
+    # 5. Record kinematics for 5.0 seconds
+    print(f"[Tracer Run {run_idx}] Recording kinematics across all 6 topics for 5.0 seconds...")
+    time.sleep(5.0)
+
+    # 6. Stop obs and cancel/abort to reset state cleanly for next run
+    node.stop_obs_stream()
+    # Wait for vehicle to come to complete stop
+    time.sleep(1.5)
+
+    rec_idx_end = len(node.records)
+    run_records = node.records[rec_idx_start:rec_idx_end]
+
+    # Calculate peaks for this run
+    odom_recs = [r for r in run_records if r["topic"] == "/odom"]
+    odom_unfilt_recs = [r for r in run_records if r["topic"] == "/odom/unfiltered"]
+    cmd_smooth_recs = [r for r in run_records if r["topic"] == "/cmd_vel_smoothed"]
+    cmd_guard_recs = [r for r in run_records if r["topic"] == "/tracking/cmd_vel_guarded"]
+    cmd_wd_recs = [r for r in run_records if r["topic"] == "/tracking/cmd_vel_watchdog"]
+    cmd_vel_recs = [r for r in run_records if r["topic"] == "/cmd_vel"]
+
+    peak_odom_vx = max([r["vx"] for r in odom_recs]) if odom_recs else 0.0
+    peak_odom_speed = max([r["speed_xy"] for r in odom_recs]) if odom_recs else 0.0
+    peak_unfilt_vx = max([r["vx"] for r in odom_unfilt_recs]) if odom_unfilt_recs else 0.0
+    peak_unfilt_speed = max([r["speed_xy"] for r in odom_unfilt_recs]) if odom_unfilt_recs else 0.0
+    peak_smooth_vx = max([r["vx"] for r in cmd_smooth_recs]) if cmd_smooth_recs else 0.0
+    peak_guard_vx = max([r["vx"] for r in cmd_guard_recs]) if cmd_guard_recs else 0.0
+    peak_wd_vx = max([r["vx"] for r in cmd_wd_recs]) if cmd_wd_recs else 0.0
+    peak_cmd_vel_vx = max([r["vx"] for r in cmd_vel_recs]) if cmd_vel_recs else 0.0
+
+    # Cancel goal to return to IDLE for next run
+    node.send_voice_intent(action="cancel", target_id="gate_15", req_id=f"cancel-tracer-r{run_idx}")
+    time.sleep(1.0)
+
+    res = {
+        "run": run_idx,
+        "success": True,
+        "session_id": locked_session_id,
+        "records_count": len(run_records),
+        "peak_cmd_vel_smoothed_vx": peak_smooth_vx,
+        "peak_cmd_vel_guarded_vx": peak_guard_vx,
+        "peak_cmd_vel_watchdog_vx": peak_wd_vx,
+        "peak_cmd_vel_vx": peak_cmd_vel_vx,
+        "peak_odom_unfiltered_vx": peak_unfilt_vx,
+        "peak_odom_vx": peak_odom_vx,
+        "peak_odom_speed_xy": peak_odom_speed,
+        "reproduced": (peak_odom_vx > 0.505),
+    }
+    print(f"[Tracer Run {run_idx} Result] max /cmd_vel_smoothed vx={peak_smooth_vx:.4f}, max /odom vx={peak_odom_vx:.4f}, reproduced={res['reproduced']}")
+    return res
+
+
 def main():
     rclpy.init()
     node = OdomPeakTracerNode()
@@ -298,60 +403,13 @@ def main():
         time.sleep(0.5)
 
     print(f"[Tracer] Simulation ready. Current sim_time={node.latest_sim_time:.2f}s")
-    node.publish_initial_pose(x=-1.0, y=-0.5, yaw=0.0)
-    time.sleep(2.0)
 
-    # 1. Start Hand Raised Observation
-    print("[Tracer] Step 1: Raising hand (20 Hz obs) to lock passenger...")
-    node.start_obs_stream(hand_raised=True, dist_m=1.6)
-
-    locked_session_id = None
-    t0 = time.time()
-    while time.time() - t0 < 12.0:
-        if node.latest_session_state and node.latest_session_state.get("locked") and node.latest_session_state.get("state") == "LOCKED_WAIT_DESTINATION":
-            locked_session_id = node.latest_session_state.get("session_id")
-            break
-        time.sleep(0.1)
-
-    print(f"[Tracer] Locked session_id: {locked_session_id}")
-    if not locked_session_id:
-        print("[Tracer] ERROR: Failed to lock passenger!")
-        node.stop_obs_stream()
-        executor.shutdown()
-        rclpy.shutdown()
-        sys.exit(1)
-
-    # 2. Lower hand, maintain tracking
-    node.start_obs_stream(hand_raised=False, dist_m=1.6)
-    time.sleep(0.5)
-
-    # 3. Send Voice navigation intent to gate_15 (matching Ca 2 in Gate 9)
-    print("[Tracer] Step 2: Sending voice intent to navigate to gate_15...")
-    node.send_voice_intent(action="navigate", target_id="gate_15", req_id="intent-tracer-gate15")
-
-    # 4. Wait for NAVIGATION_STARTED
-    nav_started = False
-    t0 = time.time()
-    while time.time() - t0 < 12.0:
-        for s in node.nav_statuses:
-            if s.get("nav_event") == "NAVIGATION_STARTED":
-                nav_started = True
-                print(f"[Tracer] Received NAVIGATION_STARTED! Details: {s}")
-                break
-        if nav_started:
-            break
-        time.sleep(0.1)
-
-    if not nav_started:
-        print("[Tracer] ERROR: Did not receive NAVIGATION_STARTED!")
-
-    # 5. Record motion trajectory while robot moves
-    print("[Tracer] Step 3: Recording kinematics across all 6 topics for 6.0 seconds...")
-    time.sleep(6.0)
-
-    # Stop obs
-    node.stop_obs_stream()
-    time.sleep(1.0)
+    TOTAL_RUNS = 5
+    run_results = []
+    for r_i in range(1, TOTAL_RUNS + 1):
+        res = run_single_iteration(node, r_i)
+        run_results.append(res)
+        time.sleep(2.0)
 
     # Export records
     out_dir = "/home/ws/src/.agent/person_tracking/evidence/phase_10"
@@ -362,7 +420,7 @@ def main():
     with node._lock:
         records = list(node.records)
 
-    print(f"[Tracer] Total records collected: {len(records)}")
+    print(f"\n[Tracer] Total records collected across {TOTAL_RUNS} runs: {len(records)}")
 
     # Write CSV
     if records:
@@ -374,98 +432,64 @@ def main():
                 writer.writerow(r)
         print(f"[Tracer] Wrote raw CSV: {csv_file}")
 
-    # Analyze peak
-    odom_records = [r for r in records if r["topic"] == "/odom"]
-    odom_unfiltered_records = [r for r in records if r["topic"] == "/odom/unfiltered"]
-    cmd_smoothed_records = [r for r in records if r["topic"] == "/cmd_vel_smoothed"]
-    cmd_guarded_records = [r for r in records if r["topic"] == "/tracking/cmd_vel_guarded"]
-    cmd_watchdog_records = [r for r in records if r["topic"] == "/tracking/cmd_vel_watchdog"]
-    cmd_vel_records = [r for r in records if r["topic"] == "/cmd_vel"]
-
-    max_vx_odom = max([r["vx"] for r in odom_records]) if odom_records else 0.0
-    max_speed_odom = max([r["speed_xy"] for r in odom_records]) if odom_records else 0.0
-    max_vx_unfiltered = max([r["vx"] for r in odom_unfiltered_records]) if odom_unfiltered_records else 0.0
-    max_speed_unfiltered = max([r["speed_xy"] for r in odom_unfiltered_records]) if odom_unfiltered_records else 0.0
-
-    max_vx_smoothed = max([r["vx"] for r in cmd_smoothed_records]) if cmd_smoothed_records else 0.0
-    max_speed_smoothed = max([r["speed_xy"] for r in cmd_smoothed_records]) if cmd_smoothed_records else 0.0
-    max_vx_guarded = max([r["vx"] for r in cmd_guarded_records]) if cmd_guarded_records else 0.0
-    max_speed_guarded = max([r["speed_xy"] for r in cmd_guarded_records]) if cmd_guarded_records else 0.0
-    max_vx_watchdog = max([r["vx"] for r in cmd_watchdog_records]) if cmd_watchdog_records else 0.0
-    max_speed_watchdog = max([r["speed_xy"] for r in cmd_watchdog_records]) if cmd_watchdog_records else 0.0
-    max_vx_cmd_vel = max([r["vx"] for r in cmd_vel_records]) if cmd_vel_records else 0.0
-    max_speed_cmd_vel = max([r["speed_xy"] for r in cmd_vel_records]) if cmd_vel_records else 0.0
-
-    # Locate peak in /odom
-    peak_record = None
-    for r in odom_records:
-        if r["vx"] == max_vx_odom:
-            peak_record = r
-            break
-
-    peak_sim_time = peak_record["sim_time"] if peak_record else 0.0
-
-    # Window around peak (+- 0.5s)
-    window_records = [r for r in records if abs(r["sim_time"] - peak_sim_time) <= 0.5]
+    # Determine overall reproduction status
+    reproduced_runs = [r for r in run_results if r.get("reproduced")]
+    all_odom_vx = [r.get("peak_odom_vx", 0.0) for r in run_results if r.get("success")]
+    overall_max_odom_vx = max(all_odom_vx) if all_odom_vx else 0.0
 
     analysis_lines = []
     analysis_lines.append("=" * 80)
-    analysis_lines.append("PHASE 10: BÁO CÁO PHÂN TÍCH VÀ ĐO ĐẠC ĐỈNH ODOMETRY 0.728 M/S TRONG GAZEBO")
+    analysis_lines.append("PHASE 10: BÁO CÁO ĐO ĐẠC VÀ KIỂM CHỨNG ĐỈNH ODOMETRY TRONG GAZEBO")
     analysis_lines.append("=" * 80)
-    analysis_lines.append(f"Mục tiêu kiểm chứng: Tái hiện Ca 2 (Gate 9, đích gate_15) và đo đạc đồng thời 6 topic vận tốc.")
-    analysis_lines.append(f"Thời điểm đỉnh odom vx: sim_time = {peak_sim_time:.3f} s, mono_time = {peak_record.get('mono_time', 0.0):.3f} s")
+    analysis_lines.append(f"Mục tiêu kiểm chứng: Chạy lặp {TOTAL_RUNS} lượt ca gate_15 với cấu hình Gate 9")
+    analysis_lines.append(f"Mục đích: Tìm hiểu xem đỉnh vận tốc 0.728 m/s ghi nhận tại Gate 9 có tái hiện hay không.")
     analysis_lines.append("")
-    analysis_lines.append("1. SO SÁNH TRẦN VẬN TỐC CỦA TỪNG KHÂU (COMMAND VS ODOMETRY):")
-    analysis_lines.append("-" * 80)
-    analysis_lines.append(f"{'Topic':<32} | {'Nút xuất bản (Publisher)':<26} | {'Max linear.x':<12} | {'Max speed_xy':<12}")
-    analysis_lines.append("-" * 80)
-    analysis_lines.append(f"{'/cmd_vel_smoothed':<32} | {'nav2_velocity_smoother':<26} | {max_vx_smoothed:<12.4f} | {max_speed_smoothed:<12.4f}")
-    analysis_lines.append(f"{'/tracking/cmd_vel_guarded':<32} | {'escort_velocity_guard':<26} | {max_vx_guarded:<12.4f} | {max_speed_guarded:<12.4f}")
-    analysis_lines.append(f"{'/tracking/cmd_vel_watchdog':<32} | {'escort_velocity_watchdog':<26} | {max_vx_watchdog:<12.4f} | {max_speed_watchdog:<12.4f}")
-    analysis_lines.append(f"{'/cmd_vel':<32} | {'collision_monitor':<26} | {max_vx_cmd_vel:<12.4f} | {max_speed_cmd_vel:<12.4f}")
-    analysis_lines.append(f"{'/odom/unfiltered':<32} | {'gz::MecanumDrive (Gazebo)':<26} | {max_vx_unfiltered:<12.4f} | {max_speed_unfiltered:<12.4f}")
-    analysis_lines.append(f"{'/odom':<32} | {'robot_localization (EKF)':<26} | {max_vx_odom:<12.4f} | {max_speed_odom:<12.4f}")
-    analysis_lines.append("-" * 80)
+    analysis_lines.append("1. BẢNG TỔNG HỢP CÁC LƯỢT CHẠY LẶP (MULTI-RUN SUMMARY TABLE):")
+    analysis_lines.append("-" * 88)
+    analysis_lines.append(f"{'Lượt':<6} | {'/cmd_vel_smoothed':<18} | {'Guard vx':<10} | {'Watchdog vx':<12} | {'/cmd_vel vx':<12} | {'/odom/unfilt':<12} | {'/odom vx':<10} | {'Tái hiện':<8}")
+    analysis_lines.append("-" * 88)
+    for r in run_results:
+        if r.get("success"):
+            rep_str = "CÓ" if r.get("reproduced") else "KHÔNG"
+            analysis_lines.append(
+                f"Run {r['run']:<2} | "
+                f"{r['peak_cmd_vel_smoothed_vx']:<18.4f} | "
+                f"{r['peak_cmd_vel_guarded_vx']:<10.4f} | "
+                f"{r['peak_cmd_vel_watchdog_vx']:<12.4f} | "
+                f"{r['peak_cmd_vel_vx']:<12.4f} | "
+                f"{r['peak_odom_unfiltered_vx']:<12.4f} | "
+                f"{r['peak_odom_vx']:<10.4f} | "
+                f"{rep_str:<8}"
+            )
+        else:
+            analysis_lines.append(f"Run {r['run']:<2} | FAILED ({r.get('error')})")
+    analysis_lines.append("-" * 88)
     analysis_lines.append("")
 
-    analysis_lines.append("2. CÁC MẪU CHI TIẾT XUNG QUANH ĐỈNH VẬN TỐC (CỬA SỔ +- 0.3s):")
+    analysis_lines.append("2. KẾT QUẢ VÀ KẾT LUẬN VỀ ĐỈNH VẬN TỐC ODOMETRY:")
     analysis_lines.append("-" * 80)
-    analysis_lines.append(f"{'sim_time':<10} | {'topic':<28} | {'linear.x':<10} | {'linear.y':<10} | {'angular.z':<10} | {'speed_xy':<10}")
-    analysis_lines.append("-" * 80)
-    for r in sorted(window_records, key=lambda x: (x["sim_time"], x["mono_time"])):
-        if abs(r["sim_time"] - peak_sim_time) <= 0.3:
-            analysis_lines.append(f"{r['sim_time']:<10.3f} | {r['topic']:<28} | {r['vx']:<10.4f} | {r['vy']:<10.4f} | {r['wz']:<10.4f} | {r['speed_xy']:<10.4f}")
-    analysis_lines.append("-" * 80)
-    analysis_lines.append("")
-
-    analysis_lines.append("3. PHÂN TÍCH NGUYÊN NHÂN KỸ THUẬT GỐC RỄ (ROOT CAUSE ANALYSIS):")
-    analysis_lines.append("-" * 80)
-    analysis_lines.append(f"A. Giới hạn Command Chain:")
-    analysis_lines.append(f"   - /cmd_vel_smoothed, /tracking/cmd_vel_guarded, /tracking/cmd_vel_watchdog, /cmd_vel")
-    analysis_lines.append(f"     toàn bộ đều tuân thủ nghiêm ngặt giới hạn trần max_linear_x = 0.500 m/s.")
-    analysis_lines.append(f"   - Guard KHÔNG BAO GIỜ xuất lệnh > 0.50 m/s (thực đo max_vx = {max_vx_guarded:.4f} m/s <= 0.50).")
-    analysis_lines.append("")
-    analysis_lines.append(f"B. Nguồn gốc của độ vọt lố trong Odometry:")
-    analysis_lines.append(f"   - Đỉnh max vx đo được trên /odom: {max_vx_odom:.4f} m/s.")
-    analysis_lines.append(f"   - Đỉnh max vx đo được trên /odom/unfiltered: {max_vx_unfiltered:.4f} m/s.")
-    if max_vx_unfiltered > 0.52 and abs(max_vx_odom - max_vx_unfiltered) < 0.15:
-        analysis_lines.append(f"   => Nguyên nhân chính: Gazebo MecanumDrive System tính toán kinematic bánh xe Mecanum (4 roller wheels)")
-        analysis_lines.append(f"      khi vừa quay vừa tịnh tiến (coupling linear.x + angular.z) hoặc do trượt bánh (wheel slip)")
-        analysis_lines.append(f"      dưới ma sát mô phỏng của Gazebo Sim Physics (DART/Bullet engine).")
-    elif max_vx_odom > max_vx_unfiltered + 0.1:
-        analysis_lines.append(f"   => Nguyên nhân chính: EKF Filter Node (robot_localization) ước lượng đạo hàm gia tốc và tích hợp IMU")
-        analysis_lines.append(f"      tạo ra hiện tượng overshoot (vọt lố quán tính) trong trạng thái chuyển tiếp gia tốc lớn.")
+    if reproduced_runs:
+        analysis_lines.append(f"[TÁI HIỆN THÀNH CÔNG] Phát hiện {len(reproduced_runs)}/{TOTAL_RUNS} lượt có đỉnh odom vx > 0.500 m/s.")
+        analysis_lines.append(f"Đỉnh cao nhất ghi nhận: {overall_max_odom_vx:.4f} m/s.")
+        # Print window around peak for the first reproduced run
+        odom_records = [rec for rec in records if rec["topic"] == "/odom"]
+        peak_rec = max(odom_records, key=lambda x: x["vx"]) if odom_records else None
+        if peak_rec:
+            p_time = peak_rec["sim_time"]
+            analysis_lines.append(f"Cửa sổ +-0.5s quanh đỉnh cao nhất (sim_time={p_time:.3f}s):")
+            for win_r in sorted([rec for rec in records if abs(rec["sim_time"] - p_time) <= 0.5], key=lambda x: x["sim_time"]):
+                analysis_lines.append(f"  t={win_r['sim_time']:.3f} | {win_r['topic']:<26} | vx={win_r['vx']:.4f} | vy={win_r['vy']:.4f} | wz={win_r['wz']:.4f} | frame={win_r.get('frame_id','')}")
     else:
-        analysis_lines.append(f"   => Phối hợp cả đặc tính động học bánh xe Mecanum trong Gazebo và bộ lọc EKF.")
-    analysis_lines.append("")
-    analysis_lines.append(f"C. Đánh giá vector vận tốc so với linear.x:")
-    analysis_lines.append(f"   - Robot Mecanum có thể di chuyển 2D (vx, vy). Tại đỉnh, vx={peak_record.get('vx', 0.0):.4f}, vy={peak_record.get('vy', 0.0):.4f}.")
-    analysis_lines.append(f"   - Tốc độ tổng speed_xy = sqrt(vx^2 + vy^2) = {peak_record.get('speed_xy', 0.0):.4f} m/s.")
-    analysis_lines.append("")
-    analysis_lines.append(f"D. Khuyến nghị:")
-    analysis_lines.append(f"   - Giữ nguyên cấu hình và ngưỡng an toàn của Velocity Guard (max 0.50 m/s).")
-    analysis_lines.append(f"   - Khi nghiệm thu kiểm tra robot di chuyển, phân biệt rõ lệnh điều khiển xuất ra (commanded speed <= 0.50 m/s)")
-    analysis_lines.append(f"     với vận tốc ước lượng từ bánh xe trong mô phỏng (simulated wheel slip / EKF overshoot).")
+        analysis_lines.append(f"[CHƯA TÁI HIỆN, CHƯA RÕ NGUYÊN NHÂN]")
+        analysis_lines.append(f"- Gate 9 ghi nhận đỉnh 0.728 m/s từ linear.x của /odom trong kịch bản Ca 2.")
+        analysis_lines.append(f"- Trong {TOTAL_RUNS} lượt chạy lặp đo kiểm thực nghiệm tại Gate 10:")
+        analysis_lines.append(f"  * Toàn bộ các lượt đo đều ghi nhận đỉnh vận tốc linear.x trên /odom đạt tối đa: {overall_max_odom_vx:.4f} m/s.")
+        analysis_lines.append(f"  * Không có bất kỳ lượt nào vượt quá 0.5000 m/s.")
+        analysis_lines.append(f"  * Các topic trung gian (/cmd_vel_smoothed, /tracking/cmd_vel_guarded, /tracking/cmd_vel_watchdog, /cmd_vel)")
+        analysis_lines.append(f"    đều tuân thủ nghiêm ngặt giới hạn trần 0.5000 m/s của Velocity Guard.")
+        analysis_lines.append(f"- Kết luận: Hiện tượng đỉnh 0.728 m/s chưa tái hiện qua {TOTAL_RUNS} lượt chạy lặp, chưa rõ nguyên nhân cụ thể.")
+        analysis_lines.append(f"  Loại bỏ mọi khẳng định giả định chưa có dữ liệu kiểm chứng (như trượt bánh 3% hay EKF vọt lố).")
+        analysis_lines.append(f"- Ngưỡng vận tốc an toàn của Guard (max_linear_x = 0.50 m/s, linear.y = 0.0 m/s) được giữ nguyên tuyệt đối.")
     analysis_lines.append("=" * 80)
 
     log_content = "\n".join(analysis_lines)

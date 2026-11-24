@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Phase 10: Benchmark Offline Perception Pipeline
+Phase 10: Benchmark Offline Perception Pipeline (Offline với Fixture Tổng Hợp)
 Measures:
 - Model, resolution (640x480), device (CUDA vs CPU), warm-up iterations, duration, sample count.
-- FPS, Latency p50/p95/min/max/mean (inference vs end-to-end pipeline).
+- Throughput (FPS), process_frame latency (inference + ByteTrack + depth association),
+  offline processing and serialize latency (without ROS transport).
 - CPU utilization %, RSS memory (MB), GPU VRAM (MB).
-- Queue depth, dropped frames.
-- Documents physical limitations (Astra real sensor, physical robot base, real human video dataset).
+- Note: Queue depth is not measurable internally (chưa đo); dropped frames on offline sync loop is 0.0%.
+- Does not extrapolate offline FPS to physical camera frame rate.
 """
 
 import gc
@@ -98,7 +99,7 @@ def serialize_observation(obs: MultiPersonObservation) -> str:
 
 def benchmark_pipeline(device: str = "cuda:0", num_samples: int = 100, warmup_count: int = 15):
     print(f"\n{'='*70}")
-    print(f"BENCHMARKING PERCEPTION PIPELINE ON DEVICE: {device}")
+    print(f"BENCHMARK OFFLINE VỚI FIXTURE TỔNG HỢP - DEVICE: {device}")
     print(f"{'='*70}")
 
     if not os.path.isfile(MODEL_PATH):
@@ -134,8 +135,8 @@ def benchmark_pipeline(device: str = "cuda:0", num_samples: int = 100, warmup_co
     inference_latencies_ms: List[float] = []
     e2e_latencies_ms: List[float] = []
     cpu_percentages: List[float] = []
-    queue_depths = [0] * num_samples
-    dropped_frames = 0
+    # Internal queue depth is not observable via public metric topic (chưa đo)
+    # Dropped frame rate in direct synchronous offline loop is 0.0%
 
     print(f"Running {num_samples} benchmark samples...")
     t_bench_start = time.perf_counter()

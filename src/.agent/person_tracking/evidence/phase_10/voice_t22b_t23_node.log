@@ -1,0 +1,47 @@
+[INFO] [1795502343.011382984] [nav_command_node]: NavCommandNode đã khởi động và sẵn sàng.
+[INFO] [1795502352.428061785] [nav_command_node]: Nhận được TTS ACK hợp lệ cho [sp_1_52427] (status=COMPLETED, played=False). Tiến hành gửi goal Nav2.
+[INFO] [1795502352.428754402] [nav_command_node]: [att_1795502342975_1] Gửi goal tới Nav2 cho mission mis_1795502342975_1 (cổng 15, uuid=66d18207db6a4f44b95a56ff39085742)...
+[INFO] [1795502352.429992760] [nav_command_node]: [att_1795502342975_1] Goal được Nav2 chấp nhận (uuid=66d18207db6a4f44b95a56ff39085742). Bắt đầu di chuyển.
+[INFO] [1795502352.477483260] [nav_command_node]: Bỏ qua request trùng lặp: intent-t23
+[INFO] [1795502352.527686897] [nav_command_node]: Bỏ qua request trùng lặp: intent-t23
+[INFO] [1795502352.979975276] [nav_command_node]: [att_1795502342975_1] Server chấp nhận yêu cầu hủy. Đang chờ goal kết thúc terminal...
+[INFO] [1795502353.000882761] [nav_command_node]: [att_1795502342975_1] Goal kết thúc terminal với status: 5
+[INFO] [1795502353.029069080] [nav_command_node]: Bỏ qua request trùng lặp: cancel-t23
+[INFO] [1795502353.079193347] [nav_command_node]: Bỏ qua request trùng lặp: cancel-t23
+[INFO] [1795502358.482840858] [nav_command_node]: Nhận được TTS ACK hợp lệ cho [sp_3_58481] (status=COMPLETED, played=False). Tiến hành gửi goal Nav2.
+[INFO] [1795502358.483323617] [nav_command_node]: [att_1795502342975_2] Gửi goal tới Nav2 cho mission mis_1795502342975_2 (cổng 15, uuid=ba3b4a49d2c34697a9e83902150773a6)...
+[INFO] [1795502358.484294141] [nav_command_node]: [att_1795502342975_2] Goal được Nav2 chấp nhận (uuid=ba3b4a49d2c34697a9e83902150773a6). Bắt đầu di chuyển.
+[INFO] [1795502358.532359559] [nav_command_node]: Bỏ qua request trùng lặp: intent-t22b
+[INFO] [1795502358.582861588] [nav_command_node]: Bỏ qua request trùng lặp: intent-t22b
+Traceback (most recent call last):
+  File "/home/ws/build/airport_robot_voice/airport_robot_voice/nav_command_node.py", line 2285, in main
+    rclpy.spin(node)
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/__init__.py", line 247, in spin
+    executor.spin_once()
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 926, in spin_once
+    self._spin_once_impl(timeout_sec)
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 907, in _spin_once_impl
+    handler, entity, node = self.wait_for_ready_callbacks(
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 877, in wait_for_ready_callbacks
+    return next(self._cb_iter)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 785, in _wait_for_ready_callbacks
+    raise ExternalShutdownException()
+rclpy.executors.ExternalShutdownException
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/ws/install/airport_robot_voice/lib/airport_robot_voice/nav_command_node", line 33, in <module>
+    sys.exit(load_entry_point('airport-robot-voice', 'console_scripts', 'nav_command_node')())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ws/build/airport_robot_voice/airport_robot_voice/nav_command_node.py", line 2290, in main
+    rclpy.shutdown()
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/__init__.py", line 134, in shutdown
+    _shutdown(context=context)
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/utilities.py", line 82, in shutdown
+    context.shutdown()
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/context.py", line 129, in shutdown
+    self.__context.shutdown()
+rclpy._rclpy_pybind11.RCLError: failed to shutdown: rcl_shutdown already called on the given context, at ./src/rcl/init.c:333
