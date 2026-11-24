@@ -2,7 +2,7 @@
 ## Hướng Dẫn Vận Hành Phần Cứng Thực Tế: Camera Orbbec Astra & Robot Mecanum
 
 - **Phân hệ:** `person_tracking`
-- **Phiên bản:** 1.4 — 24/11/2026 (Software Ready & Validated Fail-Closed Real Launch Overlay)
+- **Phiên bản:** 1.5 — 24/11/2026 (Dossier Finalized: Strict Preconditions & Sequential Hardware Verification)
 - **Trạng thái phân hệ:** **SOFTWARE_READY / HARDWARE_PENDING** (Ca T06: **PARTIAL / CODE_READY**)
 - **Mục tiêu:** Cung cấp quy trình kiểm tra từng bước, bộ lệnh tái hiện, bảng tiêu chí Pass/Fail, công cụ chẩn đoán chuyên dụng và phương án đấu nối overlay đã được kiểm chứng sẵn sàng khi kết nối phần cứng thực tế (Camera Orbbec Astra Pro và khung gầm Robot Mecanum Linorobot2).
 - **Quy tắc An toàn Cốt lõi (Safety Mandate):**
@@ -149,22 +149,26 @@ ros2 run tf2_ros tf2_echo camera_link camera_color_optical_frame
 >   * `is_metric_valid: false`
 >   * `candidates[i]["depth_valid"]: false`
 >   * `candidates[i]["depth_proven"]: false`
+> - **Lưu ý đặc biệt về trường `torso_depth_m` khi `depth_valid=false`:**
+>   Nếu `depth_valid=false` (do trạng thái `UNVERIFIED_ALIGNMENT`), trường `torso_depth_m` trong bản tin `/tracking/observation` **chỉ đóng vai trò chẩn đoán tham khảo (diagnostic-only)**, tuyệt đối không được dùng làm số đo nghiệm thu cự ly. Chỉ khi căn chỉnh D2C phần cứng được chứng minh và `depth_valid=true`, giá trị độ sâu mới được coi là số đo hợp lệ.
 > - **Phản ứng Fail-Closed của Velocity Guard:**
 >   Velocity Guard đối chiếu chặt chẽ telemetry này và đánh giá ngay lập tức:
 >   $$(False, \text{"DEGRADED_UNVERIFIED_DEPTH"})$$
 >   khóa chặt cổng vận tốc, xuất liên tục lệnh dừng $0.0000\text{ m/s}$ ra `/tracking/cmd_vel_guarded`. Xe tuyệt đối không di chuyển khi metric độ sâu chưa được chứng minh căn chỉnh!
 > - **Chính sách Không Có Cờ Bypass (No Bypass Flag Policy):**
 >   Pipeline phần mềm hiện tại **CHƯA CÓ ĐƯỜNG CẤU HÌNH** (không có tham số ROS hay launch argument nào) để bỏ qua kiểm tra hoặc đưa kết quả xác minh D2C bên ngoài vào pipeline đang chạy. Launch file `perception_pipeline.launch.py` không khai báo đối số `require_hardware_alignment_proof`. Cơ chế an toàn duy trì nguyên tắc fail-closed nghiêm ngặt: tuyệt đối không thêm cờ bỏ qua kiểm tra trong lượt chuẩn bị này.
-> - **Quy trình Đo lường và Lưu trữ Bằng chứng Căn chỉnh D2C Khi Có Camera Astra:**
->   Khi thiết bị camera Orbbec Astra Pro có mặt, người vận hành thực hiện quy trình đo lường độc lập như sau:
+> - **Đánh dấu bước đưa kết quả xác minh D2C vào pipeline là CÒN CHỜ (PENDING):**
+>   Bước cấu hình đưa kết quả xác minh căn chỉnh D2C vào pipeline đang chạy hiện ở trạng thái **CÒN CHỜ (PENDING)**. Do pipeline duy trì fail-closed nghiêm ngặt, việc thiết lập kênh cấu hình này sẽ được thực hiện khi có phần cứng thực tế và sau khi đã hoàn thành các bước đo kiểm tra tĩnh.
+> - **Quy trình Đo lường và Thu thập Bằng chứng Căn chỉnh D2C Khi Có Camera Astra:**
+>   Khi thiết bị camera Orbbec Astra Pro có mặt, người vận hành thực hiện quy trình thu thập bằng chứng độc lập:
 >   1. **Kiểm tra trực quan lớp phủ 3D (Visual 3D Overlay Check):**
 >      - Cắm camera, nạp driver với `depth_registration:=true`.
 >      - Mở RViz2 hiển thị đồng thời ảnh màu `/camera/color/image_raw` và đám mây điểm `/camera/depth_registered/points`.
 >      - Đặt một đối tượng người mẫu đứng trước camera ở cự ly $1.5\text{ m}$.
 >      - Xác nhận: Biên dạng đám mây điểm của người phải ôm khít hình khối cơ thể trên ảnh màu; độ lệch mép (edge bleed) sang phông nền phía sau $\le 3\text{ cm}$.
->   2. **Kiểm tra sai số cự ly thực tế (Ground-Truth Metric Depth Measurement):**
+>   2. **Kiểm tra sai số cự ly thực tế trên mốc dán sàn (Ground-Truth Metric Measurement):**
 >      - Bố trí các vạch mốc đo dán sàn tại $0.5\text{ m}, 1.0\text{ m}, 1.5\text{ m}, 2.0\text{ m}, 2.5\text{ m}, 3.0\text{ m}$ bằng thước dây tiêu chuẩn.
->      - Ghi lại giá trị `torso_depth_m` trích xuất từ `/tracking/observation` so với khoảng cách thực tế đo bằng thước.
+>      - Sau khi xác nhận đăng ký phần cứng hoạt động và `depth_valid=true`, ghi lại giá trị `torso_depth_m` trích xuất từ `/tracking/observation` so với khoảng cách thực tế đo bằng thước.
 >      - Yêu cầu sai số: $\le 5\text{ cm}$ ở cự ly $\le 2.0\text{ m}$, và $\le 10\text{ cm}$ ở cự ly $\le 3.0\text{ m}$ per Bảng C-03.
 >   3. **Lưu trữ bằng chứng nghiệm thu (Evidence Artifacts):**
 >      - Chụp ảnh màn hình RViz2 hiển thị lớp phủ RGB-D lưu vào `.agent/person_tracking/evidence/phase_11/d2c_rviz2_overlay.png`.
@@ -265,7 +269,7 @@ ros2 run tf2_ros tf2_echo camera_link camera_color_optical_frame
 > nạp trực tiếp `navigation_guard.yaml` (nối Collision Monitor vào `/tracking/cmd_vel_watchdog`), đồng thời tự động nạp `tracking_manager`, `velocity_guard` và `velocity_watchdog`.
 
 #### Hướng dẫn Thiết lập Bản đồ (`map`) và Vị trí Ban đầu (`initial_pose`)
-1. **Chính sách Kiểm tra Bản đồ Fail-Closed Nghiêm ngặt (Strict Map Validation):**
+1. **Chính sách Kiểm tra Bản đồ Fail-Closed (Kiểm Tra Điều Kiện Đầu Vào Launch):**
    - Launch file `escort_navigation_real.launch.py` tích hợp bộ kiểm tra tiền điều kiện tự động:
      * **Chế độ Robot Thật (`use_sim_time=false`):**
        - Bắt buộc phải truyền đối số `map:=/path/to/airport_map.yaml` tường minh. Nếu thiếu `map`, launch lập tức ném ngoại lệ dừng khởi động (`RuntimeError: BLOCKED: 'map' argument is mandatory`).
@@ -273,24 +277,21 @@ ros2 run tf2_ros tf2_echo camera_link camera_color_optical_frame
        - Bản đồ mô phỏng (`turtlebot3_world.yaml`) bị **CHẶN HOÀN TOÀN** trên robot thật (`RuntimeError: BLOCKED: Simulation map cannot be used on physical robot`).
      * **Chế độ Mô phỏng / Kiểm thử Cô lập (`use_sim_time=true`):**
        - Cho phép sử dụng fallback mặc định bản đồ `turtlebot3_world.yaml` phục vụ kiểm thử tích hợp.
-     * **Bộ Kiểm thử Chuyên biệt:** Đã kiểm chứng 6/6 kịch bản kiểm tra bản đồ (thiếu map, sai đường dẫn, dùng nhầm map mô phỏng ở chế độ thật, và map hợp lệ) thông qua suite `src/person_tracking/test/test_map_validation.py` (**PASS 100% OK**, log: [.agent/person_tracking/evidence/phase_11/map_validation_tests.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/map_validation_tests.log)).
-2. **Thiết lập Initial Pose cho AMCL (Khớp Cấu hình `navigation_guard.yaml`):**
-   - Nav2 Jazzy `bringup_launch.py` không nhận đối số `initial_pose_*`.
-   - **Cách 1 (Tĩnh trước khi chạy - Khuyến nghị):** Cấu hình trực tiếp trong `src/person_tracking/config/navigation_guard.yaml`:
-     ```yaml
-     amcl:
-       ros__parameters:
-         set_initial_pose: true
-         initial_pose:
-           x: -1.0
-           y: -0.5
-           z: 0.0
-           yaw: 0.0
-     ```
-   - **Cách 2 (Động tại runtime qua topic `/initialpose`):** Sau khi khởi chạy Nav2, phát bản tin ước lượng vị trí khớp với cấu hình AMCL đang dùng (tọa độ $(-1.0, -0.5, 0.0)$, không dùng vị trí giả định không kiểm tra được):
-     ```bash
-     ros2 topic pub --once /initialpose geometry_msgs/msg/PoseWithCovarianceStamped "{header: {frame_id: 'map'}, pose: {pose: {position: {x: -1.0, y: -0.5, z: 0.0}, orientation: {w: 1.0}}}}"
-     ```
+     * **Bộ Kiểm thử Kiểm tra Điều kiện Đầu vào Launch (6/6 Ca PASS):**
+       Đã kiểm chứng 6/6 kịch bản kiểm tra điều kiện đầu vào của launch (thiếu map, sai đường dẫn, dùng nhầm map mô phỏng ở chế độ thật, fallback sim mode, đường dẫn sai ở sim mode, và map hợp lệ) thông qua suite `src/person_tracking/test/test_map_validation.py` (**PASS 100% OK**, log: [.agent/person_tracking/evidence/phase_11/map_validation_tests.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/map_validation_tests.log)).
+     * **Giới hạn kỹ thuật của Ca F:**
+       > [!IMPORTANT]
+       > **GIỚI HẠN CỦA CA F (KIỂM TRA THAM SỐ ĐẦU VÀO):**  
+       > Ca F trong bộ test chỉ kiểm chứng việc vượt qua bộ lọc đường dẫn đầu vào của launch (file tồn tại trên đĩa, không dùng bản đồ mô phỏng). Ca F **CHƯA CHỨNG MINH** rằng `map_server` đã nạp thành công ảnh bản đồ lên costmap hay AMCL đã định vị thành công.
+2. **Quy trình Xác nhận Bản đồ & AMCL Định vị Khi Có Map Thật:**
+   - **Xác nhận `map_server` nạp ảnh bản đồ thành công:**
+     * Kiểm tra topic `/map`: `ros2 topic echo --once /map --field info` $\to$ xác nhận resolution, width, height, origin hợp lệ.
+     * Kiểm tra lifecycle của `map_server`: `ros2 lifecycle get /map_server` $\to$ trả về `active [3]`.
+   - **Xác nhận thiết lập Initial Pose và AMCL định vị hợp lệ (Localization Valid):**
+     * Thiết lập vị trí ban đầu qua cấu hình tĩnh `navigation_guard.yaml` (`amcl.ros__parameters.initial_pose` tọa độ $(-1.0, -0.5, 0.0)$) hoặc phát qua `/initialpose`.
+     * Kiểm tra TF liên tục từ `map` tới `odom`: `ros2 run tf2_ros tf2_echo map odom` $\to$ transform tồn tại và cập nhật ổn định.
+     * Kiểm tra vị trí AMCL: `ros2 topic echo --once /amcl_pose` $\to$ hiệp phương sai `covariance` nhỏ, không phân kỳ.
+     * Kiểm tra phân bố đám mây hạt: quan sát topic `/particlecloud` trên RViz2, các hạt tập trung quanh robot thay vì phân tán toàn bản đồ.
 
 #### Bộ Lệnh Khởi động Chuẩn hóa (5 Terminal):
 
@@ -335,7 +336,10 @@ ros2 run tf2_ros tf2_echo camera_link camera_color_optical_frame
 
 ### 4.2 BƯỚC KIỂM TRA BẮT BUỘC TRƯỚC KHI BẬT ĐỘNG CƠ (PRE-MOTION TOPIC VERIFICATION)
 
-Trước khi bật công tắc nguồn động cơ hoặc cho xe chạm đất, người vận hành bắt buộc phải chạy lệnh kiểm tra đồ thị kết nối của 4 topic vận tốc:
+> [!CAUTION]
+> **QUY TẮC AN TOÀN BẮT BUỘC TRƯỚC CHUYỂN ĐỘNG:**
+> Trước khi bật công tắc nguồn động cơ hoặc kích hoạt bất kỳ chuyển động nào, người vận hành **BẮT BUỘC** phải chạy lệnh kiểm tra đồ thị kết nối của 4 topic vận tốc.
+> **Quy tắc này bắt buộc phải thực hiện trong mọi trường hợp, kể cả khi sử dụng `params_file` tùy biến khác với cấu hình mặc định!**
 
 ```bash
 ros2 topic info -v /cmd_vel_smoothed
@@ -474,12 +478,16 @@ Toàn bộ chuỗi bàn giao phần mềm giữa Voice, Tracking Manager, Veloci
        * `match_session = True` (`a547d562-0963-45ee-8e39-dcf6e89ec978`)
        * `match_attempt = True` (`att_1795530139687_1`)
        * `match_uuid = True` (`f2867135425f48c49efc2c37f0e1d2e5`)
-     - **Xác nhận Dừng Xe Đủ 3 Bậc Tự Do (3-Axis Motion Stoppage Proof):**
-       Không chỉ dựa vào việc lệnh điều khiển về zero, script kiểm chứng trực tiếp trên một cửa sổ odom mới liên tục (độ dài cửa sổ đo thực tế $= 0.380\text{ s} \ge 0.35\text{ s}$):
-       * $|v_x| \le 0.02\text{ m/s}$ ($v_{x,\max} = 0.0000\text{ m/s}$) $\implies$ ĐẠT.
-       * $|v_y| \le 0.02\text{ m/s}$ ($v_{y,\max} = 0.0000\text{ m/s}$) $\implies$ ĐẠT.
-       * $|\omega_z| \le 0.02\text{ rad/s}$ ($\omega_{z,\max} = 0.0000\text{ rad/s}$) $\implies$ ĐẠT.
-       * `stopped_3axis = True`, FSM trở về `IDLE` $\implies$ **PASSED [OK]**.
+     - **Xác nhận Dừng Xe Đủ 3 Bậc Tự Do (3-Axis Motion Stoppage Evaluation):**
+       - Cửa sổ đo được lấy từ **20 mẫu odom cuối cùng** (`recent_samples = node.odom_history[-20:]`) sau khi Voice hủy goal Nav2 và sau độ trễ 1.0s.
+       - Kiểm tra độ giãn thời gian (span) của cửa sổ dựa theo **header timestamp** của mẫu đầu và mẫu cuối:
+         $$t_{\text{span}} = t_{\text{recent\_samples}[-1]} - t_{\text{recent\_samples}[0]} = 0.380\text{ s} \ge 0.35\text{ s}$$
+       - Toàn bộ 20 mẫu trong cửa sổ đạt tiêu chí đứng yên trên cả 3 trục:
+         * $|v_x| < 0.02\text{ m/s}$ (cực đại $= 0.0000\text{ m/s}$) $\implies$ ĐẠT.
+         * $|v_y| < 0.02\text{ m/s}$ (cực đại $= 0.0000\text{ m/s}$) $\implies$ ĐẠT.
+         * $|\omega_z| < 0.02\text{ rad/s}$ (cực đại $= 0.0000\text{ rad/s}$) $\implies$ ĐẠT.
+       - **Lưu ý chính xác về bằng chứng:** Phép đo xác nhận 20 mẫu odom cuối cùng nằm trong ngưỡng dừng và kiểm span theo header stamp ($0.380\text{ s}$). Phép đo này **không ghi nhận/xác minh từng mẫu odom đến liên tục sau mốc dập zero dừng xe**; việc theo dõi dòng odom liên tục từng frame từ thời điểm dừng sẽ được kiểm chứng chi tiết trên xe thật cùng thiết bị đo vật lý độc lập.
+       - `stopped_3axis = True`, FSM trở về `IDLE` $\implies$ **PASSED [OK]**.
 
 ### B. Bộ Log Hồi Quy (Regression Logs) của Launch Gazebo Cũ
 > [!NOTE]
@@ -503,33 +511,56 @@ Cho tới thời điểm người dùng kết nối thiết bị và chạy các
 
 ## 8. CHECKLIST TUẦN TỰ CHO NGƯỜI DÙNG KHI CÓ PHẦN CỨNG TẠI HIỆN TRƯỜNG
 
-Khi nhận phần cứng (Camera Astra Pro và Khung gầm Linorobot2), người vận hành thực hiện theo đúng trình tự sau:
+Khi nhận phần cứng (Camera Astra Pro và Khung gầm Linorobot2), người vận hành thực hiện theo **ĐÚNG 5 GIAI ĐOẠN TUẦN TỰ** sau:
 
-1. **Bước 1 — Chuẩn bị Tĩnh & Kê Bánh:**
-   - [ ] Đặt robot lên bệ kê kích, đảm bảo 4 bánh xe hoàn toàn hổng khỏi mặt đất.
-   - [ ] Kiểm tra nút E-stop vật lý: ấn thử để xác nhận ngắt nguồn động cơ.
-   - [ ] Cắm cáp USB camera Astra vào cổng USB 3.0; cắm cáp USB microcontroller vào cổng `/dev/ttyACM0`.
-2. **Bước 2 — Kiểm tra Stream & TF Camera Astra:**
-   - [ ] Nạp udev rules và chạy driver `astra_pro.launch.xml depth_registration:=true`.
-   - [ ] Chạy script `python3 /home/ws/src/person_tracking/test/check_astra_hardware_topics.py`.
-   - [ ] Xác nhận đủ 3 tiêu chuẩn: Stream $\ge 20\text{ Hz}$, Timestamp pairing $\Delta t \le 0.060\text{ s}$, và căn chỉnh D2C hiển thị khớp trên RViz2.
-   - [ ] Kiểm tra TF: `ros2 run tf2_ros tf2_echo base_link camera_color_optical_frame`.
-3. **Bước 3 — Đo Bench Test Watchdog Đế Xe (Bánh xe kê hổng):**
-   - [ ] Chạy `ros2 launch linorobot2_bringup bringup.launch.py`.
-   - [ ] Gửi lệnh xung: `ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.1}, angular: {z: 0.0}}"`.
-   - [ ] Bấm giờ xác nhận bánh xe tự ngắt sau $0.2 - 0.5\text{ s}$.
-4. **Bước 4 — Dán Mốc Khoảng Cách & Đo Cự Ly Thực Tế:**
-   - [ ] Dán mốc sàn tại $0.5\text{ m}, 1.0\text{ m}, 1.5\text{ m}, 2.0\text{ m}, 2.5\text{ m}, 3.0\text{ m}$ phía sau robot.
-   - [ ] Đo đạc sai số và ghi vào bảng tiêu chí C-03.
-5. **Bước 5 — Profiling PID & Test Ca T06 (Người cắt ngang):**
-   - [ ] Khởi chạy perception pipeline và chạy script `profile_detector_pid.py` trong 45s.
-   - [ ] Người A đứng giơ tay khóa session; Người B đi bộ cắt ngang. Xác nhận ID switch = 0.
-6. **Bước 6 — Khởi động Hệ thống Escort & Kiểm tra Kết nối Đồ thị (Pre-Motion Topic Verification):**
-   - [ ] Khởi động 5 terminal theo đúng Mục 4.1 trong cẩm nang (dùng `person_tracking escort_navigation_real.launch.py map:=/path/to/airport_map.yaml`).
-   - [ ] Chạy lệnh `ros2 topic info -v` kiểm tra 4 topic vận tốc (`/cmd_vel_smoothed`, `/tracking/cmd_vel_guarded`, `/tracking/cmd_vel_watchdog`, `/cmd_vel`).
-   - [ ] Xác nhận đồ thị kết nối đúng 100% (Collision Monitor là publisher duy nhất trên `/cmd_vel`) trước khi chuyển sang bước di chuyển.
-7. **Bước 7 — Thử Nghiệm Chuyển Động Tốc Độ Thấp ($v_{x,\max} \le 0.30\text{ m/s}$, $\omega_{z,\max} \le 0.20\text{ rad/s}$):**
-   - [ ] Hạ xe xuống sàn phẳng trong khu vực an toàn có rào chắn.
-   - [ ] Người giám sát đi sát bên cạnh robot, tay sẵn sàng nút E-stop.
-   - [ ] Thực hiện lần lượt 5 bài test vận hành (Mục 4.3): Dẫn thẳng, tụt xa, mép ảnh, mất khách abort vĩnh viễn, laser cản trước.
-   - [ ] Ghi nhận số liệu đối chiếu 4 lớp vận tốc vào Bảng Mục 5.2.
+### Giai đoạn 1: Kiểm tra Stream & TF Camera Astra (Stationary Bench Test)
+- [ ] **Kê bánh an toàn:** Đặt robot lên bệ kê kích, đảm bảo 4 bánh xe hoàn toàn hổng khỏi mặt đất; cắm cáp USB camera Astra vào cổng USB 3.0.
+- [ ] **Khởi chạy driver:** Nạp udev rules và chạy driver `astra_pro.launch.xml depth_registration:=true` trên `ROS_DOMAIN_ID=0`.
+- [ ] **Kiểm tra luồng dữ liệu:** Chạy `python3 /home/ws/src/person_tracking/test/check_astra_hardware_topics.py` xác nhận:
+  * Topic Color `/camera/color/image_raw` và Depth `/camera/depth/image_raw` đạt tần số $20 - 30\text{ Hz}$.
+  * Chênh lệch ghép đôi timestamp: $\Delta t = |t_{\text{rgb}} - t_{\text{depth}}| \le 0.060\text{ s}$, độ tuổi frame $\le 0.400\text{ s}$.
+- [ ] **Kiểm tra TF Tree:** Chạy `ros2 run tf2_ros tf2_echo base_link camera_color_optical_frame` xác nhận frame quang học liên tục per ADR-10.
+
+### Giai đoạn 2: Đo Căn chỉnh D2C và Cự ly Mốc Thực tế (Calibration & Metrics)
+- [ ] **Kiểm tra trực quan lớp phủ 3D (Visual D2C Check):**
+  * Mở RViz2 hiển thị đồng thời `/camera/color/image_raw` và `/camera/depth_registered/points`.
+  * Người mẫu đứng tại cự ly $1.5\text{ m}$; xác nhận point cloud ôm khít biên dạng cơ thể trên ảnh màu, độ lệch mép (edge bleed) $\le 3\text{ cm}$.
+  * Chụp ảnh màn hình lưu vào `.agent/person_tracking/evidence/phase_11/d2c_rviz2_overlay.png`.
+- [ ] **Đo cự ly trên mốc dán sàn ($0.5\text{ m} - 3.0\text{ m}$):**
+  * Dán vạch sàn tại các mốc $0.5\text{ m}, 1.0\text{ m}, 1.5\text{ m}, 2.0\text{ m}, 2.5\text{ m}, 3.0\text{ m}$ phía sau robot.
+  * **Lưu ý về telemetry:** Khi `depth_valid=false`, trường `torso_depth_m` chỉ dùng để chẩn đoán, không dùng làm số đo nghiệm thu. Chỉ đo đạc nghiệm thu khi đã có bằng chứng D2C hợp lệ và `depth_valid=true`. Ghi file log đo cự ly vào `.agent/person_tracking/evidence/phase_11/d2c_depth_calibration.log`.
+- [ ] **Ghi nhận bước đưa kết quả vào pipeline:** Đánh dấu bước cấu hình đưa chứng minh D2C vào pipeline là **CÒN CHỜ (PENDING)**; duy trì fail-closed và không dùng cờ bypass.
+- [ ] **Profiling PID & Test Ca T06:** Chạy `profile_detector_pid.py` trong 45s (CPU $\le 45\%$, RAM $\le 1900\text{ MB}$, throughput $\ge 15\text{ FPS}$) và thử nghiệm người cắt ngang (T06: ID switch = 0).
+
+### Giai đoạn 3: Kiểm tra Watchdog Firmware Đế xe (Base Controller Bench Test)
+- [ ] **Xác nhận nút E-stop vật lý:** Ấn thử nút E-stop vật lý để đảm bảo mạch ngắt nguồn động cơ hoạt động tức thì.
+- [ ] **Cắm cáp nối tiếp:** Cắm cáp USB vi điều khiển vào cổng `/dev/ttyACM0` (baud 921600).
+- [ ] **Khởi chạy base:** Chạy `ros2 launch linorobot2_bringup bringup.launch.py`.
+- [ ] **Bench probe ngắt lệnh:** Gửi lệnh xung đơn:
+  `ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.1}, angular: {z: 0.0}}"`
+- [ ] **Xác nhận bánh tự dừng:** Quan sát bánh xe quay và tự động ngắt PWM sau $0.2 - 0.5\text{ s}$ khi mất lệnh. Ghi nhận thông số watchdog phần cứng thực tế.
+
+### Giai đoạn 4: Xác nhận Bản đồ (`map_server`/AMCL) & Chuỗi Topic Vận tốc
+- [ ] **Khởi chạy Escort Navigation Overlay:** Chạy `ros2 launch person_tracking escort_navigation_real.launch.py map:=/path/to/airport_map.yaml use_sim_time:=false max_linear_x:=0.30 max_angular_z:=0.20` trên `ROS_DOMAIN_ID=0`.
+- [ ] **Xác nhận bản đồ đã nạp:**
+  * Kiểm tra dữ liệu bản đồ: `ros2 topic echo --once /map --field info` xác nhận metadata hợp lệ.
+  * Kiểm tra lifecycle map_server: `ros2 lifecycle get /map_server` $\to$ trả về `active [3]`.
+- [ ] **Xác nhận Initial Pose và AMCL định vị:**
+  * Thiết lập initial pose (khớp tọa độ cấu hình hoặc qua `/initialpose`).
+  * Kiểm tra TF liên tục: `ros2 run tf2_ros tf2_echo map odom`.
+  * Kiểm tra vị trí và hội tụ hạt: `ros2 topic echo --once /amcl_pose` (covariance nhỏ) và quan sát `/particlecloud` trên RViz2.
+- [ ] **Kiểm tra đồ thị 4 topic vận tốc (Pre-Motion Topic Verification):**
+  * Chạy `ros2 topic info -v` trên cả 4 topic: `/cmd_vel_smoothed`, `/tracking/cmd_vel_guarded`, `/tracking/cmd_vel_watchdog`, `/cmd_vel`.
+  * **Bắt buộc:** Xác nhận duy nhất node `collision_monitor` phát ra `/cmd_vel`, không có bypass, **kể cả khi sử dụng `params_file` tùy biến khác với mặc định**.
+
+### Giai đoạn 5: Thử nghiệm Chuyển động Tốc độ Thấp Có Người Giám sát
+- [ ] **Hạ xe an toàn:** Hạ xe xuống sàn phẳng tại khu vực thử nghiệm có rào chắn, không chướng ngại vật nguy hiểm.
+- [ ] **Người giám sát sẵn sàng:** Người giám sát luôn đi bộ sát cạnh robot, tay sẵn sàng nút E-stop vật lý hoặc remote ngắt nguồn.
+- [ ] **Khởi chạy Voice Agent:** Chạy `ros2 run airport_robot_voice nav_command_node --ros-args -p enable_escort:=true`.
+- [ ] **Thực hiện 5 kịch bản escort tốc độ thấp ($v_{x,\max} \le 0.30\text{ m/s}$, $\omega_{z,\max} \le 0.20\text{ rad/s}$):**
+  1. Dẫn thẳng tốc độ thấp ($1.5\text{ m}$, robot chạy mượt mà $0.20 - 0.30\text{ m/s}$).
+  2. Khách tụt lại xa ($> 2.0\text{ m}$ giảm tốc, $> 2.5\text{ m}$ dừng chờ, bước lại gần tự chạy tiếp).
+  3. Khách lệch mép ảnh (robot xoay nhẹ hướng tâm giữ khách trong tầm nhìn).
+  4. Mất khách (dập zero sau $\le 0.65\text{ s}$, abort sau $\le 2.20\text{ s}$, Voice hủy goal Nav2, robot dừng hẳn vĩnh viễn, không tự chạy lại).
+  5. Collision Monitor dập laser (vật cản $0.25\text{ m}$ phía trước xe $\to$ dừng tức thì).
+- [ ] **Thu thập số liệu đối chiếu 4 lớp vận tốc:** Ghi nhận bảng đối chiếu `/cmd_vel`, `/odom/unfiltered`, `/odom` và vận tốc đo vật lý độc lập $v_{\text{ground\_truth}}$.

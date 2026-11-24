@@ -117,19 +117,28 @@ Danh sách 26 ca kiểm thử trọng tâm phân loại rõ ràng:
 - **Yêu cầu Xác thực Trước Chuyển động (Pre-Motion Topic Verification):**
   * Chạy `ros2 topic info -v` trên 4 topic vận tốc (`/cmd_vel_smoothed`, `/tracking/cmd_vel_guarded`, `/tracking/cmd_vel_watchdog`, `/cmd_vel`) trước khi cấp nguồn động cơ hoặc cho robot chạm sàn.
   * Đã kiểm chứng qua [escort_real_topic_graph.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/escort_real_topic_graph.log): Duy nhất `collision_monitor` phát ra `/cmd_vel`, `/cmd_vel_docking` được remap cách ly, không có bypass.
-- **Chính Sách Kiểm Tra Bản Đồ Fail-Closed & Bộ Test Riêng:**
+- **Kiểm Tra Điều Kiện Đầu Vào Launch Về Bản Đồ & Giới Hạn Ca F:**
+  * Nhãn: Bộ kiểm tra điều kiện đầu vào của launch (`src/person_tracking/test/test_map_validation.py`, 6/6 PASS).
   * Khi `use_sim_time=false` (robot thật): Tham số `map:=...` là bắt buộc, phải tồn tại trên đĩa và cấm tuyệt đối dùng bản đồ mô phỏng `turtlebot3_world.yaml`.
-  * Bộ test `src/person_tracking/test/test_map_validation.py` bao phủ 6 trường hợp kiểm tra bản đồ (thiếu map, sai file, dùng map sim trên robot thật, map mặc định sim, map hợp lệ) $\implies$ **100% PASS** ([map_validation_tests.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/map_validation_tests.log)).
-- **Quy ước Camera Astra, TF per ADR-10, Gating `UNVERIFIED_ALIGNMENT` & Không Có Cờ Bypass:**
+  * Giới hạn kỹ thuật của Ca F: Ca F chỉ kiểm tra bộ lọc đường dẫn đầu vào của launch; chưa chứng minh `map_server` tải ảnh bản đồ hay AMCL định vị. Hướng dẫn xác thực map topic (lifecycle active), initial pose và TF `map -> odom` đã được bổ sung đầy đủ.
+  * Luôn luôn kiểm tra đồ thị kết nối 4 topic vận tốc trước khi kích hoạt chuyển động, kể cả khi dùng `params_file` tùy biến khác mặc định.
+- **Quy ước Camera Astra, TF per ADR-10, Gating `UNVERIFIED_ALIGNMENT`, Diagnostic Telemetry & Bước PENDING:**
   * Frame quang học: `camera_color_optical_frame` (base frame `base_link`).
   * Trục quang: $+Z_{\text{opt}}$ ra sau robot ($-X_{\text{base}}$), $+X_{\text{opt}}$ sang phải ảnh ($+Y_{\text{base}}$), $+Y_{\text{opt}}$ xuống đáy ảnh ($-Z_{\text{base}}$).
   * Tách biệt 3 bước kiểm tra: (A) Stream Check, (B) Timestamp Pairing ($\Delta t \le 0.060\text{ s}$, age $\le 0.400\text{ s}$), (C) D2C Hardware Registration Proof.
-  * Chính sách Fail-Closed Không Có Cờ Bypass: `LiveAstraAdapter` mặc định gán cứng `require_hardware_alignment_proof = True`. Hiện không có tham số ROS hay cờ launch argument nào để bỏ qua việc kiểm tra này. Khi chưa có camera thật, detector xuất `UNVERIFIED_ALIGNMENT` $\implies$ Guard lập tức dập vận tốc $0.0000\text{ m/s}$. Sai số cự ly mốc thật ($0.5\text{ m} - 3.0\text{ m}$), profiling PID thật và ca T06 tiếp tục chờ phần cứng/video thật.
-  * Hướng dẫn đo D2C khi có Astra: Kiểm tra trực quan lớp phủ point cloud với ảnh màu trên RViz2 ($\le 3\text{ cm}$ edge bleed) và đo sai số cự ly mốc dán sàn lưu bằng chứng vào `.agent/person_tracking/evidence/phase_11/` (`d2c_rviz2_overlay.png` và `d2c_depth_calibration.log`). Tuyệt đối không dùng mô phỏng để thay thế cho căn chỉnh D2C Astra hay watchdog firmware vi điều khiển.
+  * Chính sách Fail-Closed: `LiveAstraAdapter` mặc định gán cứng `require_hardware_alignment_proof = True`. Hiện không có tham số ROS hay cờ launch argument nào để bypass. Khi chưa có camera thật, detector xuất `UNVERIFIED_ALIGNMENT` $\implies$ Guard dập vận tốc $0.0000\text{ m/s}$.
+  * Lưu ý trường `torso_depth_m`: Khi `depth_valid=false`, `torso_depth_m` chỉ dùng để chẩn đoán (diagnostic-only), tuyệt đối không dùng làm số đo nghiệm thu.
+  * Đánh dấu bước cấu hình đưa chứng minh D2C vào pipeline là **CÒN CHỜ (PENDING)**. Hướng dẫn đo D2C khi có Astra: lớp phủ point cloud với ảnh màu trên RViz2 ($\le 3\text{ cm}$ edge bleed) và đo mốc dán sàn lưu bằng chứng (`d2c_rviz2_overlay.png`, `d2c_depth_calibration.log`).
 - **Watchdog Đế Xe: Phân định Bench Test & Trạng thái Hardware Pending:**
   * Trạng thái: **HARDWARE_PENDING (Chưa có mã nguồn/cấu hình firmware vi điều khiển trong repo làm bằng chứng)**. Repo chỉ có `linorobot2_bringup` chạy `micro_ros_agent` qua `/dev/ttyACM0`.
   * Phép thử ngắt lệnh kê bánh xe bằng `pub --once /cmd_vel` chỉ là probe bench test tại chỗ; cảnh báo rõ ràng rằng phát trực tiếp `/cmd_vel` không phải là chế độ escort.
   * Yêu cầu người dùng trực tiếp có mặt để kê bánh, kiểm tra nút E-stop, cắm cáp USB, quan sát bánh tự ngắt và xác nhận model vi điều khiển cùng timeout phần cứng.
+- **Quy Trình 5 Giai Đoạn Tuần Tự Cho Người Dùng Khi Có Phần Cứng:**
+  1. Giai đoạn 1: Kiểm tra Stream & TF Camera Astra (Stationary Bench Test).
+  2. Giai đoạn 2: Đo Căn chỉnh D2C và Cự ly Mốc Thực tế (Calibration & Metrics).
+  3. Giai đoạn 3: Kiểm tra Watchdog Firmware Đế xe (Base Controller Bench Test).
+  4. Giai đoạn 4: Xác nhận Bản đồ (`map_server`/AMCL) & Chuỗi Topic Vận tốc.
+  5. Giai đoạn 5: Thử nghiệm Chuyển động Tốc độ Thấp Có Người Giám sát.
 - **Kết quả Kiểm chứng Nghiệm thu `escort_navigation_real.launch.py` (Gazebo Base Cô lập, 24/11/2026):**
   * Runner: `src/person_tracking/test/execute_escort_real_verification.sh`
   * Script test: `src/person_tracking/test/verify_escort_real_launch.py`
@@ -140,10 +149,11 @@ Danh sách 26 ca kiểm thử trọng tâm phân loại rõ ràng:
   * Ca 3 (Mất khách, Hủy goal Nav2 khớp 3 định danh & Dừng 3 trục odom):
     - Dập zero sau **0.482s** ($\le 0.65\text{ s}$), abort sau **1.226s** ($\le 2.20\text{ s}$), Voice hủy goal Nav2 (`CANCELED`).
     - Đối chiếu khớp 100% cả 3 định danh giữa dispatch và cancel (`match_session=True`, `match_attempt=True`, `match_uuid=True`).
-    - **Chứng minh dừng xe 3 bậc tự do trên odom:** Xác thực trên cửa sổ odom mới liên tục độ dài $0.380\text{ s} \ge 0.35\text{ s}$:
-      * $|v_x| \le 0.02\text{ m/s}$ ($v_{x,\max} = 0.0000\text{ m/s}$).
-      * $|v_y| \le 0.02\text{ m/s}$ ($v_{y,\max} = 0.0000\text{ m/s}$).
-      * $|\omega_z| \le 0.02\text{ rad/s}$ ($\omega_{z,\max} = 0.0000\text{ rad/s}$).
+    - **Xác nhận dừng xe 3 bậc tự do trên odom:** Đánh giá trên **20 mẫu odom cuối cùng** và kiểm tra span theo header stamp ($t_{\text{span}} = 0.380\text{ s} \ge 0.35\text{ s}$):
+      * $|v_x| < 0.02\text{ m/s}$ ($v_{x,\max} = 0.0000\text{ m/s}$).
+      * $|v_y| < 0.02\text{ m/s}$ ($v_{y,\max} = 0.0000\text{ m/s}$).
+      * $|\omega_z| < 0.02\text{ rad/s}$ ($\omega_{z,\max} = 0.0000\text{ rad/s}$).
+      *(Lưu ý: Phép đo kiểm tra 20 mẫu cuối cùng và span theo header stamp, không ghi nhận đã xác minh từng mẫu odom đến liên tục sau mốc dừng).*
       * `stopped_3axis = True`, FSM trở về `IDLE` $\implies$ **PASS**.
   * Log bằng chứng nghiệm thu:
     - [escort_real_smoke.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/escort_real_smoke.log)
