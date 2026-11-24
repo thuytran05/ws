@@ -1,0 +1,8 @@
+MAP VALIDATION TEST SUITE SUMMARY
+- Case A (Missing map in real mode): PASS (rc=1, error_caught=True)
+- Case B (Non-existent map in real mode): PASS (rc=1, error_caught=True)
+- Case C (Simulation map rejected in real mode): PASS (rc=1, error_caught=True)
+- Case D (Simulation mode accepts default turtlebot map): PASS (no_map_error=True)
+- Case E (Non-existent map rejected in simulation mode): PASS (rc=1)
+- Case F (Valid facility map accepted in real mode): PASS (no_map_error=True)
+OVERALL: PASS

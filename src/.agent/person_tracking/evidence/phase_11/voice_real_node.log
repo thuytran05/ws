@@ -1,12 +1,12 @@
-[INFO] [1795527250.837875059] [nav_command_node]: NavCommandNode đã khởi động và sẵn sàng.
-[WARN] [1795527267.666598620] [nav_command_node]: Từ chối tiếp nhận navigate do escort gating: NO_SESSION_ID
-[INFO] [1795527269.368815247] [nav_command_node]: Nhận được TTS ACK hợp lệ cho [sp_2_69367] (status=COMPLETED, played=True). Tiến hành gửi goal Nav2.
-[INFO] [1795527269.369575952] [nav_command_node]: [att_1795527250801_1] Gửi goal tới Nav2 cho mission mis_1795527250801_1 (cổng 15, uuid=e7c0c40816574f27aed202b31a0e0379)...
-[INFO] [1795527269.370691945] [nav_command_node]: [att_1795527250801_1] Goal được Nav2 chấp nhận (uuid=e7c0c40816574f27aed202b31a0e0379). Bắt đầu di chuyển.
-[WARN] [1795527272.305062722] [nav_command_node]: Tiếp nhận ABORT từ tracking cho session=0e993354-e3bb-47fb-b659-e02e482f6397, req_id=677e92b7-07c0-427b-b235-55640a5d22f7, reason=CAMERA_FREEZE.
-[INFO] [1795527272.305428207] [nav_command_node]: [att_1795527250801_1] Gọi cancel_goal_async cho active goal do ABORT.
-[INFO] [1795527272.306632559] [nav_command_node]: [att_1795527250801_1] Server chấp nhận yêu cầu hủy. Đang chờ goal kết thúc terminal...
-[INFO] [1795527272.331435183] [nav_command_node]: [att_1795527250801_1] Goal kết thúc terminal với status: 5
+[INFO] [1795530139.722522676] [nav_command_node]: NavCommandNode đã khởi động và sẵn sàng.
+[WARN] [1795530156.354344701] [nav_command_node]: Từ chối tiếp nhận navigate do escort gating: NO_SESSION_ID
+[INFO] [1795530158.056413487] [nav_command_node]: Nhận được TTS ACK hợp lệ cho [sp_2_58055] (status=COMPLETED, played=True). Tiến hành gửi goal Nav2.
+[INFO] [1795530158.056915642] [nav_command_node]: [att_1795530139687_1] Gửi goal tới Nav2 cho mission mis_1795530139687_1 (cổng 15, uuid=f2867135425f48c49efc2c37f0e1d2e5)...
+[INFO] [1795530158.057877981] [nav_command_node]: [att_1795530139687_1] Goal được Nav2 chấp nhận (uuid=f2867135425f48c49efc2c37f0e1d2e5). Bắt đầu di chuyển.
+[WARN] [1795530160.916836253] [nav_command_node]: Tiếp nhận ABORT từ tracking cho session=a547d562-0963-45ee-8e39-dcf6e89ec978, req_id=e88368f6-b609-4ae0-9eb9-45c2cca353ba, reason=CAMERA_FREEZE.
+[INFO] [1795530160.917208900] [nav_command_node]: [att_1795530139687_1] Gọi cancel_goal_async cho active goal do ABORT.
+[INFO] [1795530160.918390117] [nav_command_node]: [att_1795530139687_1] Server chấp nhận yêu cầu hủy. Đang chờ goal kết thúc terminal...
+[INFO] [1795530160.929260014] [nav_command_node]: [att_1795530139687_1] Goal kết thúc terminal với status: 5
 Traceback (most recent call last):
   File "/home/ws/build/airport_robot_voice/airport_robot_voice/nav_command_node.py", line 2285, in main
     rclpy.spin(node)

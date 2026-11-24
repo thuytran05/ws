@@ -2,7 +2,7 @@
 ## Hướng Dẫn Vận Hành Phần Cứng Thực Tế: Camera Orbbec Astra & Robot Mecanum
 
 - **Phân hệ:** `person_tracking`
-- **Phiên bản:** 1.3 — 24/11/2026 (Verified Real Launch Overlay & Fail-Closed D2C Gating)
+- **Phiên bản:** 1.4 — 24/11/2026 (Software Ready & Validated Fail-Closed Real Launch Overlay)
 - **Trạng thái phân hệ:** **SOFTWARE_READY / HARDWARE_PENDING** (Ca T06: **PARTIAL / CODE_READY**)
 - **Mục tiêu:** Cung cấp quy trình kiểm tra từng bước, bộ lệnh tái hiện, bảng tiêu chí Pass/Fail, công cụ chẩn đoán chuyên dụng và phương án đấu nối overlay đã được kiểm chứng sẵn sàng khi kết nối phần cứng thực tế (Camera Orbbec Astra Pro và khung gầm Robot Mecanum Linorobot2).
 - **Quy tắc An toàn Cốt lõi (Safety Mandate):**
@@ -142,7 +142,7 @@ ros2 run tf2_ros tf2_echo camera_link camera_color_optical_frame
 > [!IMPORTANT]
 > **CƠ CHẾ XỬ LÝ `UNVERIFIED_ALIGNMENT` HIỆN TẠI VÀ CHÍNH SÁCH AN TOÀN FAIL-CLOSED:**
 > - Node `person_detector_node` và adapter `LiveAstraAdapter` mặc định thiết lập:
->   `self.require_hardware_alignment_proof = True`
+>   `self.require_hardware_alignment_proof = True` (gán cứng trong mã nguồn adapter).
 > - **Hiện trạng xử lý khi chưa có camera thật:**
 >   Khi khởi chạy với luồng camera thật nhưng chưa xác nhận được cờ đăng ký phần cứng từ driver, pipeline xuất bản tin `/tracking/observation` với telemetry chẩn đoán:
 >   * `data_quality: "UNVERIFIED_ALIGNMENT"`
@@ -153,16 +153,23 @@ ros2 run tf2_ros tf2_echo camera_link camera_color_optical_frame
 >   Velocity Guard đối chiếu chặt chẽ telemetry này và đánh giá ngay lập tức:
 >   $$(False, \text{"DEGRADED_UNVERIFIED_DEPTH"})$$
 >   khóa chặt cổng vận tốc, xuất liên tục lệnh dừng $0.0000\text{ m/s}$ ra `/tracking/cmd_vel_guarded`. Xe tuyệt đối không di chuyển khi metric độ sâu chưa được chứng minh căn chỉnh!
-> - **Bằng chứng còn thiếu:**
->   1. Luồng video RGB và Depth thực tế từ thiết bị phần cứng UVC/OpenNI cắm qua cổng USB 3.0.
->   2. Bằng chứng kiểm tra trực quan point cloud trên `/camera/depth_registered/points` khớp hoàn toàn biên dạng pixel người.
->   3. Phép đo sai số khoảng cách thực tế trên các mốc dán sàn ($0.5\text{ m} - 3.0\text{ m}$) đạt bảng tiêu chí C-03.
-> - **Cách kiểm tra khi có camera Astra:**
->   1. Cắm camera, nạp driver với `depth_registration:=true`.
->   2. Bật RViz2 hiển thị đồng thời ảnh màu `/camera/color/image_raw` và point cloud `/camera/depth_registered/points`. Quan sát biên dạng của một người đứng trước camera: điểm độ sâu của người phải nằm gọn trong biên dạng cơ thể của ảnh màu, không được trôi dạt sang phông nền phía sau quá $3\text{ cm}$.
->   3. Tuyệt đối **không dùng dữ liệu mô phỏng** để xác nhận căn chỉnh phần cứng của camera Astra hay watchdog của firmware.
->   4. Chỉ sau khi đã hoàn thành bước kiểm tra trực quan trên, người vận hành mới được phép khởi chạy với cờ cho phép:
->      `ros2 launch person_tracking perception_pipeline.launch.py source_mode:=live_astra require_hardware_alignment_proof:=false`
+> - **Chính sách Không Có Cờ Bypass (No Bypass Flag Policy):**
+>   Pipeline phần mềm hiện tại **CHƯA CÓ ĐƯỜNG CẤU HÌNH** (không có tham số ROS hay launch argument nào) để bỏ qua kiểm tra hoặc đưa kết quả xác minh D2C bên ngoài vào pipeline đang chạy. Launch file `perception_pipeline.launch.py` không khai báo đối số `require_hardware_alignment_proof`. Cơ chế an toàn duy trì nguyên tắc fail-closed nghiêm ngặt: tuyệt đối không thêm cờ bỏ qua kiểm tra trong lượt chuẩn bị này.
+> - **Quy trình Đo lường và Lưu trữ Bằng chứng Căn chỉnh D2C Khi Có Camera Astra:**
+>   Khi thiết bị camera Orbbec Astra Pro có mặt, người vận hành thực hiện quy trình đo lường độc lập như sau:
+>   1. **Kiểm tra trực quan lớp phủ 3D (Visual 3D Overlay Check):**
+>      - Cắm camera, nạp driver với `depth_registration:=true`.
+>      - Mở RViz2 hiển thị đồng thời ảnh màu `/camera/color/image_raw` và đám mây điểm `/camera/depth_registered/points`.
+>      - Đặt một đối tượng người mẫu đứng trước camera ở cự ly $1.5\text{ m}$.
+>      - Xác nhận: Biên dạng đám mây điểm của người phải ôm khít hình khối cơ thể trên ảnh màu; độ lệch mép (edge bleed) sang phông nền phía sau $\le 3\text{ cm}$.
+>   2. **Kiểm tra sai số cự ly thực tế (Ground-Truth Metric Depth Measurement):**
+>      - Bố trí các vạch mốc đo dán sàn tại $0.5\text{ m}, 1.0\text{ m}, 1.5\text{ m}, 2.0\text{ m}, 2.5\text{ m}, 3.0\text{ m}$ bằng thước dây tiêu chuẩn.
+>      - Ghi lại giá trị `torso_depth_m` trích xuất từ `/tracking/observation` so với khoảng cách thực tế đo bằng thước.
+>      - Yêu cầu sai số: $\le 5\text{ cm}$ ở cự ly $\le 2.0\text{ m}$, và $\le 10\text{ cm}$ ở cự ly $\le 3.0\text{ m}$ per Bảng C-03.
+>   3. **Lưu trữ bằng chứng nghiệm thu (Evidence Artifacts):**
+>      - Chụp ảnh màn hình RViz2 hiển thị lớp phủ RGB-D lưu vào `.agent/person_tracking/evidence/phase_11/d2c_rviz2_overlay.png`.
+>      - Ghi file log đo cự ly thực tế vào `.agent/person_tracking/evidence/phase_11/d2c_depth_calibration.log`.
+>      - Tuyệt đối **không dùng dữ liệu mô phỏng** để xác nhận căn chỉnh phần cứng của camera Astra hay watchdog của firmware.
 
 ---
 
@@ -258,12 +265,18 @@ ros2 run tf2_ros tf2_echo camera_link camera_color_optical_frame
 > nạp trực tiếp `navigation_guard.yaml` (nối Collision Monitor vào `/tracking/cmd_vel_watchdog`), đồng thời tự động nạp `tracking_manager`, `velocity_guard` và `velocity_watchdog`.
 
 #### Hướng dẫn Thiết lập Bản đồ (`map`) và Vị trí Ban đầu (`initial_pose`)
-1. **Thiết lập Bản đồ (`map`):**
-   - Đối với robot thật tại sân bay/cơ sở vật chất: Bắt buộc truyền tham số `map:=/path/to/actual_facility_map.yaml`.
-   - Bản đồ `turtlebot3_world.yaml` chỉ được dùng cho mục đích kiểm thử/mô phỏng, không dùng cho robot thật.
-2. **Thiết lập Initial Pose cho AMCL (2 Cách Có thể Kiểm tra được):**
+1. **Chính sách Kiểm tra Bản đồ Fail-Closed Nghiêm ngặt (Strict Map Validation):**
+   - Launch file `escort_navigation_real.launch.py` tích hợp bộ kiểm tra tiền điều kiện tự động:
+     * **Chế độ Robot Thật (`use_sim_time=false`):**
+       - Bắt buộc phải truyền đối số `map:=/path/to/airport_map.yaml` tường minh. Nếu thiếu `map`, launch lập tức ném ngoại lệ dừng khởi động (`RuntimeError: BLOCKED: 'map' argument is mandatory`).
+       - Đường dẫn file map bắt buộc phải tồn tại thực tế trên đĩa (`FileNotFoundError` nếu file không tồn tại).
+       - Bản đồ mô phỏng (`turtlebot3_world.yaml`) bị **CHẶN HOÀN TOÀN** trên robot thật (`RuntimeError: BLOCKED: Simulation map cannot be used on physical robot`).
+     * **Chế độ Mô phỏng / Kiểm thử Cô lập (`use_sim_time=true`):**
+       - Cho phép sử dụng fallback mặc định bản đồ `turtlebot3_world.yaml` phục vụ kiểm thử tích hợp.
+     * **Bộ Kiểm thử Chuyên biệt:** Đã kiểm chứng 6/6 kịch bản kiểm tra bản đồ (thiếu map, sai đường dẫn, dùng nhầm map mô phỏng ở chế độ thật, và map hợp lệ) thông qua suite `src/person_tracking/test/test_map_validation.py` (**PASS 100% OK**, log: [.agent/person_tracking/evidence/phase_11/map_validation_tests.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/map_validation_tests.log)).
+2. **Thiết lập Initial Pose cho AMCL (Khớp Cấu hình `navigation_guard.yaml`):**
    - Nav2 Jazzy `bringup_launch.py` không nhận đối số `initial_pose_*`.
-   - **Cách 1 (Tĩnh trước khi chạy):** Cấu hình trực tiếp trong `src/person_tracking/config/navigation_guard.yaml`:
+   - **Cách 1 (Tĩnh trước khi chạy - Khuyến nghị):** Cấu hình trực tiếp trong `src/person_tracking/config/navigation_guard.yaml`:
      ```yaml
      amcl:
        ros__parameters:
@@ -274,9 +287,9 @@ ros2 run tf2_ros tf2_echo camera_link camera_color_optical_frame
            z: 0.0
            yaw: 0.0
      ```
-   - **Cách 2 (Động tại runtime qua topic):** Sau khi khởi chạy Nav2, phát bản tin ước lượng vị trí qua topic `/initialpose`:
+   - **Cách 2 (Động tại runtime qua topic `/initialpose`):** Sau khi khởi chạy Nav2, phát bản tin ước lượng vị trí khớp với cấu hình AMCL đang dùng (tọa độ $(-1.0, -0.5, 0.0)$, không dùng vị trí giả định không kiểm tra được):
      ```bash
-     ros2 topic pub --once /initialpose geometry_msgs/msg/PoseWithCovarianceStamped "{header: {frame_id: 'map'}, pose: {pose: {position: {x: 0.0, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}}"
+     ros2 topic pub --once /initialpose geometry_msgs/msg/PoseWithCovarianceStamped "{header: {frame_id: 'map'}, pose: {pose: {position: {x: -1.0, y: -0.5, z: 0.0}, orientation: {w: 1.0}}}}"
      ```
 
 #### Bộ Lệnh Khởi động Chuẩn hóa (5 Terminal):
@@ -451,20 +464,27 @@ Toàn bộ chuỗi bàn giao phần mềm giữa Voice, Tracking Manager, Veloci
   3. **Case 1 (Chặn dispatch trước khóa):**
      - Voice từ chối khi chưa khóa (`NO_SESSION_ID`), `dispatched=0, nav_started=0, rejected=True, robot_still=True` $\implies$ **PASSED [OK]**.
   4. **Case 2 (Khóa hợp lệ & Xe di chuyển):**
-     - Khóa session thành công (`locked_session_id=0e993354-e3bb-47fb-b659-e02e482f6397`), Voice dispatch goal tới Nav2.
-     - Thu nhận định danh goal active: `session_id=0e993354-e3bb-47fb-b659-e02e482f6397`, `goal_attempt_id=att_1795527250801_1`, `nav2_uuid=e7c0c40816574f27aed202b31a0e0379`.
-     - Robot dịch chuyển vật lý trong Gazebo ($d = 0.083\text{ m} > 0.05\text{ m}$, $v_{x,\max} = 0.300\text{ m/s}$ kẹp chuẩn trần) $\implies$ **PASSED [OK]**.
-  5. **Case 3 (Mất khách & Hủy goal Nav2 đối chiếu 3 định danh):**
-     - Ngừng observation: Guard dập zero sau **$0.462\text{ s}$** ($\le 0.65\text{ s}$), Tracking Manager phát abort sau **$1.285\text{ s}$** ($\le 2.20\text{ s}$).
+     - Khóa session thành công (`locked_session_id=a547d562-0963-45ee-8e39-dcf6e89ec978`), Voice dispatch goal tới Nav2.
+     - Thu nhận định danh goal active: `session_id=a547d562-0963-45ee-8e39-dcf6e89ec978`, `goal_attempt_id=att_1795530139687_1`, `nav2_uuid=f2867135425f48c49efc2c37f0e1d2e5`.
+     - Robot dịch chuyển vật lý trong Gazebo ($d = 0.077\text{ m} > 0.05\text{ m}$, $v_{x,\max} = 0.300\text{ m/s}$ kẹp chuẩn trần) $\implies$ **PASSED [OK]**.
+  5. **Case 3 (Mất khách & Hủy goal Nav2 đối chiếu 3 định danh & Dừng 3 trục odom):**
+     - Ngừng observation: Guard dập zero sau **$0.482\text{ s}$** ($\le 0.65\text{ s}$), Tracking Manager phát abort sau **$1.226\text{ s}$** ($\le 2.20\text{ s}$).
      - Voice nhận abort gọi `cancel_goal_async`, Nav2 trả `CANCELED`.
-     - **Đối chiếu khớp hoàn toàn cả 3 định danh:**
-       * `match_session = True` (`0e993354-e3bb-47fb-b659-e02e482f6397`)
-       * `match_attempt = True` (`att_1795527250801_1`)
-       * `match_uuid = True` (`e7c0c40816574f27aed202b31a0e0379`)
-     - Xe dừng hẳn trên `/odom`, FSM trở về `IDLE` $\implies$ **PASSED [OK]**.
+     - **Đối chiếu khớp hoàn toàn cả 3 định danh giữa dispatch và cancel:**
+       * `match_session = True` (`a547d562-0963-45ee-8e39-dcf6e89ec978`)
+       * `match_attempt = True` (`att_1795530139687_1`)
+       * `match_uuid = True` (`f2867135425f48c49efc2c37f0e1d2e5`)
+     - **Xác nhận Dừng Xe Đủ 3 Bậc Tự Do (3-Axis Motion Stoppage Proof):**
+       Không chỉ dựa vào việc lệnh điều khiển về zero, script kiểm chứng trực tiếp trên một cửa sổ odom mới liên tục (độ dài cửa sổ đo thực tế $= 0.380\text{ s} \ge 0.35\text{ s}$):
+       * $|v_x| \le 0.02\text{ m/s}$ ($v_{x,\max} = 0.0000\text{ m/s}$) $\implies$ ĐẠT.
+       * $|v_y| \le 0.02\text{ m/s}$ ($v_{y,\max} = 0.0000\text{ m/s}$) $\implies$ ĐẠT.
+       * $|\omega_z| \le 0.02\text{ rad/s}$ ($\omega_{z,\max} = 0.0000\text{ rad/s}$) $\implies$ ĐẠT.
+       * `stopped_3axis = True`, FSM trở về `IDLE` $\implies$ **PASSED [OK]**.
 
 ### B. Bộ Log Hồi Quy (Regression Logs) của Launch Gazebo Cũ
-Bộ log kiểm thử thông luồng trước đó từ `gazebo_escort_integration.launch.py` được lưu giữ đầy đủ dưới nhãn hồi quy:
+> [!NOTE]
+> **ĐÍNH CHÍNH VỀ BỘ LOG HỒI QUY CŨ:**
+> Bộ log kiểm thử thông luồng trước đó từ `gazebo_escort_integration.launch.py` được lưu giữ đầy đủ dưới nhãn **HỒI QUY (REGRESSION)**. Cần lưu ý rằng phép đo dừng xe trong bộ log cũ này chỉ theo dõi duy nhất thành phần $v_x$ trên 20 mẫu odom, chưa kiểm tra toàn diện cả 3 trục $v_x, v_y, \omega_z$ như bộ kiểm chứng mới `verify_escort_real_launch.py`.
 - Log tổng kết hồi quy: [.agent/person_tracking/evidence/phase_11/phase11_software_smoke.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/phase11_software_smoke.log)
 - Log runtime Gazebo/Nav2 cũ: [.agent/person_tracking/evidence/phase_11/gazebo_smoke_runtime.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/gazebo_smoke_runtime.log)
 - Log runtime Voice cũ: [.agent/person_tracking/evidence/phase_11/voice_smoke_node.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/voice_smoke_node.log)

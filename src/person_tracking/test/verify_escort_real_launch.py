@@ -112,7 +112,8 @@ class EscortRealVerifyNode(Node):
         t = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         vx = msg.twist.twist.linear.x
         vy = msg.twist.twist.linear.y
-        self.odom_history.append((t, vx, vy))
+        wz = msg.twist.twist.angular.z
+        self.odom_history.append((t, vx, vy, wz))
         if len(self.odom_history) > 300:
             self.odom_history.pop(0)
 
@@ -532,13 +533,28 @@ def main():
             time.sleep(0.1)
 
         # Verify physical halt on /odom
+        # Phép đo toàn diện: Kiểm tra đầy đủ cả 3 bậc tự do (tiến vx, ngang vy, quay wz)
+        # trên cửa sổ odom mới liên tục (20 mẫu mới nhất, trải dài >= 0.35s)
         time.sleep(1.0)
-        c3_stopped = all(abs(s[1]) < 0.02 for s in node.odom_history[-20:])
+        recent_samples = node.odom_history[-20:]
+        c3_stopped_vx = all(abs(s[1]) < 0.02 for s in recent_samples)
+        c3_stopped_vy = all(abs(s[2]) < 0.02 for s in recent_samples)
+        c3_stopped_wz = all(abs(s[3]) < 0.02 for s in recent_samples)
+        t_span = (recent_samples[-1][0] - recent_samples[0][0]) if len(recent_samples) >= 2 else 0.0
+        c3_fresh_window = (t_span >= 0.35)
+        c3_stopped_all = c3_stopped_vx and c3_stopped_vy and c3_stopped_wz and c3_fresh_window
+
+        max_recent_vx = max(abs(s[1]) for s in recent_samples) if recent_samples else 0.0
+        max_recent_vy = max(abs(s[2]) for s in recent_samples) if recent_samples else 0.0
+        max_recent_wz = max(abs(s[3]) for s in recent_samples) if recent_samples else 0.0
+
+        log(f"  [Xác nhận dừng xe 3 bậc tự do] vx_stop={c3_stopped_vx} (max={max_recent_vx:.4f}), vy_stop={c3_stopped_vy} (max={max_recent_vy:.4f}), wz_stop={c3_stopped_wz} (max={max_recent_wz:.4f}), window_span={t_span:.3f}s")
+
         fsm_idle = (node.latest_session and node.latest_session.get("state") == "IDLE" and not node.latest_session.get("locked"))
 
-        c3_pass = (dt_zero <= 0.65) and (dt_abort <= 2.20) and terminal_canceled and matching_3_ids and c3_stopped and fsm_idle
-        test_results["Case 3 (Mất khách & Hủy goal Nav2 khớp 3 ID)"] = (c3_pass, f"dt_zero={dt_zero:.3f}s, dt_abort={dt_abort:.3f}s, terminal_canceled={terminal_canceled}, matching_3_ids={matching_3_ids}, c3_stopped={c3_stopped}, fsm_idle={fsm_idle}")
-        log(f"Kết quả Ca 3: {'PASSED [OK]' if c3_pass else 'FAILED [X]'} (dt_zero={dt_zero:.3f}s, dt_abort={dt_abort:.3f}s, terminal_canceled={terminal_canceled}, matching_3_ids={matching_3_ids})")
+        c3_pass = (dt_zero <= 0.65) and (dt_abort <= 2.20) and terminal_canceled and matching_3_ids and c3_stopped_all and fsm_idle
+        test_results["Case 3 (Mất khách & Hủy goal Nav2 khớp 3 ID & Dừng 3 trục)"] = (c3_pass, f"dt_zero={dt_zero:.3f}s, dt_abort={dt_abort:.3f}s, terminal_canceled={terminal_canceled}, matching_3_ids={matching_3_ids}, stopped_3axis={c3_stopped_all}, fsm_idle={fsm_idle}")
+        log(f"Kết quả Ca 3: {'PASSED [OK]' if c3_pass else 'FAILED [X]'} (dt_zero={dt_zero:.3f}s, dt_abort={dt_abort:.3f}s, terminal_canceled={terminal_canceled}, matching_3_ids={matching_3_ids}, stopped_3axis={c3_stopped_all})")
 
         if not c3_pass:
             all_passed = False
