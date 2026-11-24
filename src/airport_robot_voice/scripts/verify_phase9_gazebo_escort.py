@@ -339,17 +339,34 @@ def run_phase9_smoke_suite():
 
         time.sleep(2.0)
 
+        # 1. Đếm số lần gọi dispatch / send_goal thực tế qua Feedback và NavStatus
+        c1_dispatched_goals = [
+            fb for fb in node.feedbacks[fb_len_before:]
+            if fb.get("event") == "NAV_GOAL_DISPATCHED"
+        ]
+        c1_send_goal_counter = len(c1_dispatched_goals)
+        c1_no_send_goal = (c1_send_goal_counter == 0)
+
+        c1_nav_started_count = len([
+            s for s in node.nav_statuses[status_len_before:]
+            if s.get("nav_event") == "NAVIGATION_STARTED"
+        ])
+        c1_no_nav_started = (c1_nav_started_count == 0)
+
         c1_rejected = any(
             fb.get("event") == "REJECTED" and any(k in fb.get("status", "") for k in ("NOT_LOCKED", "NO_SESSION_ID", "ESCORT"))
             for fb in node.feedbacks[fb_len_before:]
         )
-        c1_no_nav_started = not any(s.get("nav_event") == "NAVIGATION_STARTED" for s in node.nav_statuses[status_len_before:])
         c1_robot_still = all(abs(s[1]) < 0.02 and abs(s[2]) < 0.02 for s in node.odom_history[-30:])
 
-        c1_pass = c1_rejected and c1_no_nav_started and c1_robot_still
+        c1_pass = c1_no_send_goal and c1_no_nav_started and c1_rejected and c1_robot_still
         st_c1 = "PASSED [OK]" if c1_pass else "FAILED [X]"
-        test_results["Ca 1 (Không dispatch trước khóa)"] = (c1_pass, f"rejected={c1_rejected}, no_nav_started={c1_no_nav_started}, robot_still={c1_robot_still}")
-        log(f"Kết quả Ca 1: {st_c1} (rejected={c1_rejected}, no_nav_started={c1_no_nav_started}, robot_still={c1_robot_still})")
+        test_results["Ca 1 (Không dispatch trước khóa)"] = (
+            c1_pass,
+            f"send_goal_counter={c1_send_goal_counter}, nav_started_count={c1_nav_started_count}, "
+            f"rejected={c1_rejected}, robot_still={c1_robot_still}"
+        )
+        log(f"Kết quả Ca 1: {st_c1} (send_goal_counter={c1_send_goal_counter}, rejected={c1_rejected}, robot_still={c1_robot_still})")
 
         # ----------------------------------------------------------------------
         # CA 2: PHIÊN HỢP LỆ DẪN ĐƯỜNG ĐƯỢC (locked -> NAVIGATION_STARTED -> xe chạy)
@@ -374,7 +391,8 @@ def run_phase9_smoke_suite():
         node.start_obs_stream(hand_raised=False, dist_m=1.6)
         time.sleep(0.5)
 
-        status_len_before = len(node.nav_statuses)
+        fb_len_before_c2 = len(node.feedbacks)
+        status_len_before_c2 = len(node.nav_statuses)
         odom_len_before = len(node.odom_history)
         log(f"Gửi lệnh dẫn đường tới cổng 15 cho session {locked_session_id}...")
         node.send_voice_intent(action="navigate", target_id="gate_15", req_id="intent-c2-start")
@@ -382,7 +400,7 @@ def run_phase9_smoke_suite():
         nav_started_msg = None
         t0 = time.time()
         while time.time() - t0 < 8.0:
-            for s in node.nav_statuses[status_len_before:]:
+            for s in node.nav_statuses[status_len_before_c2:]:
                 if s.get("nav_event") == "NAVIGATION_STARTED":
                     nav_started_msg = s
                     break
@@ -391,16 +409,36 @@ def run_phase9_smoke_suite():
             time.sleep(0.1)
 
         c2_nav_started = nav_started_msg is not None
+
+        # Đếm số lần gửi goal duy nhất
+        c2_dispatched = [
+            fb for fb in node.feedbacks[fb_len_before_c2:]
+            if fb.get("event") == "NAV_GOAL_DISPATCHED"
+        ]
+        c2_send_goal_counter = len(c2_dispatched)
+        c2_nav_started_count = len([
+            s for s in node.nav_statuses[status_len_before_c2:]
+            if s.get("nav_event") == "NAVIGATION_STARTED"
+        ])
+        c2_exactly_one_goal = (c2_send_goal_counter == 1 and c2_nav_started_count == 1)
+
+        # Lưu 5 định danh của Ca 2
+        ca2_session_id = locked_session_id
+        ca2_mission_id = nav_started_msg.get("mission_id") if nav_started_msg else None
+        ca2_attempt_id = nav_started_msg.get("goal_attempt_id") if nav_started_msg else None
+        ca2_uuid = nav_started_msg.get("nav2_uuid") if nav_started_msg else None
+        ca2_destination_id = nav_started_msg.get("destination_id") if nav_started_msg else None
+
         c2_ids_match = False
         if c2_nav_started:
             c2_ids_match = (
-                nav_started_msg.get("session_id") == locked_session_id and
-                bool(nav_started_msg.get("mission_id")) and
-                bool(nav_started_msg.get("goal_attempt_id")) and
-                bool(nav_started_msg.get("nav2_uuid")) and
-                nav_started_msg.get("destination_id") == "gate_15"
+                ca2_session_id == locked_session_id and
+                bool(ca2_mission_id) and
+                bool(ca2_attempt_id) and
+                bool(ca2_uuid) and
+                ca2_destination_id == "gate_15"
             )
-            log(f"Nhận NAVIGATION_STARTED: session={nav_started_msg.get('session_id')}, mission={nav_started_msg.get('mission_id')}, goal={nav_started_msg.get('goal_attempt_id')}, uuid={nav_started_msg.get('nav2_uuid')}")
+            log(f"Nhận NAVIGATION_STARTED: session={ca2_session_id}, mission={ca2_mission_id}, goal={ca2_attempt_id}, uuid={ca2_uuid}")
 
         log("Đang theo dõi robot di chuyển vật lý trong Gazebo...")
         time.sleep(3.5)
@@ -412,10 +450,14 @@ def run_phase9_smoke_suite():
         delta_dist = math.sqrt((curr_x - start_x)**2 + (curr_y - start_y)**2)
 
         c2_moving = max_vx_odom > 0.05 and delta_dist > 0.08
-        c2_pass = c2_nav_started and c2_ids_match and c2_moving
+        c2_pass = c2_exactly_one_goal and c2_ids_match and c2_moving
         st_c2 = "PASSED [OK]" if c2_pass else "FAILED [X]"
-        test_results["Ca 2 (Phiên hợp lệ dẫn đường)"] = (c2_pass, f"nav_started={c2_nav_started}, ids_match={c2_ids_match}, max_vx={max_vx_odom:.3f}m/s, delta_d={delta_dist:.3f}m")
-        log(f"Kết quả Ca 2: {st_c2} (max_vx={max_vx_odom:.3f} m/s, delta_d={delta_dist:.3f} m)")
+        test_results["Ca 2 (Phiên hợp lệ dẫn đường)"] = (
+            c2_pass,
+            f"one_goal={c2_exactly_one_goal} (send={c2_send_goal_counter}, started={c2_nav_started_count}), "
+            f"ids_match={c2_ids_match}, max_vx={max_vx_odom:.3f}m/s, delta_d={delta_dist:.3f}m"
+        )
+        log(f"Kết quả Ca 2: {st_c2} (goals={c2_send_goal_counter}, max_vx={max_vx_odom:.3f} m/s, delta_d={delta_dist:.3f} m)")
 
         # ----------------------------------------------------------------------
         # CA 3: MẤT KHÁCH LÀM XE DỪNG VÀ HỦY ĐÚNG GOAL
@@ -425,48 +467,117 @@ def run_phase9_smoke_suite():
         log("-" * 80)
         log("Mô phỏng mất khách: ngừng phát /tracking/observation...")
         node.stop_obs_stream()
-        t_stop_obs = time.time()
+        t_stop_obs = time.monotonic()
+        log(f"  [Mốc 1: Mất quan sát] t_stop_obs={t_stop_obs:.3f}")
 
         abort_req = None
         ack_status = None
         term_status = None
+        t_abort_req = None
+        t_ack = None
+        t_term_canceled = None
+        t_cmd_zero = None
 
-        while time.time() - t_stop_obs < 8.0:
+        t_loop_start = time.monotonic()
+        while time.monotonic() - t_loop_start < 8.0:
+            now_mono = time.monotonic()
+            if t_cmd_zero is None and node.guarded_history:
+                last_cmd = node.guarded_history[-1]
+                if last_cmd[0] >= t_stop_obs and abs(last_cmd[1]) < 0.001 and abs(last_cmd[2]) < 0.001:
+                    t_cmd_zero = last_cmd[0]
+                    log(f"  [Mốc 2: cmd_vel về zero] t_cmd_zero={t_cmd_zero:.3f} (độ trễ {t_cmd_zero - t_stop_obs:.3f}s)")
+
             if not abort_req and node.safety_requests:
                 for req in node.safety_requests:
                     if req.get("session_id") == locked_session_id and req.get("command") == "ABORT":
                         abort_req = req
+                        t_abort_req = now_mono
+                        log(f"  [Yêu cầu ABORT] t_abort_req={t_abort_req:.3f}, req_id={req.get('request_id')}")
                         break
 
             if abort_req and not ack_status:
                 for st in node.nav_statuses:
                     if st.get("nav_event") == "CANCEL_ACKNOWLEDGED" and st.get("request_id") == abort_req.get("request_id"):
                         ack_status = st
+                        t_ack = now_mono
+                        log(f"  [Mốc 3: ACK nhận được] t_ack={t_ack:.3f} (độ trễ {t_ack - t_abort_req:.3f}s)")
                         break
 
             if abort_req and not term_status:
                 for st in node.nav_statuses:
                     if st.get("is_terminal") and st.get("status") == "CANCELED" and st.get("session_id") == locked_session_id:
                         term_status = st
+                        t_term_canceled = now_mono
+                        log(f"  [Mốc 4: Terminal Nav2 CANCELED] t_term_canceled={t_term_canceled:.3f}")
                         break
 
-            if abort_req and ack_status and term_status:
+            if abort_req and ack_status and term_status and (t_cmd_zero is not None):
                 break
-            time.sleep(0.1)
+            time.sleep(0.05)
+
+        if t_cmd_zero is None:
+            t_cmd_zero = t_stop_obs + 0.5
+
+        # Chờ robot chuyển về IDLE và thu thập mẫu odometry dừng
+        time.sleep(2.5)
+        t_idle = time.monotonic()
+        tracking_idle = (node.session_states[-1].get("state") == "IDLE" and not node.session_states[-1].get("locked")) if node.session_states else False
+        voice_idle = (node.nav_states[-1].get("mission_state") == "IDLE" and not node.nav_states[-1].get("has_unresolved_goals")) if node.nav_states else False
+        log(f"  [Mốc 5: Chuyển về IDLE] t_idle={t_idle:.3f}, tracking_idle={tracking_idle}, voice_idle={voice_idle}")
 
         c3_abort_received = abort_req is not None
-        c3_ack_matched = ack_status is not None
-        c3_term_matched = term_status is not None
 
-        time.sleep(2.5)
-        recent_odom = node.odom_history[-100:]
-        all_stopped = all(abs(s[1]) < 0.02 and abs(s[2]) < 0.02 for s in recent_odom)
-        tracking_idle = (node.session_states[-1].get("state") == "IDLE" and not node.session_states[-1].get("locked")) if node.session_states else False
+        # Đối chiếu đầy đủ 5 định danh trên cả bản tin ACK và Terminal CANCELED
+        c3_ack_matched = False
+        if ack_status and abort_req:
+            c3_ack_matched = (
+                ack_status.get("session_id") == ca2_session_id and
+                ack_status.get("mission_id") == ca2_mission_id and
+                ack_status.get("goal_attempt_id") == ca2_attempt_id and
+                ack_status.get("nav2_uuid") == ca2_uuid and
+                ack_status.get("request_id") == abort_req.get("request_id")
+            )
+            log(f"  [Đối chiếu ACK 5 ID]: {c3_ack_matched} (sess={ack_status.get('session_id')}, mission={ack_status.get('mission_id')}, attempt={ack_status.get('goal_attempt_id')}, uuid={ack_status.get('nav2_uuid')}, req={ack_status.get('request_id')})")
 
-        c3_pass = c3_abort_received and c3_ack_matched and c3_term_matched and all_stopped and tracking_idle
+        c3_term_matched = False
+        if term_status and abort_req:
+            c3_term_matched = (
+                term_status.get("session_id") == ca2_session_id and
+                term_status.get("mission_id") == ca2_mission_id and
+                term_status.get("goal_attempt_id") == ca2_attempt_id and
+                term_status.get("nav2_uuid") == ca2_uuid and
+                term_status.get("request_id") == abort_req.get("request_id")
+            )
+            log(f"  [Đối chiếu Terminal 5 ID]: {c3_term_matched} (sess={term_status.get('session_id')}, mission={term_status.get('mission_id')}, attempt={term_status.get('goal_attempt_id')}, uuid={term_status.get('nav2_uuid')}, req={term_status.get('request_id')})")
+
+        # Xác nhận bằng timestamp có ít nhất 2.0s liên tục mẫu odometry mới dưới ngưỡng dừng
+        time.sleep(1.0)  # Thêm thời gian thu thập đủ cửa sổ dừng liên tục
+        t_now = time.monotonic()
+        trailing_stopped = []
+        for s in reversed(node.odom_history):
+            if abs(s[1]) < 0.02 and abs(s[2]) < 0.02:
+                trailing_stopped.append(s)
+            else:
+                break
+        trailing_stopped.reverse()
+
+        c3_samples_present = len(trailing_stopped) >= 30
+        c3_samples_fresh = bool(trailing_stopped and (t_now - trailing_stopped[-1][0] < 0.6))
+        stop_duration = (trailing_stopped[-1][0] - trailing_stopped[0][0]) if len(trailing_stopped) >= 2 else 0.0
+        c3_duration_ok = stop_duration >= 2.0
+        c3_after_cancel = bool(trailing_stopped and trailing_stopped[0][0] >= (t_stop_obs - 0.5))
+
+        c3_stop_window_pass = c3_samples_present and c3_samples_fresh and c3_duration_ok and c3_after_cancel
+        log(f"  [Cửa sổ dừng Odometry]: duration={stop_duration:.2f}s, samples={len(trailing_stopped)}, fresh={c3_samples_fresh}, after_cancel={c3_after_cancel} -> {c3_stop_window_pass}")
+
+        c3_pass = c3_abort_received and c3_ack_matched and c3_term_matched and c3_stop_window_pass and tracking_idle and voice_idle
         st_c3 = "PASSED [OK]" if c3_pass else "FAILED [X]"
-        test_results["Ca 3 (Mất khách xe dừng và hủy goal)"] = (c3_pass, f"abort={c3_abort_received}, ack={c3_ack_matched}, term={c3_term_matched}, stopped={all_stopped}, tracking_idle={tracking_idle}")
-        log(f"Kết quả Ca 3: {st_c3} (abort={c3_abort_received}, ack={c3_ack_matched}, term={c3_term_matched}, stopped={all_stopped}, tracking_idle={tracking_idle})")
+        test_results["Ca 3 (Mất khách xe dừng và hủy goal)"] = (
+            c3_pass,
+            f"abort={c3_abort_received}, ack_5id={c3_ack_matched}, term_5id={c3_term_matched}, "
+            f"stop_window={c3_stop_window_pass} ({stop_duration:.2f}s, n={len(trailing_stopped)}), idle={tracking_idle and voice_idle}"
+        )
+        log(f"Kết quả Ca 3: {st_c3} (abort={c3_abort_received}, ack_5id={c3_ack_matched}, term_5id={c3_term_matched}, stop_duration={stop_duration:.2f}s)")
 
         # ----------------------------------------------------------------------
         # CA 4: ĐẾN ĐÍCH TRẢ SUCCEEDED VÀ TRACKING VỀ IDLE
@@ -492,10 +603,57 @@ def run_phase9_smoke_suite():
         node.start_obs_stream(hand_raised=False, dist_m=1.6)
         time.sleep(0.5)
 
-        status_len_before = len(node.nav_statuses)
+        status_len_before_c4 = len(node.nav_statuses)
         # Đến gate_15 (x=0.0, y=-0.6) là điểm đến thực tế nằm thẳng phía trước robot
         log(f"Gửi lệnh dẫn đường tới cổng 15 cho session 2 ({session_2_id})...")
         node.send_voice_intent(action="navigate", target_id="gate_15", req_id="intent-c4-arrive")
+
+        sess2_nav_started = None
+        t0 = time.time()
+        while time.time() - t0 < 8.0:
+            for s in node.nav_statuses[status_len_before_c4:]:
+                if s.get("nav_event") == "NAVIGATION_STARTED" and s.get("session_id") == session_2_id:
+                    sess2_nav_started = s
+                    break
+            if sess2_nav_started:
+                break
+            time.sleep(0.1)
+
+        ca4_mission_id = sess2_nav_started.get("mission_id") if sess2_nav_started else None
+        ca4_attempt_id = sess2_nav_started.get("goal_attempt_id") if sess2_nav_started else None
+        ca4_uuid = sess2_nav_started.get("nav2_uuid") if sess2_nav_started else None
+        log(f"Session 2 đã khởi hành: mission={ca4_mission_id}, attempt={ca4_attempt_id}, uuid={ca4_uuid}")
+
+        # Kiểm tra cô lập: Bản tin đến muộn của goal cũ (Session 1) không được đóng phiên mới
+        transient_qos_c4 = QoSProfile(
+            depth=1,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=ReliabilityPolicy.RELIABLE,
+        )
+        pub_mock_status = node.create_publisher(String, "/voice/nav_status", transient_qos_c4)
+        fake_late_status = {
+            "schema_version": "1.0",
+            "session_id": locked_session_id,  # Goal cũ của Session 1
+            "mission_id": ca2_mission_id,
+            "goal_attempt_id": ca2_attempt_id,
+            "nav2_uuid": ca2_uuid,
+            "destination_id": "gate_15",
+            "status": "SUCCEEDED",
+            "nav_event": "GOAL_COMPLETED",
+            "is_terminal": True,
+            "message": "Late old goal terminal test"
+        }
+        for _ in range(2):
+            pub_mock_status.publish(String(data=json.dumps(fake_late_status)))
+            time.sleep(0.05)
+        time.sleep(0.3)
+
+        # Kiểm tra Tracking Manager vẫn đang trong Session 2 và không bị đóng phiên cũ
+        c4_late_old_goal_ignored = (
+            node.session_states[-1].get("session_id") == session_2_id and
+            node.session_states[-1].get("state") == "NAVIGATING"
+        )
+        log(f"Xác nhận bản tin late old goal không ảnh hưởng Session 2: {c4_late_old_goal_ignored} (current_session={node.session_states[-1].get('session_id')}, state={node.session_states[-1].get('state')})")
 
         succeeded_event = None
         t0 = time.time()
@@ -510,7 +668,7 @@ def run_phase9_smoke_suite():
                 curr_y = curr_odom.pose.pose.position.y if curr_odom else 0.0
                 log(f"  [Ca 4 Progress] t={now_t - t0:.1f}s | pos=({curr_x:.2f}, {curr_y:.2f}) | vx={curr_vx:.2f}")
 
-            for s in node.nav_statuses[status_len_before:]:
+            for s in node.nav_statuses[status_len_before_c4:]:
                 if s.get("is_terminal") and s.get("status") == "SUCCEEDED" and s.get("session_id") == session_2_id:
                     succeeded_event = s
                     break
@@ -519,8 +677,16 @@ def run_phase9_smoke_suite():
             time.sleep(0.2)
 
         c4_succeeded = succeeded_event is not None
+        c4_ids_match = False
         if c4_succeeded:
-            log(f"Nhận được terminal SUCCEEDED cho session 2!")
+            c4_ids_match = (
+                succeeded_event.get("session_id") == session_2_id and
+                succeeded_event.get("mission_id") == ca4_mission_id and
+                succeeded_event.get("goal_attempt_id") == ca4_attempt_id and
+                succeeded_event.get("nav2_uuid") == ca4_uuid and
+                succeeded_event.get("destination_id") == "gate_15"
+            )
+            log(f"Nhận được terminal SUCCEEDED cho session 2! Đối chiếu 5 ID: {c4_ids_match}")
 
         # Chờ Tracking Manager và Voice FSM chuyển về IDLE sạch sẽ
         t_wait_idle = time.time()
@@ -533,10 +699,14 @@ def run_phase9_smoke_suite():
                 break
             time.sleep(0.3)
 
-        c4_pass = c4_succeeded and c4_tracking_idle and c4_voice_idle
+        c4_pass = c4_succeeded and c4_ids_match and c4_late_old_goal_ignored and c4_tracking_idle and c4_voice_idle
         st_c4 = "PASSED [OK]" if c4_pass else "FAILED [X]"
-        test_results["Ca 4 (Đến đích SUCCEEDED và IDLE)"] = (c4_pass, f"succeeded={c4_succeeded}, tracking_idle={c4_tracking_idle}, voice_idle={c4_voice_idle}")
-        log(f"Kết quả Ca 4: {st_c4} (succeeded={c4_succeeded}, tracking_idle={c4_tracking_idle}, voice_idle={c4_voice_idle})")
+        test_results["Ca 4 (Đến đích SUCCEEDED và IDLE)"] = (
+            c4_pass,
+            f"succeeded={c4_succeeded}, ids_match={c4_ids_match}, late_ignored={c4_late_old_goal_ignored}, "
+            f"tracking_idle={c4_tracking_idle}, voice_idle={c4_voice_idle}"
+        )
+        log(f"Kết quả Ca 4: {st_c4} (succeeded={c4_succeeded}, ids_match={c4_ids_match}, late_ignored={c4_late_old_goal_ignored}, tracking_idle={c4_tracking_idle}, voice_idle={c4_voice_idle})")
 
     finally:
         node.stop_obs_stream()

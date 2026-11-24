@@ -111,6 +111,7 @@ class Phase9TestHarness:
         self.nav_states = []
         self.feedbacks = []
         self.speeches = []
+        self._session_seq = 0
 
         # Hook các hàm phát tin của nav_node để ghi nhận tức thì trong unit test
         orig_pub_state = self.nav_node.publish_state
@@ -167,14 +168,30 @@ class Phase9TestHarness:
         self.thread.start()
 
     def send_session_state(self, session_id="sess-001", locked=True, state="LOCKED_WAIT_DESTINATION",
-                           obs_fresh=True, reason_code="HAND_RAISE_HELD_NEAREST", age_offset=0.0):
+                           obs_fresh=True, reason_code="HAND_RAISE_HELD_NEAREST", age_offset=0.0,
+                           sequence_num=None, custom_stamp=None, update_mono=True):
         now = self.nav_node.get_clock().now().to_msg()
+        if sequence_num is None:
+            self._session_seq += 1
+            seq = self._session_seq
+        else:
+            seq = sequence_num
+
+        if custom_stamp is not None:
+            stamp_dict = custom_stamp
+        else:
+            now_float = now.sec + now.nanosec * 1e-9
+            target_float = now_float - age_offset
+            target_sec = int(target_float)
+            target_nanosec = int((target_float - target_sec) * 1e9)
+            stamp_dict = {"sec": target_sec, "nanosec": target_nanosec}
+
         payload = {
             "schema_version": "1.0",
-            "stamp": {"sec": now.sec, "nanosec": now.nanosec},
-            "last_observation_stamp": {"sec": now.sec, "nanosec": now.nanosec},
+            "stamp": stamp_dict,
+            "last_observation_stamp": stamp_dict,
             "obs_fresh": obs_fresh,
-            "sequence_num": 1,
+            "sequence_num": seq,
             "session_id": session_id,
             "state": state,
             "locked": locked,
@@ -187,7 +204,7 @@ class Phase9TestHarness:
         }
         msg = String(data=json.dumps(payload))
         self.nav_node.on_session_state(msg)
-        if age_offset > 0:
+        if age_offset > 0 and update_mono:
             self.nav_node._last_session_state_mono -= age_offset
 
     def send_safety_request(self, request_id="req-abort-1", session_id="sess-001", command="ABORT",
@@ -523,5 +540,129 @@ def test_10_escort_goal_succeeded_terminal():
         assert ev['destination_id'] == 'gate_a3'
         assert harness.nav_node.state == MissionState.IDLE
         assert harness.nav_node.has_unresolved_goals() is False
+    finally:
+        harness.shutdown()
+
+
+def test_11_escort_late_start_stale_transient_local():
+    """Voice khởi động muộn nhận snapshot LOCKED cũ bị chặn cho tới khi có heartbeat mới."""
+    harness = Phase9TestHarness('test_act_p9_11', enable_escort=True)
+    try:
+        sess_id = "sess-late-011"
+        # Giả lập nhận snapshot TRANSIENT_LOCAL cũ (stamp cách đây 5.0s, nhưng monotonic nhận vừa xảy ra)
+        harness.send_session_state(
+            session_id=sess_id, locked=True, state="LOCKED_WAIT_DESTINATION",
+            obs_fresh=True, age_offset=5.0, update_mono=False
+        )
+        # Voice nhận lệnh thoại dẫn đường
+        harness.send_intent(target_id='gate_a3', req_id='req-late-1')
+        time.sleep(0.1)
+
+        # Phải bị chặn do clock stamp đã hết hạn (> 1.0s), không gửi goal sang server
+        assert harness.nav_node.state == MissionState.IDLE
+        assert len(harness.server.received_goals) == 0
+        assert any('HEARTBEAT_EXPIRED' in f['status'] for f in harness.feedbacks)
+
+        # Sau đó Tracking phát heartbeat mới tinh (age_offset=0, sequence_num tăng)
+        harness.send_session_state(
+            session_id=sess_id, locked=True, state="LOCKED_WAIT_DESTINATION",
+            obs_fresh=True, age_offset=0.0
+        )
+        # Gửi lại intent
+        harness.send_intent(target_id='gate_a3', req_id='req-late-2')
+        time.sleep(0.1)
+
+        # Lần này được chấp nhận, chuyển sang ANNOUNCING và gửi goal sau TTS
+        assert harness.nav_node.state == MissionState.ANNOUNCING
+        harness.send_tts_ack(harness.nav_node._pending_speech_id)
+        time.sleep(0.3)
+        assert len(harness.server.received_goals) == 1
+        assert harness.nav_node.state == MissionState.NAVIGATING
+    finally:
+        harness.shutdown()
+
+
+def test_12_escort_out_of_order_stale_message_rejected():
+    """Bản tin trễ hoặc sai thứ tự (sequence_num giảm hoặc stamp lùi) không mở lại quyền chạy."""
+    harness = Phase9TestHarness('test_act_p9_12', enable_escort=True)
+    try:
+        sess_id = "sess-order-012"
+        # Nhịp tim 1: sequence_num=10, stamp hợp lệ
+        harness.send_session_state(
+            session_id=sess_id, locked=True, state="LOCKED_WAIT_DESTINATION",
+            obs_fresh=True, sequence_num=10
+        )
+        # Trạng thái cập nhật hủy khóa: sequence_num=11, locked=False, state=IDLE
+        harness.send_session_state(
+            session_id=sess_id, locked=False, state="IDLE",
+            obs_fresh=False, sequence_num=11
+        )
+        assert harness.nav_node._latest_session_state.get('locked') is False
+
+        # Nhận bản tin trễ/lạc: sequence_num=9 với locked=True, state=LOCKED_WAIT_DESTINATION
+        now = harness.nav_node.get_clock().now().to_msg()
+        old_stamp = {"sec": now.sec - 2, "nanosec": now.nanosec}
+        harness.send_session_state(
+            session_id=sess_id, locked=True, state="LOCKED_WAIT_DESTINATION",
+            obs_fresh=True, sequence_num=9, custom_stamp=old_stamp
+        )
+
+        # Bản tin trễ bị on_session_state bỏ qua, trạng thái vẫn là locked=False
+        assert harness.nav_node._latest_session_state.get('locked') is False
+
+        # Gửi intent -> bị từ chối, không được cấp quyền chạy
+        harness.send_intent(target_id='gate_a3', req_id='req-order-1')
+        time.sleep(0.1)
+        assert harness.nav_node.state == MissionState.IDLE
+        assert len(harness.server.received_goals) == 0
+    finally:
+        harness.shutdown()
+
+
+def test_13_escort_late_terminal_of_old_goal_does_not_affect_new_session():
+    """Terminal result đến muộn của goal cũ không được đóng phiên mới hay thay đổi trạng thái mission hiện tại."""
+    harness = Phase9TestHarness('test_act_p9_13', enable_escort=True)
+    try:
+        # Phiên 1: chạy và bị hủy
+        sess_1 = "sess-old-001"
+        harness.send_session_state(session_id=sess_1, locked=True, state="LOCKED_WAIT_DESTINATION", obs_fresh=True)
+        harness.send_intent(target_id='gate_a3', req_id='req-old-1')
+        time.sleep(0.1)
+        harness.send_tts_ack(harness.nav_node._pending_speech_id)
+        time.sleep(0.3)
+        old_attempt_id = harness.nav_node._current_goal_attempt_id
+        old_mission_id = harness.nav_node._current_mission_id
+
+        # Hủy phiên 1
+        harness.send_safety_request(request_id="abort-old", session_id=sess_1)
+        time.sleep(0.2)
+        assert harness.nav_node.state == MissionState.IDLE
+
+        # Phiên 2: khởi động mới
+        sess_2 = "sess-new-002"
+        harness.send_session_state(session_id=sess_2, locked=True, state="LOCKED_WAIT_DESTINATION", obs_fresh=True)
+        harness.send_intent(target_id='gate_a4', req_id='req-new-2')
+        time.sleep(0.1)
+        harness.send_tts_ack(harness.nav_node._pending_speech_id)
+        time.sleep(0.3)
+        assert harness.nav_node.state == MissionState.NAVIGATING
+        new_mission_id = harness.nav_node._current_mission_id
+        assert new_mission_id != old_mission_id
+
+        # Giả lập kết quả đến muộn của old_attempt_id (STATUS_SUCCEEDED)
+        class MockDelayedResultFuture:
+            def result(self):
+                class MockRes:
+                    status = GoalStatus.STATUS_SUCCEEDED
+                return MockRes()
+
+        harness.nav_node._on_delayed_cancel_terminal_result(
+            MockDelayedResultFuture(), old_attempt_id, old_mission_id
+        )
+
+        # Xác nhận Session 2 vẫn đang NAVIGATING bình thường, không bị đóng hay chuyển IDLE
+        assert harness.nav_node.state == MissionState.NAVIGATING
+        assert harness.nav_node._current_session_id == sess_2
+        assert harness.nav_node._current_mission_id == new_mission_id
     finally:
         harness.shutdown()

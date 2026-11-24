@@ -866,7 +866,7 @@ ros2 run airport_robot_voice nav_command_node --ros-args \
 cd /home/ws
 source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
 
-# 1. Chạy toàn bộ 104 tests pytest (gồm 10 bài test Phase 9 + 94 bài test hồi quy):
+# 1. Chạy toàn bộ 107 tests pytest (gồm 13 bài test Phase 9 + 94 bài test hồi quy):
 export ROS_DOMAIN_ID=42
 python3 -m pytest src/airport_robot_voice/test/ -v
 

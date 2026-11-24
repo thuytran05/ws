@@ -631,18 +631,60 @@ class NavCommandNode(Node):
             self.get_logger().warn(f'Lỗi giải mã /tracking/session_state: {exc}')
             return
 
+        # Trích xuất thông tin định danh và nhãn thời gian
+        stamp = data.get('stamp')
+        seq_num = data.get('sequence_num')
+        msg_sec = None
+        if isinstance(stamp, dict) and 'sec' in stamp and 'nanosec' in stamp:
+            try:
+                msg_sec = float(stamp['sec']) + float(stamp['nanosec']) * 1e-9
+            except (ValueError, TypeError):
+                msg_sec = None
+
+        # Kiểm tra thứ tự và độ trễ đối với bản tin đã có
+        if self._latest_session_state is not None:
+            curr_sess = self._latest_session_state.get('session_id')
+            new_sess = data.get('session_id')
+            curr_stamp = self._latest_session_state.get('stamp')
+            curr_sec = None
+            if isinstance(curr_stamp, dict) and 'sec' in curr_stamp and 'nanosec' in curr_stamp:
+                try:
+                    curr_sec = float(curr_stamp['sec']) + float(curr_stamp['nanosec']) * 1e-9
+                except (ValueError, TypeError):
+                    curr_sec = None
+            curr_seq = self._latest_session_state.get('sequence_num')
+
+            # Nếu thời gian bản tin mới đi lùi về quá khứ so với bản tin hiện tại
+            if curr_sec is not None and msg_sec is not None:
+                if msg_sec < curr_sec - 0.001:
+                    self.get_logger().warn(
+                        f'Bỏ qua bản tin /tracking/session_state trễ/sai thứ tự: '
+                        f'msg_stamp={msg_sec:.3f} < curr_stamp={curr_sec:.3f}'
+                    )
+                    return
+
+            # Nếu cùng phiên mà sequence_num bị giảm
+            if curr_sess == new_sess and curr_seq is not None and seq_num is not None:
+                if seq_num < curr_seq:
+                    self.get_logger().warn(
+                        f'Bỏ qua bản tin /tracking/session_state có sequence_num giảm: '
+                        f'seq={seq_num} < curr_seq={curr_seq}'
+                    )
+                    return
+
         self._latest_session_state = data
         self._last_session_state_mono = time.monotonic()
 
     def check_escort_gating(self):
         """
-        Kiểm tra 6 điều kiện an toàn khi bật escort:
-        1. Heartbeat đã nhận và tuổi <= escort_heartbeat_timeout (1.0s)
-        2. session_id tồn tại và hợp lệ
-        3. locked == True
-        4. state == "LOCKED_WAIT_DESTINATION"
-        5. obs_fresh == True
-        6. Không có goal cũ chưa kết thúc
+        Kiểm tra 6 điều kiện an toàn khi bật escort theo INTERFACES.md:
+        1. Mất luồng nhận (stream timeout qua monotonic) <= escort_heartbeat_timeout (1.0s)
+        2. Độ tươi Clock: so sánh stamp với ROS clock hiện tại <= escort_heartbeat_timeout (1.0s)
+        3. session_id tồn tại và hợp lệ
+        4. locked == True
+        5. state == "LOCKED_WAIT_DESTINATION"
+        6. obs_fresh == True
+        7. Không có goal cũ chưa kết thúc
         Trả về (allowed: bool, reason_code: str, user_speech: str)
         """
         if not self.enable_escort:
@@ -651,9 +693,31 @@ class NavCommandNode(Node):
         if self._latest_session_state is None or self._last_session_state_mono is None:
             return False, "NO_HEARTBEAT", "Chưa nhận được tín hiệu từ hệ thống nhận diện hành khách."
 
-        age = time.monotonic() - self._last_session_state_mono
-        if age > self.escort_heartbeat_timeout:
-            return False, "HEARTBEAT_EXPIRED", "Tín hiệu nhận diện hành khách đã hết hạn."
+        # 1. Kiểm tra mất luồng nhận (stream loss) qua thời gian monotonic
+        age_mono = time.monotonic() - self._last_session_state_mono
+        if age_mono > self.escort_heartbeat_timeout:
+            return False, "HEARTBEAT_EXPIRED", "Mất luồng nhận tín hiệu từ hệ thống nhận diện hành khách."
+
+        # 2. Siết kiểm tra độ mới của bản tin theo ROS Clock (hỗ trợ cả ROS time / sim time)
+        now_time = self.get_clock().now()
+        now_sec = now_time.nanoseconds * 1e-9
+        if now_sec <= 0.0:
+            return False, "CLOCK_UNAVAILABLE", "Chưa xác minh được nguồn clock của hệ thống."
+
+        stamp = self._latest_session_state.get('stamp')
+        if not isinstance(stamp, dict) or 'sec' not in stamp or 'nanosec' not in stamp:
+            return False, "INVALID_STAMP", "Bản tin trạng thái phiên thiếu nhãn thời gian hợp lệ."
+
+        try:
+            msg_sec = float(stamp['sec']) + float(stamp['nanosec']) * 1e-9
+        except (ValueError, TypeError):
+            return False, "INVALID_STAMP", "Nhãn thời gian của bản tin không hợp lệ."
+
+        clock_age = now_sec - msg_sec
+        if clock_age > self.escort_heartbeat_timeout:
+            return False, "HEARTBEAT_EXPIRED", f"Tín hiệu nhận diện hành khách đã quá hạn ({clock_age:.2f}s > {self.escort_heartbeat_timeout}s)."
+        if clock_age < -1.0:
+            return False, "CLOCK_SKEW", f"Thời gian bản tin không đồng bộ ({clock_age:.2f}s)."
 
         session_id = self._latest_session_state.get('session_id')
         if not session_id:
@@ -684,6 +748,23 @@ class NavCommandNode(Node):
             return False
         if time.monotonic() - self._last_session_state_mono > self.escort_heartbeat_timeout:
             return False
+
+        # Kiểm tra độ mới theo ROS Clock nếu clock khả dụng
+        now_time = self.get_clock().now()
+        now_sec = now_time.nanoseconds * 1e-9
+        if now_sec > 0.0:
+            stamp = self._latest_session_state.get('stamp')
+            if isinstance(stamp, dict) and 'sec' in stamp and 'nanosec' in stamp:
+                try:
+                    msg_sec = float(stamp['sec']) + float(stamp['nanosec']) * 1e-9
+                    clock_age = now_sec - msg_sec
+                    if clock_age > self.escort_heartbeat_timeout or clock_age < -1.0:
+                        return False
+                except (ValueError, TypeError):
+                    return False
+            else:
+                return False
+
         if self._latest_session_state.get('session_id') != session_id:
             return False
         if not bool(self._latest_session_state.get('locked', False)):
