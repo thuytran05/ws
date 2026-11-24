@@ -1,0 +1,229 @@
+PHASE 11: ASTRA PROBE SYNTHETIC TEST SUITE
+Date: 2026-11-24 15:22:58
+ROS_DOMAIN_ID: 43
+Scope: Synthetic data validation of check_astra_hardware_topics.py probe only.
+No Gazebo physics, Nav2, or /cmd_vel involved.
+
+================================================================================
+TEST CASE: Case 1: Standard Valid Stream (28 Hz, Delta=1.5ms, Fresh Age) [mode=pass, rate=28.0Hz, expected_exit_code=0]
+================================================================================
+--- PROBE STDOUT ---
+=== Checking Astra Camera topics on current ROS domain for 2.5s... ===
+
+================================================================================
+PHASE 11: ASTRA CAMERA HARDWARE TOPIC AUDIT REPORT
+================================================================================
+Monitoring duration: 2.52 s
+Thresholds: min_rate=20.0 Hz (expected 20-30 Hz) | max_slop=60.0 ms | max_age=400.0 ms
+--------------------------------------------------------------------------------
+1. Color Topic  (/camera/color/image_raw):
+   - Received: 67 msgs | Rate: 28.0 Hz (Threshold: >= 20.0 Hz) -> [PASS]
+   - Encoding: 'rgb8' | Resolution: (640, 480) -> [PASS]
+   - Age check: min=2.4 ms, max=6.2 ms, mean=4.7 ms (Limit: <= 400.0 ms) -> [PASS]
+2. Depth Topic  (/camera/depth/image_raw):
+   - Received: 67 msgs | Rate: 28.0 Hz (Threshold: >= 20.0 Hz) -> [PASS]
+   - Encoding: '16UC1' | Resolution: (640, 480) -> [PASS]
+   - Age check: min=2.2 ms, max=7.8 ms, mean=5.6 ms (Limit: <= 400.0 ms) -> [PASS]
+3. Info Topic   (/camera/color/camera_info):
+   - Received: 69 msgs | Intrinsics (fx,fy,cx,cy): (525.0, 525.0, 319.5, 239.5) -> [PASS]
+4. Timestamp Pairing & Synchronicity (|t_rgb - t_depth| <= 60.0 ms):
+   - Total evaluated frames: 67 RGB, 67 Depth
+   - Valid matched pairs:   67 (100.0%) -> [PASS]
+   - Unpaired frames:        0 RGB, 0 Depth
+   - Matched delta stats:    min=1.50 ms, mean=1.50 ms, max=1.50 ms
+--------------------------------------------------------------------------------
+STATUS: PASS
+Note: PASS of this probe confirms stream reception and timestamp synchronicity.
+      Physical 3D D2C alignment and floor distance metrics remain UNVERIFIED until physical check.
+================================================================================
+--- PROBE STDERR ---
+Probe Exit Code: 0 (Expected: 0)
+Test Result: PASS [OK]
+
+================================================================================
+TEST CASE: Case 2: Low Rate Stream (10 Hz < 20.0 Hz threshold) [mode=low_rate, rate=10.0Hz, expected_exit_code=1]
+================================================================================
+--- PROBE STDOUT ---
+=== Checking Astra Camera topics on current ROS domain for 2.5s... ===
+
+================================================================================
+PHASE 11: ASTRA CAMERA HARDWARE TOPIC AUDIT REPORT
+================================================================================
+Monitoring duration: 2.50 s
+Thresholds: min_rate=20.0 Hz (expected 20-30 Hz) | max_slop=60.0 ms | max_age=400.0 ms
+--------------------------------------------------------------------------------
+1. Color Topic  (/camera/color/image_raw):
+   - Received: 24 msgs | Rate: 10.0 Hz (Threshold: >= 20.0 Hz) -> [FAIL]
+   - Encoding: 'rgb8' | Resolution: (640, 480) -> [PASS]
+   - Age check: min=4.3 ms, max=5.2 ms, mean=4.6 ms (Limit: <= 400.0 ms) -> [PASS]
+2. Depth Topic  (/camera/depth/image_raw):
+   - Received: 24 msgs | Rate: 10.0 Hz (Threshold: >= 20.0 Hz) -> [FAIL]
+   - Encoding: '16UC1' | Resolution: (640, 480) -> [PASS]
+   - Age check: min=6.5 ms, max=7.8 ms, mean=7.0 ms (Limit: <= 400.0 ms) -> [PASS]
+3. Info Topic   (/camera/color/camera_info):
+   - Received: 25 msgs | Intrinsics (fx,fy,cx,cy): (525.0, 525.0, 319.5, 239.5) -> [PASS]
+4. Timestamp Pairing & Synchronicity (|t_rgb - t_depth| <= 60.0 ms):
+   - Total evaluated frames: 24 RGB, 24 Depth
+   - Valid matched pairs:   24 (100.0%) -> [PASS]
+   - Unpaired frames:        0 RGB, 0 Depth
+   - Matched delta stats:    min=0.00 ms, mean=0.00 ms, max=0.00 ms
+--------------------------------------------------------------------------------
+STATUS: FAIL - Issues found (2):
+  1. RGB rate too low (10.0 Hz < 20.0 Hz, msgs=24)
+  2. Depth rate too low (10.0 Hz < 20.0 Hz, msgs=24)
+================================================================================
+--- PROBE STDERR ---
+Probe Exit Code: 1 (Expected: 1)
+Test Result: PASS [OK]
+
+================================================================================
+TEST CASE: Case 3: Stale Frame Stream (Age = 700ms > 400ms threshold) [mode=stale_frame, rate=28.0Hz, expected_exit_code=1]
+================================================================================
+--- PROBE STDOUT ---
+=== Checking Astra Camera topics on current ROS domain for 2.5s... ===
+
+================================================================================
+PHASE 11: ASTRA CAMERA HARDWARE TOPIC AUDIT REPORT
+================================================================================
+Monitoring duration: 2.50 s
+Thresholds: min_rate=20.0 Hz (expected 20-30 Hz) | max_slop=60.0 ms | max_age=400.0 ms
+--------------------------------------------------------------------------------
+1. Color Topic  (/camera/color/image_raw):
+   - Received: 67 msgs | Rate: 28.0 Hz (Threshold: >= 20.0 Hz) -> [PASS]
+   - Encoding: 'rgb8' | Resolution: (640, 480) -> [PASS]
+   - Age check: NO VALID TIMESTAMPS -> [FAIL]
+     * Sample age issue: Frame age (704.7ms) exceeds max limit (400.0ms against ROS clock)
+2. Depth Topic  (/camera/depth/image_raw):
+   - Received: 67 msgs | Rate: 28.0 Hz (Threshold: >= 20.0 Hz) -> [PASS]
+   - Encoding: '16UC1' | Resolution: (640, 480) -> [PASS]
+   - Age check: NO VALID TIMESTAMPS -> [FAIL]
+     * Sample age issue: Frame age (707.1ms) exceeds max limit (400.0ms against ROS clock)
+3. Info Topic   (/camera/color/camera_info):
+   - Received: 68 msgs | Intrinsics (fx,fy,cx,cy): (525.0, 525.0, 319.5, 239.5) -> [PASS]
+4. Timestamp Pairing & Synchronicity (|t_rgb - t_depth| <= 60.0 ms):
+   - Total evaluated frames: 67 RGB, 67 Depth
+   - Valid matched pairs:   67 (100.0%) -> [PASS]
+   - Unpaired frames:        0 RGB, 0 Depth
+   - Matched delta stats:    min=0.00 ms, mean=0.00 ms, max=0.00 ms
+--------------------------------------------------------------------------------
+STATUS: FAIL - Issues found (2):
+  1. RGB age check failed (67 invalid msgs; reason: Frame age (704.7ms) exceeds max limit (400.0ms against ROS clock))
+  2. Depth age check failed (67 invalid msgs; reason: Frame age (707.1ms) exceeds max limit (400.0ms against ROS clock))
+================================================================================
+--- PROBE STDERR ---
+Probe Exit Code: 1 (Expected: 1)
+Test Result: PASS [OK]
+
+================================================================================
+TEST CASE: Case 4: Timestamp Slop Exceeded (Delta = 100ms > 60ms threshold) [mode=timestamp_slop, rate=28.0Hz, expected_exit_code=1]
+================================================================================
+--- PROBE STDOUT ---
+=== Checking Astra Camera topics on current ROS domain for 2.5s... ===
+
+================================================================================
+PHASE 11: ASTRA CAMERA HARDWARE TOPIC AUDIT REPORT
+================================================================================
+Monitoring duration: 2.50 s
+Thresholds: min_rate=20.0 Hz (expected 20-30 Hz) | max_slop=60.0 ms | max_age=400.0 ms
+--------------------------------------------------------------------------------
+1. Color Topic  (/camera/color/image_raw):
+   - Received: 67 msgs | Rate: 28.0 Hz (Threshold: >= 20.0 Hz) -> [PASS]
+   - Encoding: 'rgb8' | Resolution: (640, 480) -> [PASS]
+   - Age check: min=2.8 ms, max=4.9 ms, mean=4.5 ms (Limit: <= 400.0 ms) -> [PASS]
+2. Depth Topic  (/camera/depth/image_raw):
+   - Received: 66 msgs | Rate: 28.0 Hz (Threshold: >= 20.0 Hz) -> [PASS]
+   - Encoding: '16UC1' | Resolution: (640, 480) -> [PASS]
+   - Age check: NO VALID TIMESTAMPS -> [FAIL]
+     * Sample age issue: Stamp is in the future by 92.8ms (> 50ms clock skew against ROS clock)
+3. Info Topic   (/camera/color/camera_info):
+   - Received: 68 msgs | Intrinsics (fx,fy,cx,cy): (525.0, 525.0, 319.5, 239.5) -> [PASS]
+4. Timestamp Pairing & Synchronicity (|t_rgb - t_depth| <= 60.0 ms):
+   - Total evaluated frames: 67 RGB, 66 Depth
+   - Valid matched pairs:   64 (95.5%) -> [PASS]
+   - Unpaired frames:        3 RGB, 2 Depth
+   - Matched delta stats:    min=7.07 ms, mean=7.14 ms, max=7.26 ms
+   - Exceeded delta sample:  min=64.2 ms, max=100.0 ms
+--------------------------------------------------------------------------------
+STATUS: FAIL - Issues found (1):
+  1. Depth age check failed (66 invalid msgs; reason: Stamp is in the future by 92.8ms (> 50ms clock skew against ROS clock))
+================================================================================
+--- PROBE STDERR ---
+Probe Exit Code: 1 (Expected: 1)
+Test Result: PASS [OK]
+
+================================================================================
+TEST CASE: Case 5: Out-Of-Order Frame Arrival (Depth ahead of RGB, buffer matched) [mode=out_of_order, rate=28.0Hz, expected_exit_code=0]
+================================================================================
+--- PROBE STDOUT ---
+=== Checking Astra Camera topics on current ROS domain for 2.5s... ===
+
+================================================================================
+PHASE 11: ASTRA CAMERA HARDWARE TOPIC AUDIT REPORT
+================================================================================
+Monitoring duration: 2.53 s
+Thresholds: min_rate=20.0 Hz (expected 20-30 Hz) | max_slop=60.0 ms | max_age=400.0 ms
+--------------------------------------------------------------------------------
+1. Color Topic  (/camera/color/image_raw):
+   - Received: 67 msgs | Rate: 28.0 Hz (Threshold: >= 20.0 Hz) -> [PASS]
+   - Encoding: 'rgb8' | Resolution: (640, 480) -> [PASS]
+   - Age check: min=3.1 ms, max=8.4 ms, mean=6.7 ms (Limit: <= 400.0 ms) -> [PASS]
+2. Depth Topic  (/camera/depth/image_raw):
+   - Received: 65 msgs | Rate: 27.2 Hz (Threshold: >= 20.0 Hz) -> [PASS]
+   - Encoding: '16UC1' | Resolution: (640, 480) -> [PASS]
+   - Age check: min=-0.1 ms, max=2.5 ms, mean=1.8 ms (Limit: <= 400.0 ms) -> [PASS]
+3. Info Topic   (/camera/color/camera_info):
+   - Received: 68 msgs | Intrinsics (fx,fy,cx,cy): (525.0, 525.0, 319.5, 239.5) -> [PASS]
+4. Timestamp Pairing & Synchronicity (|t_rgb - t_depth| <= 60.0 ms):
+   - Total evaluated frames: 67 RGB, 65 Depth
+   - Valid matched pairs:   64 (95.5%) -> [PASS]
+   - Unpaired frames:        3 RGB, 1 Depth
+   - Matched delta stats:    min=1.50 ms, mean=1.50 ms, max=1.50 ms
+--------------------------------------------------------------------------------
+STATUS: PASS
+Note: PASS of this probe confirms stream reception and timestamp synchronicity.
+      Physical 3D D2C alignment and floor distance metrics remain UNVERIFIED until physical check.
+================================================================================
+--- PROBE STDERR ---
+Probe Exit Code: 0 (Expected: 0)
+Test Result: PASS [OK]
+
+================================================================================
+TEST CASE: Case 6: Uninitialized Zero Timestamp (sec=0, nanosec=0) [mode=zero_stamp, rate=28.0Hz, expected_exit_code=1]
+================================================================================
+--- PROBE STDOUT ---
+=== Checking Astra Camera topics on current ROS domain for 2.5s... ===
+
+================================================================================
+PHASE 11: ASTRA CAMERA HARDWARE TOPIC AUDIT REPORT
+================================================================================
+Monitoring duration: 2.52 s
+Thresholds: min_rate=20.0 Hz (expected 20-30 Hz) | max_slop=60.0 ms | max_age=400.0 ms
+--------------------------------------------------------------------------------
+1. Color Topic  (/camera/color/image_raw):
+   - Received: 48 msgs | Rate: 21.2 Hz (Threshold: >= 20.0 Hz) -> [PASS]
+   - Encoding: 'rgb8' | Resolution: (640, 480) -> [PASS]
+   - Age check: NO VALID TIMESTAMPS -> [FAIL]
+     * Sample age issue: Timestamp uninitialized (sec=0, nanosec=0)
+2. Depth Topic  (/camera/depth/image_raw):
+   - Received: 57 msgs | Rate: 24.1 Hz (Threshold: >= 20.0 Hz) -> [PASS]
+   - Encoding: '16UC1' | Resolution: (640, 480) -> [PASS]
+   - Age check: NO VALID TIMESTAMPS -> [FAIL]
+     * Sample age issue: Timestamp uninitialized (sec=0, nanosec=0)
+3. Info Topic   (/camera/color/camera_info):
+   - Received: 69 msgs | Intrinsics (fx,fy,cx,cy): (525.0, 525.0, 319.5, 239.5) -> [PASS]
+4. Timestamp Pairing & Synchronicity (|t_rgb - t_depth| <= 60.0 ms):
+   - Total evaluated frames: 48 RGB, 57 Depth
+   - Valid matched pairs:   0 (0.0%) -> [FAIL]
+   - Unpaired frames:        0 RGB, 0 Depth
+   - Matched delta stats:    NO VALID PAIRS FORMED!
+--------------------------------------------------------------------------------
+STATUS: FAIL - Issues found (3):
+  1. RGB age check failed (48 invalid msgs; reason: Timestamp uninitialized (sec=0, nanosec=0))
+  2. Depth age check failed (57 invalid msgs; reason: Timestamp uninitialized (sec=0, nanosec=0))
+  3. Insufficient paired frames (0/57 = 0.0% < 85%) or slop > 60.0ms
+================================================================================
+--- PROBE STDERR ---
+Probe Exit Code: 1 (Expected: 1)
+Test Result: PASS [OK]
+
+OVERALL RESULT: ALL 6/6 TESTS PASSED (100% OK)

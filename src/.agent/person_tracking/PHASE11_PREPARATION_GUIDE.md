@@ -96,20 +96,28 @@ Quy trình kiểm tra camera được tách bạch thành 3 bước độc lập
    source /opt/ros/jazzy/setup.bash
    ros2 launch astra_camera astra_pro.launch.xml depth_registration:=true
    ```
-4. **Kiểm tra topic và encoding:**
-   - Topic Color: `/camera/color/image_raw` (encoding: `rgb8` hoặc `bgr8`, tần số 20–30 Hz).
-   - Topic Depth: `/camera/depth/image_raw` (encoding: `16UC1` đơn vị mm, tần số 20–30 Hz).
+4. **Kiểm tra topic, encoding và dải tần số:**
+   - Topic Color: `/camera/color/image_raw` (encoding: `rgb8` hoặc `bgr8`, tần số đạt ngưỡng PASS $\ge 20.0\text{ Hz}$, dải danh định phần cứng $20.0 - 30.0\text{ Hz}$).
+   - Topic Depth: `/camera/depth/image_raw` (encoding: `16UC1` đơn vị mm hoặc `32FC1`, tần số đạt ngưỡng PASS $\ge 20.0\text{ Hz}$, dải danh định phần cứng $20.0 - 30.0\text{ Hz}$).
    - Topic CameraInfo: `/camera/color/camera_info` (K ma trận hợp lệ, $f_x, f_y, c_x, c_y > 0$).
 
 #### Bước B: Kiểm tra Ghép đôi Thời gian (Timestamp Pairing Check)
-Chạy script chẩn đoán tự động:
+Chạy script chẩn đoán tự động trên domain 0:
 ```bash
-python3 /home/ws/src/person_tracking/test/check_astra_hardware_topics.py
+export ROS_DOMAIN_ID=0
+python3 /home/ws/src/person_tracking/test/check_astra_hardware_topics.py --duration 5.0 --min-rate 20.0
 ```
-- **Chênh lệch timestamp:** Độ lệch thời gian giữa RGB và Depth bắt buộc đạt:
-  $$\Delta t = |t_{\text{rgb}} - t_{\text{depth}}| \le 0.060\text{ s} \quad (60\text{ ms})$$
-- **Độ tuổi frame (Frame Age):** Frame đến không bị trễ đọng buffer:
-  $$t_{\text{now}} - t_{\text{stamp}} \le 0.400\text{ s}$$
+- **Bộ ngưỡng chẩn đoán chuẩn hóa:**
+  * **Tần số tối thiểu (Minimum PASS Rate):** $\ge 20.0\text{ Hz}$ cho cả RGB và Depth (dải danh định kỳ vọng của phần cứng Astra Pro là $20.0 - 30.0\text{ Hz}$; cấu hình driver mặc định 30 FPS).
+  * **Chênh lệch timestamp ghép đôi (1-to-1 Matching Slop):** Độ lệch thời gian giữa RGB và Depth bắt buộc đạt $\Delta t = |t_{\text{rgb}} - t_{\text{depth}}| \le 0.060\text{ s}$ ($60\text{ ms}$). Thuật toán sử dụng cơ chế sắp xếp độ lệch toàn cục (globally sorted delta matching) để ưu tiên ghép cặp sát thời điểm nhất ($\sim 1.5\text{ ms}$) và chống trôi lệch off-by-one.
+  * **Tỷ lệ ghép đôi thành công:** Tối thiểu $\ge 85\%$ số khung hình trong cửa sổ đo phải ghép cặp hợp lệ.
+  * **Độ tuổi frame (Frame Age) & Clock Validation:** Frame đến không bị trễ đọng buffer ($t_{\text{ref}} - t_{\text{stamp}} \le 0.400\text{ s}$ hay $400\text{ ms}$), không nằm ở tương lai ($> -0.050\text{ s}$), không lệch clock domain, và timestamp không được ở trạng thái chưa khởi tạo (`sec=0, nanosec=0`).
+- **Ý nghĩa Kỹ thuật Quan trọng của Trạng thái PASS từ Probe:**
+  > [!IMPORTANT]
+  > **Ý NGHĨA TRẠNG THÁI PASS CỦA PROBE CHẨN ĐOÁN:**  
+  > Kết quả **PASS** của script `check_astra_hardware_topics.py` **CHỈ XÁC NHẬN** rằng luồng stream RGB/Depth/CameraInfo đang đến ổn định, tần số đạt chuẩn $\ge 20.0\text{ Hz}$ và timestamp được đồng bộ trong cửa sổ đo đạc của probe.  
+  > Trạng thái PASS này **TUYỆT ĐỐI KHÔNG THAY THẾ** cho bằng chứng căn chỉnh hình học 3D Depth-to-Color (D2C) thực tế trên RViz2 hoặc phép đo kiểm cự ly trên mốc dán sàn vật lý (Bước C).  
+  > Chừng nào chưa có bằng chứng D2C và mốc sàn vật lý, hệ thống vẫn duy trì cơ chế fail-closed `UNVERIFIED_ALIGNMENT` và kẹp cứng vận tốc $0.0000\text{ m/s}$.
 
 #### Bước C: Chứng minh Căn chỉnh Phần cứng D2C (Hardware Depth Registration Proof)
 - Xác nhận chế độ đăng ký phần cứng Depth-to-Color (D2C) đang hoạt động trong driver Astra (`depth_registration:=true`).
@@ -430,7 +438,7 @@ flowchart TD
 
 | Mã tiêu chí | Hạng mục kiểm tra | Điều kiện ĐẠT (PASS) | Điều kiện KHÔNG ĐẠT (FAIL) |
 |---|---|---|---|
-| **C-01** | Astra Stream & Format | Stream 20–30 Hz, depth 16UC1, RGB rgb8/bgr8, $\Delta t \le 0.06\text{ s}$ | Mất stream, sai encoding, lệch timestamp $> 0.06\text{ s}$ |
+| **C-01** | Astra Stream & Format | Rate $\ge 20.0\text{ Hz}$ (kỳ vọng $20 - 30\text{ Hz}$), depth 16UC1/32FC1, RGB rgb8/bgr8, $\Delta t \le 0.060\text{ s}$, age $\le 0.400\text{ s}$, stamp/clock hợp lệ | Mất stream, rate $< 20.0\text{ Hz}$, sai encoding, $\Delta t > 0.060\text{ s}$, age $> 0.400\text{ s}$, stamp = 0 hoặc lệch clock |
 | **C-02** | D2C Hardware Alignment | Depth khớp hoàn toàn RGB, biên dạng vật thể không lệch | Biên dạng người bị bóng mờ hoặc lệch pha $> 5\text{ cm}$ |
 | **C-03** | Sai số cự ly mốc thật | Sai số $\le 3\%$ ở $1.0 - 2.0\text{ m}$; $\le 5\%$ ở $2.0 - 2.5\text{ m}$ | Sai số $> 5\%$ trong phạm vi dẫn đường danh định |
 | **C-04** | Tải CPU/RAM/VRAM PID thật | Throughput $\ge 15\text{ FPS}$, CPU $\le 45\%$, RAM $\le 1900\text{ MB}$ | Treo node, RAM tăng liên tục, throughput $< 10\text{ FPS}$ |
@@ -516,9 +524,10 @@ Khi nhận phần cứng (Camera Astra Pro và Khung gầm Linorobot2), người
 ### Giai đoạn 1: Kiểm tra Stream & TF Camera Astra (Stationary Bench Test)
 - [ ] **Kê bánh an toàn:** Đặt robot lên bệ kê kích, đảm bảo 4 bánh xe hoàn toàn hổng khỏi mặt đất; cắm cáp USB camera Astra vào cổng USB 3.0.
 - [ ] **Khởi chạy driver:** Nạp udev rules và chạy driver `astra_pro.launch.xml depth_registration:=true` trên `ROS_DOMAIN_ID=0`.
-- [ ] **Kiểm tra luồng dữ liệu:** Chạy `python3 /home/ws/src/person_tracking/test/check_astra_hardware_topics.py` xác nhận:
-  * Topic Color `/camera/color/image_raw` và Depth `/camera/depth/image_raw` đạt tần số $20 - 30\text{ Hz}$.
-  * Chênh lệch ghép đôi timestamp: $\Delta t = |t_{\text{rgb}} - t_{\text{depth}}| \le 0.060\text{ s}$, độ tuổi frame $\le 0.400\text{ s}$.
+- [ ] **Kiểm tra luồng dữ liệu (Lệnh đầu tiên khi có Astra):** Chạy `export ROS_DOMAIN_ID=0 && python3 /home/ws/src/person_tracking/test/check_astra_hardware_topics.py --duration 5.0 --min-rate 20.0` xác nhận:
+  * Topic Color `/camera/color/image_raw` và Depth `/camera/depth/image_raw` đạt tần số $\ge 20.0\text{ Hz}$ (dải danh định kỳ vọng của phần cứng là $20.0 - 30.0\text{ Hz}$).
+  * Chênh lệch ghép đôi timestamp: $\Delta t = |t_{\text{rgb}} - t_{\text{depth}}| \le 0.060\text{ s}$, tỷ lệ ghép đôi $\ge 85\%$, độ tuổi frame $\le 0.400\text{ s}$, clock domain đồng bộ và timestamp hợp lệ.
+  * *Lưu ý ý nghĩa PASS:* Probe chỉ xác nhận luồng stream và timestamp; chưa thay thế cho căn chỉnh D2C 3D hay kiểm tra mốc cự ly sàn. Hệ thống duy trì fail-closed `UNVERIFIED_ALIGNMENT` ($0.0000\text{ m/s}$) cho tới khi có bằng chứng D2C thật.
 - [ ] **Kiểm tra TF Tree:** Chạy `ros2 run tf2_ros tf2_echo base_link camera_color_optical_frame` xác nhận frame quang học liên tục per ADR-10.
 
 ### Giai đoạn 2: Đo Căn chỉnh D2C và Cự ly Mốc Thực tế (Calibration & Metrics)

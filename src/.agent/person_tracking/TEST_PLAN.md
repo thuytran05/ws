@@ -125,7 +125,12 @@ Danh sách 26 ca kiểm thử trọng tâm phân loại rõ ràng:
 - **Quy ước Camera Astra, TF per ADR-10, Gating `UNVERIFIED_ALIGNMENT`, Diagnostic Telemetry & Bước PENDING:**
   * Frame quang học: `camera_color_optical_frame` (base frame `base_link`).
   * Trục quang: $+Z_{\text{opt}}$ ra sau robot ($-X_{\text{base}}$), $+X_{\text{opt}}$ sang phải ảnh ($+Y_{\text{base}}$), $+Y_{\text{opt}}$ xuống đáy ảnh ($-Z_{\text{base}}$).
-  * Tách biệt 3 bước kiểm tra: (A) Stream Check, (B) Timestamp Pairing ($\Delta t \le 0.060\text{ s}$, age $\le 0.400\text{ s}$), (C) D2C Hardware Registration Proof.
+  * Tách biệt 3 bước kiểm tra camera Astra:
+    (A) Stream Check: Tần số đạt ngưỡng PASS $\ge 20.0\text{ Hz}$ cho cả RGB và Depth (dải danh định kỳ vọng của phần cứng Astra Pro là $20.0 - 30.0\text{ Hz}$; cấu hình driver mặc định 30 FPS).
+    (B) Timestamp Pairing: Chênh lệch $\Delta t = |t_{\text{rgb}} - t_{\text{depth}}| \le 0.060\text{ s}$ ($60\text{ ms}$), tỷ lệ ghép đôi $\ge 85\%$, tuổi frame $\le 0.400\text{ s}$, không lệch clock domain, timestamp không được bằng 0 (`sec=0, nanosec=0`).
+    - *Kiểm thử Chẩn đoán Dữ liệu Giả lập (Synthetic Stream Validation):* Đã kiểm chứng 6/6 kịch bản chẩn đoán qua suite `src/person_tracking/test/test_astra_probe_synthetic.py` trên `ROS_DOMAIN_ID=43` (**100% PASS**, log: [.agent/person_tracking/evidence/phase_11/astra_probe_synthetic_tests.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/astra_probe_synthetic_tests.log)). Kết quả này xác nhận hoạt động của probe `check_astra_hardware_topics.py` trên luồng dữ liệu giả lập; chưa thay thế cho stream thực tế từ phần cứng.
+    - *Ý nghĩa kỹ thuật của PASS từ probe:* PASS chỉ xác nhận luồng stream và timestamp trong cửa sổ đo đạc của probe; KHÔNG thay thế cho bằng chứng căn chỉnh hình học 3D D2C hay đo cự ly mốc sàn thật.
+    (C) D2C Hardware Registration Proof: Bằng chứng căn chỉnh phần cứng D2C trên RViz2 ($\le 3\text{ cm}$ edge bleed) và mốc dán sàn vật lý.
   * Chính sách Fail-Closed: `LiveAstraAdapter` mặc định gán cứng `require_hardware_alignment_proof = True`. Hiện không có tham số ROS hay cờ launch argument nào để bypass. Khi chưa có camera thật, detector xuất `UNVERIFIED_ALIGNMENT` $\implies$ Guard dập vận tốc $0.0000\text{ m/s}$.
   * Lưu ý trường `torso_depth_m`: Khi `depth_valid=false`, `torso_depth_m` chỉ dùng để chẩn đoán (diagnostic-only), tuyệt đối không dùng làm số đo nghiệm thu.
   * Đánh dấu bước cấu hình đưa chứng minh D2C vào pipeline là **CÒN CHỜ (PENDING)**. Hướng dẫn đo D2C khi có Astra: lớp phủ point cloud với ảnh màu trên RViz2 ($\le 3\text{ cm}$ edge bleed) và đo mốc dán sàn lưu bằng chứng (`d2c_rviz2_overlay.png`, `d2c_depth_calibration.log`).
@@ -160,6 +165,7 @@ Danh sách 26 ca kiểm thử trọng tâm phân loại rõ ràng:
     - [escort_real_topic_graph.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/escort_real_topic_graph.log)
     - [escort_real_params.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/escort_real_params.log)
     - [map_validation_tests.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/map_validation_tests.log)
+    - [astra_probe_synthetic_tests.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/astra_probe_synthetic_tests.log) (Bộ kiểm thử chẩn đoán stream Astra trên dữ liệu giả lập, 6/6 PASS).
   * Log hồi quy của launch cũ:
     - [phase11_software_smoke.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/phase11_software_smoke.log) (Đính chính: Bài kiểm tra hồi quy từ launch cũ chỉ đo $v_x$ trên 20 mẫu odom, không kiểm tra đủ 3 trục như test suite mới).
 - **Phân định Trách nhiệm Nghiệm thu:**

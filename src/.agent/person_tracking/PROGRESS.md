@@ -581,6 +581,22 @@
      - Khi `depth_valid=false`, trường `torso_depth_m` chỉ dùng để chẩn đoán (diagnostic-only), không dùng làm số đo nghiệm thu.
      - Đánh dấu bước cấu hình đưa chứng minh D2C vào pipeline là **CÒN CHỜ (PENDING)**; duy trì fail-closed và không dùng cờ bypass.
      - Thiết lập quy trình 5 giai đoạn tuần tự khi có phần cứng: 1. Stream/TF $\to$ 2. D2C & Cự ly $\to$ 3. Watchdog firmware base $\to$ 4. Map & Chuỗi topic $\to$ 5. Chuyển động có người giám sát.
+  7. **Chuẩn hóa Ngưỡng Probe Astra & Kiểm thử Dữ liệu Giả lập (6/6 Ca PASS):**
+     - Rà soát và đồng bộ toàn diện bộ ngưỡng kiểm tra giữa code `check_astra_hardware_topics.py`, `PHASE11_PREPARATION_GUIDE.md` và `TEST_PLAN.md`:
+       * Dải danh định kỳ vọng của phần cứng Astra Pro: $20.0 - 30.0\text{ Hz}$ (driver cấu hình `color_fps:=30`, `depth_fps:=30`).
+       * Ngưỡng tối thiểu PASS: $\ge 20.0\text{ Hz}$ cho cả RGB và Depth (xóa bỏ triệt để ngưỡng 10 Hz cũ).
+       * Chênh lệch ghép đôi: $\Delta t = |t_{\text{rgb}} - t_{\text{depth}}| \le 0.060\text{ s}$ ($60\text{ ms}$), tỷ lệ ghép đôi $\ge 85\%$.
+       * Thuật toán ghép cặp: Sắp xếp độ lệch toàn cục (globally sorted delta matching) để ưu tiên ghép cặp sát thời điểm nhất ($\sim 1.5\text{ ms}$) và chống trôi lệch off-by-one.
+       * Kiểm tra độ tuổi frame: $t_{\text{ref}} - t_{\text{stamp}} \le 0.400\text{ s}$ ($400\text{ ms}$), không nằm ở tương lai ($> -0.050\text{ s}$), không lệch clock domain, và timestamp không được uninitialized (`sec=0, nanosec=0`).
+     - Đã xây dựng và thực thi suite kiểm thử chẩn đoán luồng dữ liệu giả lập `src/person_tracking/test/test_astra_probe_synthetic.py` trên `ROS_DOMAIN_ID=43`:
+       * Ca 1 (Valid Stream 28 Hz, Delta=1.5ms, Fresh Age) $\implies$ **PASS [OK]** (rc=0).
+       * Ca 2 (Low Rate 10 Hz < 20.0 Hz) $\implies$ **PASS [OK]** (rc=1).
+       * Ca 3 (Stale Frame 700ms > 400ms) $\implies$ **PASS [OK]** (rc=1).
+       * Ca 4 (Timestamp Slop 100ms > 60ms) $\implies$ **PASS [OK]** (rc=1).
+       * Ca 5 (Out-Of-Order Arrival, Depth trước RGB, ghép cặp buffer) $\implies$ **PASS [OK]** (rc=0).
+       * Ca 6 (Uninitialized Zero Timestamp sec=0, nanosec=0) $\implies$ **PASS [OK]** (rc=1).
+       * **Kết quả: 6/6 PASS (100% OK)**, lưu tại [.agent/person_tracking/evidence/phase_11/astra_probe_synthetic_tests.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/astra_probe_synthetic_tests.log).
+     - **Ý nghĩa kỹ thuật:** PASS của probe chỉ xác nhận luồng stream và timestamp trong cửa sổ đo đạc của probe; KHÔNG thay thế cho bằng chứng căn chỉnh 3D D2C hay đo cự ly mốc sàn thật. Hệ thống duy trì fail-closed `UNVERIFIED_ALIGNMENT` ($0.0000\text{ m/s}$) cho tới khi có bằng chứng D2C thật.
 
 - **Bằng chứng kỹ thuật Phase 11:**
   - Cẩm nang vận hành chi tiết: [.agent/person_tracking/PHASE11_PREPARATION_GUIDE.md](file:///home/thuytran/ws/src/.agent/person_tracking/PHASE11_PREPARATION_GUIDE.md).
@@ -594,11 +610,13 @@
     * Escort real launch: [.agent/person_tracking/evidence/phase_11/escort_real_runtime.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/escort_real_runtime.log).
     * Voice node: [.agent/person_tracking/evidence/phase_11/voice_real_node.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/voice_real_node.log).
   - Log kiểm thử bản đồ (Map validation): [.agent/person_tracking/evidence/phase_11/map_validation_tests.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/map_validation_tests.log).
+  - Log kiểm thử chẩn đoán stream Astra (Synthetic tests): [.agent/person_tracking/evidence/phase_11/astra_probe_synthetic_tests.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/astra_probe_synthetic_tests.log).
   - Script test và runner:
     * `src/person_tracking/test/test_map_validation.py`.
     * `src/person_tracking/test/verify_escort_real_launch.py`.
     * `src/person_tracking/test/execute_escort_real_verification.sh`.
     * `src/person_tracking/test/check_astra_hardware_topics.py`.
+    * `src/person_tracking/test/test_astra_probe_synthetic.py`.
     * `src/person_tracking/test/profile_detector_pid.py`.
 
 - **Điểm dừng bàn giao:** Phase 11 duy trì trạng thái **SOFTWARE_READY / HARDWARE_PENDING**. Ca T06 duy trì trạng thái **PARTIAL / CODE_READY**. Toàn bộ mã nguồn, launch overlay, kịch bản test và tài liệu đã được xác thực 100% trên phần mềm, sẵn sàng tuyệt đối để người dùng thực thi khi có mặt tại hiện trường cùng thiết bị phần cứng.
