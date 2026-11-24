@@ -822,42 +822,63 @@ bash src/airport_robot_voice/scripts/run_evidence_verification.sh
 
 ---
 
-## 10. Giao diện Tích hợp Phân hệ Person Tracking (Chuẩn bị cho Phase 9)
+## 10. Triển khai và Vận hành Tích hợp Phân hệ Person Tracking (Phase 9)
 
-Tài liệu tham chiếu thiết kế: `src/.agent/person_tracking/VOICE_INTEGRATION_REQUEST.md`.  
-Dưới đây là bản tóm tắt các điểm then chốt đã thống nhất để chuẩn bị cho giai đoạn tích hợp chính thức tại **Phase 9**:
+Tài liệu tham chiếu thiết kế: `src/.agent/person_tracking/INTERFACES.md` và `VOICE_INTEGRATION_REQUEST.md`.  
+Phân hệ Voice đã hoàn thiện triển khai tích hợp chính thức tại **Phase 9**, hỗ trợ chuyển đổi linh hoạt qua cờ tham số `enable_escort`.
 
 ### 10.1 Phân định Quyền hạn và Trách nhiệm
 1. **Voice là Chủ sở hữu DUY NHẤT của `NavigateToPose` Action**:
    - Node `nav_command_node.py` của phân hệ Voice toàn quyền khởi tạo `ActionClient<NavigateToPose>`, gửi Goal, theo dõi feedback và hủy Goal.
    - Phân hệ Person Tracking **tuyệt đối không** khởi tạo `ActionClient<NavigateToPose>`, không gửi goal và không gọi cancel trực tiếp trên Nav2.
-2. **Tracking là Cổng An toàn và Quản lý Khóa Khách hàng**:
-   - Tracking phát hiện hành khách qua camera sau, nhận diện cử chỉ giơ tay để khóa khách hàng, sinh `session_id`, và quản lý cổng an toàn vận tốc motor.
+2. **Tracking là Cơ quan Cấp Phiên và Quản lý Khóa Khách hàng**:
+   - Tracking phát hiện hành khách qua camera, nhận diện cử chỉ giơ tay để khóa khách hàng, sinh `session_id`, và quản lý cổng an toàn vận tốc motor (Velocity Guard & Velocity Watchdog).
 
-### 10.2 Hợp đồng Giao tiếp 3 Kênh giữa Voice và Tracking
-1. **Kênh 1 — Trạng thái Khóa Khách hàng (`/tracking/session_state`)**:
-   - **Kiểu bản tin**: `std_msgs/msg/String` (JSON), QoS: Depth=1, Durability=TRANSIENT_LOCAL, Reliability=RELIABLE.
-   - **Trường dữ liệu**: `session_id`, `state` (`"LOCKED_WAIT_DESTINATION"`), `locked` (`true`/`false`), `confidence`, `stamp`.
-   - **Hành vi Voice tại Phase 9**:
-     - Lắng nghe topic `/tracking/session_state`.
-     - Khi nhận intent dẫn đường từ người dùng:
-       + Nếu `locked == true` và `state == "LOCKED_WAIT_DESTINATION"`: Ghi nhận `session_id` vào phiên hiện tại, chấp nhận điểm đến và gửi Goal cho Nav2.
-       + Nếu `locked == false`: Từ chối dẫn đường, phát câu TTS: *"Xin quý khách vui lòng đứng phía sau và giơ một tay để robot nhận diện trước khi chọn điểm đến."*
+### 10.2 Tham số Cấu hình Chế độ Escort
+| Tham số | Kiểu | Mặc định | Mô tả |
+|---------|------|----------|-------|
+| `enable_escort` | `bool` | `false` | Bật/tắt chế độ tích hợp Person Tracking. Khi `false`, node hoạt động độc lập (Standalone Voice). |
+| `session_state_topic` | `string` | `/tracking/session_state` | Topic lắng nghe trạng thái phiên từ Tracking (QoS: Transient Local, depth 1). |
+| `safety_request_topic` | `string` | `/tracking/safety_request` | Topic lắng nghe yêu cầu dừng an toàn (ABORT) từ Tracking (QoS: Volatile, depth 10). |
+| `nav_status_topic` | `string` | `/voice/nav_status` | Topic phát trạng thái điều hướng 2 pha tới Tracking (QoS: Transient Local, depth 1). |
+| `escort_heartbeat_timeout_sec` | `float` | `1.0` | Thời hạn tối đa cho phép của heartbeat từ Tracking. Quá thời hạn này sẽ chặn dispatch. |
 
-2. **Kênh 2 — Yêu cầu Hủy khẩn cấp An toàn (`/tracking/safety_request`)**:
-   - **Kiểu bản tin**: `std_msgs/msg/String` (JSON), QoS: Depth=10, Reliability=RELIABLE.
-   - **Trường dữ liệu**: `request_id`, `session_id`, `command` (`"ABORT"`), `reason_code` (`"TARGET_LOST_PROLONGED"` khi mất dấu > 1.2s), `message`.
-   - **Hành vi Voice tại Phase 9**:
-     - Khi nhận bản tin `command == "ABORT"` có `session_id` khớp với phiên đang dẫn đường:
-       + Lập tức gọi `cancel_goal_async()` hủy Goal đang chạy trên Nav2.
-       + Chuyển trạng thái `mission_state` sang `CANCELING` -> `IDLE`.
-       + Phát TTS thông báo: *"Đã mất dấu hành khách, robot dừng hành trình dẫn đường."*
+### 10.3 Khởi chạy Chế độ Tích hợp Escort
+```bash
+source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
 
-3. **Kênh 3 — Phát hành Trạng thái Hoàn tất để Mở khóa (`/voice/nav_status`)**:
-   - **Kiểu bản tin**: `std_msgs/msg/String` (JSON), QoS: Depth=1, Durability=TRANSIENT_LOCAL, Reliability=RELIABLE.
-   - **Trường dữ liệu**: `session_id`, `mission_id`, `goal_attempt_id`, `destination_id`, `status` (`"SUCCEEDED"`), `nav_event` (`"GOAL_COMPLETED"`), `is_terminal` (`true`), `message`.
-   - **Ý nghĩa**: Khi Voice phát bản tin hoàn tất có `status == "SUCCEEDED"` và `is_terminal == true` đúng với `session_id`, Tracking xác nhận khách đã đến nơi an toàn, xóa ID khóa, dọn dẹp phiên và đưa hệ thống về trạng thái sẵn sàng đón lượt khách mới.
+# Khởi chạy hệ thống voice hoàn chỉnh với chế độ Escort bật:
+ros2 launch airport_robot_voice voice_system.launch.py \
+    enable_escort:=true \
+    mode:=keyboard \
+    tts_engine:=log \
+    tts_policy:=flexible
 
-### 10.3 Nguyên tắc Độc lập trong Giai đoạn Hiện tại
-- Trong các Phase trước Phase 9, phân hệ Tracking sử dụng node mock nội bộ (`mock_voice_owner`) để tự kiểm thử.
-- Phân hệ Voice **chưa nối trực tiếp code** vào các topic của Tracking trong lượt này để đảm bảo toàn bộ 94 bài test hiện tại và các kịch bản nghiệm thu độc lập không bị ảnh hưởng.
+# Hoặc khởi chạy độc lập node nav_command_node:
+ros2 run airport_robot_voice nav_command_node --ros-args \
+    -p enable_escort:=true \
+    -p use_sim_time:=true \
+    -p places_file:=/home/ws/src/airport_robot_voice/config/places_sim.json
+```
+
+### 10.4 Lệnh Kiểm thử và Nghiệm thu Phase 9
+```bash
+cd /home/ws
+source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
+
+# 1. Chạy toàn bộ 104 tests pytest (gồm 10 bài test Phase 9 + 94 bài test hồi quy):
+export ROS_DOMAIN_ID=42
+python3 -m pytest src/airport_robot_voice/test/ -v
+
+# 2. Chạy kịch bản nghiệm thu 4 ca thực tế trên đồ thị Gazebo Escort + Nav2:
+bash src/airport_robot_voice/scripts/execute_phase9_verification.sh
+```
+
+### 10.5 Kết quả Nghiệm thu 4 Ca Thực tế trong Gazebo
+- **File kịch bản**: `airport_robot_voice/scripts/verify_phase9_gazebo_escort.py`
+- **File log vết thực thi**: [.agent/airport_robot_voice/evidence/phase9_gazebo_escort_smoke.log](file:///home/thuytran/ws/src/.agent/airport_robot_voice/evidence/phase9_gazebo_escort_smoke.log)
+- **Tóm tắt kết quả (ĐẠT 100% 4/4 CA)**:
+  1. **Ca 1 (Chặn dispatch trước khóa)**: Gating chặn dispatch khi chưa khóa khách (`REJECTED`, `ESCORT_NO_SESSION_ID`), phát TTS cảnh báo, không gửi goal tới Nav2, robot đứng yên tuyệt đối. -> **PASSED [OK]**
+  2. **Ca 2 (Khởi hành và dẫn đường thực tế)**: Khách khóa phiên thành công, Nav2 chấp nhận goal, Voice phát `NAVIGATION_STARTED` đủ 5 định danh, robot di chuyển vật lý trong Gazebo (`max_vx=0.500 m/s`, $\\Delta d = 0.658$ m). -> **PASSED [OK]**
+  3. **Ca 3 (Mất khách -> xe dừng -> safety ABORT -> ACK -> CANCELED -> IDLE)**: Mất quan sát, Velocity Guard hạ `cmd_vel` về 0, Tracking gửi `ABORT`, Voice phát non-terminal ACK `CANCEL_ACKNOWLEDGED`, gọi `cancel_goal_async()`, Nav2 trả `CANCELED`, Voice phát `GOAL_COMPLETED` terminal, robot dừng hẳn $\\ge 2.0$s, Tracking trở về `IDLE`. -> **PASSED [OK]**
+  4. **Ca 4 (Đến đích SUCCEEDED và IDLE sạch sẽ)**: Khóa Session 2, dẫn đường tới cổng 15, robot về đích, Nav2 trả `STATUS_SUCCEEDED`, Voice phát terminal `SUCCEEDED`, Tracking chuyển `ARRIVED` -> `IDLE`, Voice FSM về `IDLE` sạch sẽ. -> **PASSED [OK]**

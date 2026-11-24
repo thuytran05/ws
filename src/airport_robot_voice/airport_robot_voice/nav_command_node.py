@@ -66,11 +66,12 @@ def compute_path_length(path_msg) -> float:
 
 class GoalAttemptRecord:
     """Bản ghi theo dõi vòng đời từng attempt gửi goal tới Nav2."""
-    def __init__(self, attempt_id: str, mission_id: str, target_id: str = None, target_name: str = None):
+    def __init__(self, attempt_id: str, mission_id: str, target_id: str = None, target_name: str = None, session_id: str = None):
         self.attempt_id = attempt_id
         self.mission_id = mission_id
         self.target_id = target_id
         self.target_name = target_name
+        self.session_id = session_id
         self.created_at = time.time()
         self.goal_handle = None
         self.nav2_uuid = None
@@ -102,6 +103,11 @@ class NavCommandNode(Node):
         self.declare_parameter('goal_acceptance_timeout_sec', 4.0)
         self.declare_parameter('cancel_terminal_timeout_sec', 4.0)
         self.declare_parameter('tts_policy', 'flexible')  # 'strict' | 'flexible'
+        self.declare_parameter('enable_escort', False)
+        self.declare_parameter('session_state_topic', '/tracking/session_state')
+        self.declare_parameter('safety_request_topic', '/tracking/safety_request')
+        self.declare_parameter('nav_status_topic', '/voice/nav_status')
+        self.declare_parameter('escort_heartbeat_timeout_sec', 1.0)
         if not self.has_parameter('use_sim_time'):
             self.declare_parameter('use_sim_time', False)
         self._steady_clock = Clock(clock_type=ClockType.STEADY_TIME)
@@ -118,6 +124,11 @@ class NavCommandNode(Node):
         self.goal_acceptance_timeout_sec = float(self.get_parameter('goal_acceptance_timeout_sec').value)
         self.cancel_terminal_timeout_sec = float(self.get_parameter('cancel_terminal_timeout_sec').value)
         self.tts_policy = str(self.get_parameter('tts_policy').value)
+        self.enable_escort = bool(self.get_parameter('enable_escort').value)
+        self.session_state_topic = str(self.get_parameter('session_state_topic').value)
+        self.safety_request_topic = str(self.get_parameter('safety_request_topic').value)
+        self.nav_status_topic = str(self.get_parameter('nav_status_topic').value)
+        self.escort_heartbeat_timeout = float(self.get_parameter('escort_heartbeat_timeout_sec').value)
 
         with open(places_path, 'r', encoding='utf-8') as f:
             db = json.load(f)
@@ -137,6 +148,14 @@ class NavCommandNode(Node):
         self._current_target_key = None
         self._current_target_name = None
         self._current_target_pose = None
+
+        # Quản lý Escort Tracking Session (Phase 9)
+        self._current_session_id = None
+        self._latest_session_state = None
+        self._last_session_state_mono = None
+        self._seen_abort_requests = set()
+        self._last_abort_info = {}
+        self._current_abort_request_id = None
 
         self._active_goal_handle = None
         self._pending_goal_future = None
@@ -197,6 +216,16 @@ class NavCommandNode(Node):
         self.pub_say = self.create_publisher(String, '/voice/say', 10)
         self.pub_tts_cancel = self.create_publisher(String, '/voice/tts_cancel', 10)
 
+        # Escort tracking integration pub/sub
+        qos_safety = QoSProfile(
+            depth=10,
+            durability=DurabilityPolicy.VOLATILE,
+            reliability=ReliabilityPolicy.RELIABLE
+        )
+        self.pub_nav_status = self.create_publisher(String, self.nav_status_topic, qos_transient)
+        self.create_subscription(String, self.session_state_topic, self.on_session_state, qos_transient)
+        self.create_subscription(String, self.safety_request_topic, self.on_safety_request, qos_safety)
+
         self.create_subscription(String, '/voice/intent', self.on_intent, 10)
         self.create_subscription(Bool, '/voice/speaking', self.on_speaking, 10)
         self.create_subscription(String, '/voice/tts_ack', self.on_tts_ack, 10)
@@ -225,13 +254,14 @@ class NavCommandNode(Node):
         """Kiểm tra xem còn attempt nào chưa được xác nhận terminal hay không."""
         return len(self._unresolved_attempts) > 0 or any(not att.is_terminal_confirmed for att in self._attempts.values())
 
-    def _get_or_create_attempt(self, attempt_id: str, mission_id: str = None) -> GoalAttemptRecord:
+    def _get_or_create_attempt(self, attempt_id: str, mission_id: str = None, session_id: str = None) -> GoalAttemptRecord:
         if attempt_id not in self._attempts:
             self._attempts[attempt_id] = GoalAttemptRecord(
                 attempt_id=attempt_id,
                 mission_id=mission_id or self._current_mission_id,
                 target_id=self._current_target_key,
-                target_name=self._current_target_name
+                target_name=self._current_target_name,
+                session_id=session_id or self._current_session_id
             )
             self._unresolved_attempts.add(attempt_id)
         return self._attempts[attempt_id]
@@ -525,6 +555,7 @@ class NavCommandNode(Node):
         nav2_uuid = rec.nav2_uuid if rec else None
         payload = {
             'schema_version': '1.0',
+            'session_id': self._current_session_id,
             'node_online': True,
             'mission_state': self.state,
             'mission_id': self._current_mission_id,
@@ -547,6 +578,7 @@ class NavCommandNode(Node):
         nav2_uuid = rec.nav2_uuid if rec else None
         payload = {
             'schema_version': '1.0',
+            'session_id': self._current_session_id,
             'event': event,
             'status': status,
             'message': message,
@@ -557,6 +589,226 @@ class NavCommandNode(Node):
             'timestamp': time.time()
         }
         self.pub_feedback.publish(String(data=json.dumps(payload, ensure_ascii=False)))
+
+    # ------------------------------------------------------------------
+    # Giao diện Escort Tracking (Phase 9)
+    # ------------------------------------------------------------------
+    def publish_nav_status(
+        self,
+        status: str,
+        nav_event: str,
+        is_terminal: bool,
+        session_id: str = None,
+        mission_id: str = None,
+        goal_attempt_id: str = None,
+        nav2_uuid: str = None,
+        destination_id: str = None,
+        request_id: str = None,
+        message: str = ''
+    ):
+        now = self.get_clock().now().to_msg()
+        payload = {
+            "schema_version": "1.0",
+            "stamp": {"sec": now.sec, "nanosec": now.nanosec},
+            "session_id": session_id or self._current_session_id or "",
+            "mission_id": mission_id or self._current_mission_id,
+            "goal_attempt_id": goal_attempt_id or self._current_goal_attempt_id,
+            "nav2_uuid": nav2_uuid,
+            "destination_id": destination_id or self._current_target_key,
+            "status": status,
+            "nav_event": nav_event,
+            "is_terminal": is_terminal,
+            "message": message,
+        }
+        if request_id:
+            payload["request_id"] = request_id
+        self.pub_nav_status.publish(String(data=json.dumps(payload, ensure_ascii=False)))
+
+    def on_session_state(self, msg: String):
+        try:
+            data = json.loads(msg.data)
+        except Exception as exc:
+            self.get_logger().warn(f'Lỗi giải mã /tracking/session_state: {exc}')
+            return
+
+        self._latest_session_state = data
+        self._last_session_state_mono = time.monotonic()
+
+    def check_escort_gating(self):
+        """
+        Kiểm tra 6 điều kiện an toàn khi bật escort:
+        1. Heartbeat đã nhận và tuổi <= escort_heartbeat_timeout (1.0s)
+        2. session_id tồn tại và hợp lệ
+        3. locked == True
+        4. state == "LOCKED_WAIT_DESTINATION"
+        5. obs_fresh == True
+        6. Không có goal cũ chưa kết thúc
+        Trả về (allowed: bool, reason_code: str, user_speech: str)
+        """
+        if not self.enable_escort:
+            return True, "OK", ""
+
+        if self._latest_session_state is None or self._last_session_state_mono is None:
+            return False, "NO_HEARTBEAT", "Chưa nhận được tín hiệu từ hệ thống nhận diện hành khách."
+
+        age = time.monotonic() - self._last_session_state_mono
+        if age > self.escort_heartbeat_timeout:
+            return False, "HEARTBEAT_EXPIRED", "Tín hiệu nhận diện hành khách đã hết hạn."
+
+        session_id = self._latest_session_state.get('session_id')
+        if not session_id:
+            return False, "NO_SESSION_ID", "Chưa có phiên phục vụ hành khách."
+
+        locked = bool(self._latest_session_state.get('locked', False))
+        if not locked:
+            return False, "NOT_LOCKED", "Xin quý khách vui lòng giơ tay để tôi nhận diện trước khi chọn điểm đến."
+
+        t_state = str(self._latest_session_state.get('state', ''))
+        if t_state != "LOCKED_WAIT_DESTINATION":
+            return False, f"INVALID_TRACKING_STATE_{t_state}", f"Hệ thống đang ở trạng thái {t_state}, chưa sẵn sàng nhận điểm đến mới."
+
+        obs_fresh = bool(self._latest_session_state.get('obs_fresh', False))
+        if not obs_fresh:
+            return False, "OBSERVATION_STALE", "Mục tiêu bị mất dấu trước khi khởi hành, vui lòng giơ tay nhận diện lại."
+
+        if self.has_unresolved_goals() or self._unconfirmed_terminal:
+            return False, "UNRESOLVED_GOALS_PENDING", "Chưa xác nhận được chuyến đi cũ đã kết thúc."
+
+        return True, "OK", ""
+
+    def _check_session_validity_for_acceptance(self, session_id: str) -> bool:
+        """Kiểm tra session còn hiệu lực khi Nav2 chấp nhận goal hay không."""
+        if not self.enable_escort:
+            return True
+        if not session_id or not self._latest_session_state or self._last_session_state_mono is None:
+            return False
+        if time.monotonic() - self._last_session_state_mono > self.escort_heartbeat_timeout:
+            return False
+        if self._latest_session_state.get('session_id') != session_id:
+            return False
+        if not bool(self._latest_session_state.get('locked', False)):
+            return False
+        if not bool(self._latest_session_state.get('obs_fresh', False)):
+            return False
+        state = str(self._latest_session_state.get('state', '')).upper()
+        if state in ('ABORTING', 'FAULT', 'IDLE', 'WAITING_FOR_PASSENGER'):
+            return False
+        return True
+
+    def on_safety_request(self, msg: String):
+        try:
+            data = json.loads(msg.data)
+        except Exception as exc:
+            self.get_logger().warn(f'Lỗi giải mã /tracking/safety_request: {exc}')
+            return
+
+        req_id = data.get('request_id')
+        session_id = data.get('session_id')
+        cmd = str(data.get('command', '')).upper()
+        reason = data.get('reason_code', '')
+
+        if cmd != 'ABORT':
+            self.get_logger().info(f'Bỏ qua lệnh safety không phải ABORT: {cmd}')
+            return
+
+        # 1. Idempotent retry handling cho cùng request_id (kể cả khi session đã cleanup)
+        if req_id and req_id in self._seen_abort_requests:
+            self.get_logger().info(f'Nhận lại retry cho abort request_id={req_id}. Gửi lại ACK (idempotent).')
+            info = self._last_abort_info.get(req_id, {})
+            self.publish_nav_status(
+                status="CANCELING",
+                nav_event="CANCEL_ACKNOWLEDGED",
+                is_terminal=False,
+                session_id=info.get('session_id', session_id),
+                mission_id=info.get('mission_id', self._current_mission_id),
+                goal_attempt_id=info.get('goal_attempt_id', self._current_goal_attempt_id),
+                nav2_uuid=info.get('nav2_uuid'),
+                destination_id=info.get('destination_id', self._current_target_key),
+                request_id=req_id,
+                message="Duplicate abort request acknowledged."
+            )
+            return
+
+        # 2. Chỉ xử lý request mới nếu khớp session hiện tại
+        if not self._current_session_id or session_id != self._current_session_id:
+            self.get_logger().warn(
+                f'Bỏ qua ABORT cho session_id={session_id} (phiên hiện tại: {self._current_session_id})'
+            )
+            return
+
+        rec = self._attempts.get(self._current_goal_attempt_id)
+        attempt_id = self._current_goal_attempt_id
+        nav2_uuid = rec.nav2_uuid if rec else None
+
+        if req_id:
+            self._seen_abort_requests.add(req_id)
+            self._last_abort_info[req_id] = {
+                'session_id': session_id,
+                'mission_id': self._current_mission_id,
+                'goal_attempt_id': attempt_id,
+                'nav2_uuid': nav2_uuid,
+                'destination_id': self._current_target_key
+            }
+        self._current_abort_request_id = req_id
+
+        self.get_logger().warn(
+            f'Tiếp nhận ABORT từ tracking cho session={session_id}, req_id={req_id}, reason={reason}.'
+        )
+
+        # Phát ACK non-terminal
+        self.publish_nav_status(
+            status="CANCELING",
+            nav_event="CANCEL_ACKNOWLEDGED",
+            is_terminal=False,
+            session_id=session_id,
+            mission_id=self._current_mission_id,
+            goal_attempt_id=attempt_id,
+            nav2_uuid=nav2_uuid,
+            destination_id=self._current_target_key,
+            request_id=req_id,
+            message="Voice đã tiếp nhận lệnh ABORT và đang yêu cầu Nav2 hủy Goal."
+        )
+
+        # Phát TTS cảnh báo hành khách (chỉ 1 lần cho request này)
+        self.say('Đã mất dấu hành khách, robot dừng hành trình dẫn đường.', mission_id=self._current_mission_id)
+
+        # Thực thi hủy goal
+        self._execute_safety_abort(attempt_id)
+
+    def _execute_safety_abort(self, attempt_id: str):
+        rec = self._attempts.get(attempt_id)
+        if self._active_goal_handle:
+            self.get_logger().info(f'[{attempt_id}] Gọi cancel_goal_async cho active goal do ABORT.')
+            self.state = MissionState.CANCELING
+            self.publish_state()
+            self.publish_feedback('CANCELING', 'SAFETY_ABORT')
+            self._start_cancel_timer(attempt_id, 'safety_abort')
+            cancel_fut = self._active_goal_handle.cancel_goal_async()
+            cancel_fut.add_done_callback(
+                lambda fut: self._on_cancel_action_response(fut, attempt_id)
+            )
+        elif self.state == MissionState.STARTING or (rec and rec.state == 'SENDING'):
+            self.get_logger().info(f'[{attempt_id}] Đang STARTING, đánh dấu cancel_on_accept do ABORT.')
+            self.state = MissionState.CANCELING
+            if rec:
+                rec.cancel_on_accept = True
+            self._cancelled_attempts.add(attempt_id)
+            self.publish_state()
+            self.publish_feedback('CANCELING', 'SAFETY_ABORT')
+        elif self.state in (MissionState.ANNOUNCING, MissionState.RESOLVING, MissionState.PAUSED):
+            self.get_logger().info(f'Hủy tiến trình {self.state} do ABORT.')
+            self._cancel_tts_timeout_timer()
+            self.cancel_tts(speech_id=self._pending_speech_id, mission_id=self._current_mission_id)
+            self._pending_speech_id = None
+            self._cancel_planner_candidate_timer()
+            self.state = MissionState.CANCELING
+            self.publish_state()
+            self.publish_feedback('CANCELING', 'SAFETY_ABORT')
+            if not self.has_unresolved_goals():
+                self._transition_to_cancelled()
+        else:
+            self.state = MissionState.IDLE
+            self.publish_state()
 
     # ------------------------------------------------------------------
     # Tiếp nhận intent
@@ -612,6 +864,16 @@ class NavCommandNode(Node):
             self.get_logger().info(f'Nhận lệnh điều hướng khi state={self.state}. Chuyển sang luồng replace_target.')
             self.handle_replace_target(data)
             return
+
+        # Guard khi escort mode bật
+        if self.enable_escort:
+            allowed, reason, speech = self.check_escort_gating()
+            if not allowed:
+                self.get_logger().warn(f'Từ chối tiếp nhận navigate do escort gating: {reason}')
+                if speech:
+                    self.say(speech)
+                self.publish_feedback('REJECTED', f'ESCORT_{reason}', speech)
+                return
 
         # 2. Guard khi ở IDLE mà còn goal chưa giải quyết từ trước
         if self.has_unresolved_goals() or self._unconfirmed_terminal:
@@ -870,6 +1132,17 @@ class NavCommandNode(Node):
         return None
 
     def start_specific_mission(self, target_key: str, req_id: str, custom_speech: str = None):
+        if self.enable_escort:
+            allowed, reason, speech = self.check_escort_gating()
+            if not allowed:
+                self.get_logger().warn(f'Từ chối start_specific_mission do escort gating: {reason}')
+                if speech:
+                    self.say(speech)
+                self.publish_feedback('REJECTED', f'ESCORT_{reason}', speech)
+                self.state = MissionState.IDLE
+                self.publish_state()
+                return
+
         self._mission_counter += 1
         self._current_mission_id = f"mis_{self._session_start_ms}_{self._mission_counter}"
         self._current_request_id = req_id
@@ -911,6 +1184,23 @@ class NavCommandNode(Node):
         return p
 
     def send_nav_goal(self):
+        if self.enable_escort:
+            allowed, reason, speech = self.check_escort_gating()
+            if not allowed:
+                self.get_logger().warn(f'Chặn dispatch goal Nav2 do không thỏa điều kiện escort: {reason}')
+                if speech:
+                    self.say(speech)
+                self.publish_feedback('REJECTED', f'ESCORT_{reason}', speech)
+                self.state = MissionState.IDLE
+                self._current_target_key = None
+                self._current_target_name = None
+                self._current_target_pose = None
+                self._pending_replace_target = None
+                self._pending_replace_category = None
+                self.publish_state()
+                return
+            self._current_session_id = self._latest_session_state.get('session_id')
+
         if self.has_unresolved_goals():
             self.get_logger().error('Không thể gửi goal Nav2: còn attempt chưa xác minh.')
             speech = 'Chưa xác nhận được chuyến đi cũ đã kết thúc.'
@@ -930,7 +1220,7 @@ class NavCommandNode(Node):
         attempt_id = f"att_{self._session_start_ms}_{self._goal_attempt_counter}"
         self._current_goal_attempt_id = attempt_id
         mission_id = self._current_mission_id
-        rec = GoalAttemptRecord(attempt_id, mission_id, self._current_target_key, self._current_target_name)
+        rec = GoalAttemptRecord(attempt_id, mission_id, self._current_target_key, self._current_target_name, session_id=self._current_session_id)
 
         goal_u = uuid.uuid4()
         rec.nav2_uuid = goal_u.hex
@@ -1056,11 +1346,47 @@ class NavCommandNode(Node):
             return
 
         # Goal được chấp nhận bình thường cho mission hiện tại
+        # Kiểm tra tính hợp lệ của session nếu escort bật
+        if self.enable_escort:
+            sess_valid = self._check_session_validity_for_acceptance(rec.session_id)
+            if not sess_valid:
+                self.get_logger().warn(
+                    f'[{attempt_id}] Session {rec.session_id} mất hiệu lực trong lúc chờ Nav2 chấp nhận goal! '
+                    f'Hủy goal ngay lập tức và không xác nhận khởi hành.'
+                )
+                rec.state = 'CANCEL_REQUESTED'
+                cancel_fut = goal_handle.cancel_goal_async()
+                cancel_fut.add_done_callback(
+                    lambda cf: self._on_delayed_cancel_confirmed(cf, attempt_id, goal_handle)
+                )
+                goal_handle.get_result_async().add_done_callback(
+                    lambda rf: self._on_delayed_cancel_terminal_result(rf, attempt_id, mission_id)
+                )
+                self.state = MissionState.CANCELING
+                speech = 'Mục tiêu bị mất dấu, hủy chuyến đi vừa khởi tạo.'
+                self.say(speech)
+                self.publish_feedback('CANCELING', 'SESSION_LOST_ON_ACCEPT', speech)
+                self.publish_state()
+                return
+
         self._active_goal_handle = goal_handle
         self.get_logger().info(f'[{attempt_id}] Goal được Nav2 chấp nhận (uuid={rec.nav2_uuid}). Bắt đầu di chuyển.')
         self.state = MissionState.NAVIGATING
         self.publish_state()
         self.publish_feedback('STARTED', 'GOAL_ACCEPTED')
+
+        if self.enable_escort:
+            self.publish_nav_status(
+                status="NAVIGATING",
+                nav_event="NAVIGATION_STARTED",
+                is_terminal=False,
+                session_id=rec.session_id,
+                mission_id=mission_id,
+                goal_attempt_id=attempt_id,
+                nav2_uuid=rec.nav2_uuid,
+                destination_id=rec.target_id,
+                message=f"Navigating to {rec.target_name or rec.target_id}"
+            )
 
         # Chờ kết quả điều hướng
         goal_handle.get_result_async().add_done_callback(
@@ -1109,6 +1435,25 @@ class NavCommandNode(Node):
         is_terminal_confirmed = (status in (GoalStatus.STATUS_CANCELED, GoalStatus.STATUS_SUCCEEDED, GoalStatus.STATUS_ABORTED))
         if is_terminal_confirmed:
             self._confirm_attempt_terminal(attempt_id, status)
+            if self.enable_escort and rec.session_id:
+                status_map = {
+                    GoalStatus.STATUS_CANCELED: "CANCELED",
+                    GoalStatus.STATUS_SUCCEEDED: "SUCCEEDED",
+                    GoalStatus.STATUS_ABORTED: "ABORTED"
+                }
+                status_str = status_map.get(status, f"STATUS_{status}")
+                self.publish_nav_status(
+                    status=status_str,
+                    nav_event="GOAL_COMPLETED",
+                    is_terminal=True,
+                    session_id=rec.session_id,
+                    mission_id=mission_id,
+                    goal_attempt_id=attempt_id,
+                    nav2_uuid=rec.nav2_uuid,
+                    destination_id=rec.target_id,
+                    request_id=self._current_abort_request_id if status_str == "CANCELED" else None,
+                    message=f"Delayed goal completed with status {status_str}"
+                )
         else:
             self.get_logger().warn(
                 f'[{attempt_id}] Chưa xác minh được terminal result (status={status}). Giữ attempt trong unresolved_attempts.'
@@ -1256,6 +1601,29 @@ class NavCommandNode(Node):
         is_terminal_confirmed = (status in (GoalStatus.STATUS_CANCELED, GoalStatus.STATUS_SUCCEEDED, GoalStatus.STATUS_ABORTED))
         if is_terminal_confirmed:
             self._confirm_attempt_terminal(attempt_id, status)
+            if self.enable_escort:
+                status_map = {
+                    GoalStatus.STATUS_SUCCEEDED: "SUCCEEDED",
+                    GoalStatus.STATUS_CANCELED: "CANCELED",
+                    GoalStatus.STATUS_ABORTED: "ABORTED"
+                }
+                status_str = status_map.get(status, f"STATUS_{status}")
+                sess_id = rec.session_id or self._current_session_id
+                self.publish_nav_status(
+                    status=status_str,
+                    nav_event="GOAL_COMPLETED",
+                    is_terminal=True,
+                    session_id=sess_id,
+                    mission_id=mission_id,
+                    goal_attempt_id=attempt_id,
+                    nav2_uuid=rec.nav2_uuid,
+                    destination_id=rec.target_id or self._current_target_key,
+                    request_id=self._current_abort_request_id if status_str == "CANCELED" else None,
+                    message=f"Goal completed with status {status_str}"
+                )
+                if sess_id == self._current_session_id:
+                    self._current_session_id = None
+                    self._current_abort_request_id = None
         else:
             self.get_logger().warn(
                 f'[{attempt_id}] Chưa xác minh được terminal result (status={status}). Giữ attempt trong unresolved_attempts.'
@@ -1629,8 +1997,27 @@ class NavCommandNode(Node):
 
     def _transition_to_cancelled(self):
         speech = 'Tôi đã hủy chuyến đi hiện tại.'
-        self.say(speech)
+        if not self._current_abort_request_id:
+            self.say(speech)
         self.publish_feedback('CANCELED', 'OK', speech)
+
+        if self.enable_escort and self._current_session_id and not self.has_unresolved_goals():
+            rec = self._attempts.get(self._current_goal_attempt_id)
+            nav2_uuid = rec.nav2_uuid if rec else None
+            self.publish_nav_status(
+                status="CANCELED",
+                nav_event="GOAL_COMPLETED",
+                is_terminal=True,
+                session_id=self._current_session_id,
+                mission_id=self._current_mission_id,
+                goal_attempt_id=self._current_goal_attempt_id,
+                nav2_uuid=nav2_uuid,
+                destination_id=self._current_target_key,
+                request_id=self._current_abort_request_id,
+                message="Nhiệm vụ đã kết thúc hủy hoàn tất."
+            )
+            self._current_session_id = None
+            self._current_abort_request_id = None
 
         # Dọn dẹp trạng thái về IDLE
         self.state = MissionState.IDLE
@@ -1740,6 +2127,19 @@ class NavCommandNode(Node):
             self.get_logger().info('Đã ghi nhận pending replace trong lúc PAUSING/CANCELING. Sẽ thực hiện sau khi goal dừng.')
 
     def _execute_pending_replace(self):
+        if self.enable_escort:
+            allowed, reason, speech = self.check_escort_gating()
+            if not allowed:
+                self.get_logger().warn(f'Từ chối pending replace do escort gating: {reason}')
+                if speech:
+                    self.say(speech)
+                self.publish_feedback('REJECTED', f'ESCORT_{reason}', speech)
+                self.state = MissionState.IDLE
+                self._pending_replace_target = None
+                self._pending_replace_category = None
+                self.publish_state()
+                return
+
         target_key = self._pending_replace_target
         category = self._pending_replace_category
         req_id = self._pending_replace_req_id

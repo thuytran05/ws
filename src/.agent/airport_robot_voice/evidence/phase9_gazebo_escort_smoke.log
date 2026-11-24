@@ -1,0 +1,43 @@
+[2026-11-24 04:05:44] ================================================================================
+[2026-11-24 04:05:44] KHỞI ĐỘNG SMOKE TEST PHASE 9: VOICE THẬT + GAZEBO ESCORT + NAV2
+[2026-11-24 04:05:44] ================================================================================
+[2026-11-24 04:05:44] [Bước 0] Đang chờ hệ thống Gazebo, Nav2, /clock và /odom sẵn sàng...
+[2026-11-24 04:05:44] [Bước 0] Hệ thống sẵn sàng! Clock sec=75, odom x=-0.000
+[2026-11-24 04:05:46] --------------------------------------------------------------------------------
+[2026-11-24 04:05:46] CA 1: KIỂM CHỨNG CHẶN DISPATCH KHI CHƯA KHÓA HÀNH KHÁCH
+[2026-11-24 04:05:46] --------------------------------------------------------------------------------
+[2026-11-24 04:05:48] Kết quả Ca 1: PASSED [OK] (rejected=True, no_nav_started=True, robot_still=True)
+[2026-11-24 04:05:48] --------------------------------------------------------------------------------
+[2026-11-24 04:05:48] CA 2: PHIÊN HỢP LỆ KHỞI HÀNH VÀ DẪN ĐƯỜNG THỰC TẾ TRONG GAZEBO
+[2026-11-24 04:05:48] --------------------------------------------------------------------------------
+[2026-11-24 04:05:48] Bắt đầu phát observation giơ tay 20 Hz...
+[2026-11-24 04:05:50] Trạng thái Tracking: locked_session_id=07aa733a-02fb-4ac0-86e6-275e94edd5bb
+[2026-11-24 04:05:50] Gửi lệnh dẫn đường tới cổng 15 cho session 07aa733a-02fb-4ac0-86e6-275e94edd5bb...
+[2026-11-24 04:05:50] Nhận NAVIGATION_STARTED: session=07aa733a-02fb-4ac0-86e6-275e94edd5bb, mission=mis_1795493141454_1, goal=att_1795493141454_1, uuid=78b829dc27714e44a993618cfc7f7710
+[2026-11-24 04:05:50] Đang theo dõi robot di chuyển vật lý trong Gazebo...
+[2026-11-24 04:05:54] Kết quả Ca 2: PASSED [OK] (max_vx=0.500 m/s, delta_d=0.658 m)
+[2026-11-24 04:05:54] --------------------------------------------------------------------------------
+[2026-11-24 04:05:54] CA 3: MẤT KHÁCH -> XE DỪNG -> SAFETY ABORT -> ACK -> CANCELED -> IDLE
+[2026-11-24 04:05:54] --------------------------------------------------------------------------------
+[2026-11-24 04:05:54] Mô phỏng mất khách: ngừng phát /tracking/observation...
+[2026-11-24 04:05:58] Kết quả Ca 3: PASSED [OK] (abort=True, ack=True, term=True, stopped=True, tracking_idle=True)
+[2026-11-24 04:05:58] --------------------------------------------------------------------------------
+[2026-11-24 04:05:58] CA 4: ĐẾN ĐÍCH TRẢ SUCCEEDED VÀ TRACKING VỀ IDLE SẠCH SẼ
+[2026-11-24 04:05:58] --------------------------------------------------------------------------------
+[2026-11-24 04:05:58] Bắt đầu phát observation giơ tay để khóa phiên mới (session 2)...
+[2026-11-24 04:05:59] Trạng thái Tracking Session 2: 293b0143-e601-4f3b-813e-61998da3c49e
+[2026-11-24 04:06:00] Gửi lệnh dẫn đường tới cổng 15 cho session 2 (293b0143-e601-4f3b-813e-61998da3c49e)...
+[2026-11-24 04:06:00]   [Ca 4 Progress] t=0.0s | pos=(0.69, -0.03) | vx=-0.00
+[2026-11-24 04:06:02]   [Ca 4 Progress] t=2.0s | pos=(0.69, -0.03) | vx=-0.00
+[2026-11-24 04:06:03] Nhận được terminal SUCCEEDED cho session 2!
+[2026-11-24 04:06:03] Kết quả Ca 4: PASSED [OK] (succeeded=True, tracking_idle=True, voice_idle=True)
+[2026-11-24 04:06:03] ================================================================================
+[2026-11-24 04:06:03] TỔNG HỢP KẾT QUẢ SMOKE TEST PHASE 9 THỰC TẾ TRÊN GAZEBO
+[2026-11-24 04:06:03] ================================================================================
+[2026-11-24 04:06:03]   * Ca 1 (Không dispatch trước khóa)   : PASSED [OK] (rejected=True, no_nav_started=True, robot_still=True)
+[2026-11-24 04:06:03]   * Ca 2 (Phiên hợp lệ dẫn đường)      : PASSED [OK] (nav_started=True, ids_match=True, max_vx=0.500m/s, delta_d=0.658m)
+[2026-11-24 04:06:03]   * Ca 3 (Mất khách xe dừng và hủy goal): PASSED [OK] (abort=True, ack=True, term=True, stopped=True, tracking_idle=True)
+[2026-11-24 04:06:03]   * Ca 4 (Đến đích SUCCEEDED và IDLE)  : PASSED [OK] (succeeded=True, tracking_idle=True, voice_idle=True)
+[2026-11-24 04:06:03] ================================================================================
+[2026-11-24 04:06:03] KẾT LUẬN: TẤT CẢ ĐẠT 100%
+[2026-11-24 04:06:03] ================================================================================

@@ -51,6 +51,7 @@
 | 25 | Chuẩn hóa Verifier Gazebo & Chẩn đoán Dung sai | Cập nhật `verify_gazebo_evidence.py`: đếm request NavigateToPose thực tế tại điểm gửi action (goal A4 = 0), ghép đúng UUID, cửa sổ dừng >= 2.0s; Ca 2 đo AMCL pose, sai số yaw vượt ngưỡng được chẩn đoán chi tiết mà không nới dung sai; Ca 3 start pose map từ AMCL, chọn toilet ngắn nhất và sạch terminal. | ĐÃ HOÀN TẤT & ĐO KIỂM |
 | 26 | Hướng dẫn vận hành & Giao diện tích hợp Phase 9 | Bỏ mô tả "pub --once /cmd_vel = 0", chuẩn hóa cơ chế dừng và quy trình khôi phục xác minh robot dừng vật lý; chuẩn bị bài thử micro/loa 5 phút độc lập `use_nav:=false`; tóm tắt hợp đồng Phase 9 từ `VOICE_INTEGRATION_REQUEST.md` (session_id, safety ABORT, nav_status, độc quyền NavigateToPose). | ĐÃ HOÀN TẤT |
 | 27 | Chốt bằng chứng ca A3->A4->Hủy, Đối chứng Counter, Định danh UUID & Nghiệm thu Gazebo | Khai báo `unique_identifier_msgs` trong `package.xml`; phát `NAV_GOAL_DISPATCHED` tại điểm gọi `send_goal_async` kèm UUID/Attempt; ca đối chứng A3=1, A4=0; phát `PENDING_REPLACE_CANCELLED` khi xử lý hủy; kiểm tra 184 mẫu odometry liên tục trong cửa sổ dừng 3.66s; ghép đúng UUID cho terminal cả 3 ca; đo TF map->base đúng frame Nav2 kết hợp runtime params controller_server. Toàn bộ 3/3 ca nghiệm thu Gazebo ĐẠT 100% không nới dung sai. | ĐÃ HOÀN TẤT 100% |
+| 28 | Triển khai Phase 9 Tích hợp Person Tracking & Escort Gating | Triển khai `enable_escort:=true`, gating 6 điều kiện an toàn trước dispatch và trước `send_goal_async()`, quản lý vòng đời 2 pha khởi hành và hủy khẩn cấp `ABORT` có ACK + idempotency, terminal `GOAL_COMPLETED` kèm 5 định danh (`session_id`, `mission_id`, `goal_attempt_id`, `nav2_uuid`, `destination_id`). Đạt 104/104 Unit Tests (10 test Phase 9 mới + 94 test hồi quy). Nghiệm thu thực tế trên đồ thị Gazebo Escort 4/4 ca đạt 100%. | ĐÃ HOÀN TẤT 100% |
 
 ---
 
@@ -65,6 +66,9 @@
 6. `/voice/tts_cancel` (`std_msgs/String`, Volatile, Depth 10): JSON yêu cầu hủy câu nói đang chờ trong hàng đợi TTS.
 7. `/voice/nav_state` (`std_msgs/String`, Transient Local, Depth 1): Trạng thái máy nhiệm vụ Nav2 latched.
 8. `/voice/feedback` (`std_msgs/String`, Volatile, Depth 10): Phản hồi chi tiết từng request.
+9. `/tracking/session_state` (`std_msgs/String`, Transient Local, Depth 1): Trạng thái phiên và khóa khách từ Person Tracking.
+10. `/tracking/safety_request` (`std_msgs/String`, Volatile, Depth 10): Yêu cầu dừng an toàn khẩn cấp (ABORT) từ Person Tracking.
+11. `/voice/nav_status` (`std_msgs/String`, Transient Local, Depth 1): Báo cáo trạng thái điều hướng 2 pha (ACK và Terminal) có đầy đủ 5 định danh liên phân hệ.
 
 ### 3.2. Schema JSON `/voice/intent`
 ```json
@@ -279,7 +283,8 @@ KẾT LUẬN: TẤT CẢ ĐẠT 100%
    - **Xác minh sự kiện tại chính lần gọi `send_goal_async` (`NAV_GOAL_DISPATCHED`)**:
      + **Ca đối chứng (gate_a3)**: Ghi nhận chính xác **1** sự kiện `NAV_GOAL_DISPATCHED` tại điểm gửi action (Attempt: `att_1795418368121_1`, UUID: `b11cd68238f54ee8a4ec2a5ff9049e7f`).
      + **Target đổi đích (gate_a4)**: Ghi nhận chính xác **0** sự kiện `NAV_GOAL_DISPATCHED` gửi sang Nav2.
-     + $ightarrow$ **Bộ đếm hoạt động hoàn hảo và đã được kiểm chứng bằng ca đối chứng [OK]**.
+     + $
+ightarrow$ **Bộ đếm hoạt động hoàn hảo và đã được kiểm chứng bằng ca đối chứng [OK]**.
    - **Xác minh bằng Sự kiện Trạng thái (State Events)**:
      + Đã nhận feedback `REPLACE_PENDING` sang A4: `True [OK]` (node chuyển state sang `PAUSING` với `pending_replace_target: "gate_a4"`).
      + Khi nhận lệnh hủy $t_3$, node lập tức phát feedback `PENDING_REPLACE_CANCELLED` cho `gate_a4`: `True [OK]`.
@@ -287,10 +292,12 @@ KẾT LUẬN: TẤT CẢ ĐẠT 100%
    - **Ghép terminal result của A3 với đúng UUID (có giá trị và khớp 100%)**:
      + Expected: Attempt: `att_1795418368121_1`, UUID: `b11cd68238f54ee8a4ec2a5ff9049e7f`.
      + Actual:   Attempt: `att_1795418368121_1`, UUID: `b11cd68238f54ee8a4ec2a5ff9049e7f`.
-     + $ightarrow$ **ĐÃ GHÉP ĐÚNG VÀ KHỚP 100% [OK]**.
+     + $
+ightarrow$ **ĐÃ GHÉP ĐÚNG VÀ KHỚP 100% [OK]**.
    - **Đo 184 mẫu Odometry liên tục trong cửa sổ dừng (3.66s >= 2.0s, timestamp tăng nghiêm ngặt, không mất dữ liệu)**:
      + Tất cả 184 mẫu trong cửa sổ dừng liên tục đều đạt $v = 0.0000$ m/s, $\omega = 0.0000$ rad/s.
-     + $ightarrow$ **XÁC NHẬN DỪNG HẲN [OK]**.
+     + $
+ightarrow$ **XÁC NHẬN DỪNG HẲN [OK]**.
    - **Kết quả**: **PASSED [OK]**.
 
 2. **Ca 2: Di chuyển tới đích cổng A3 hoàn tất (NavigateToPose SUCCEEDED)**:
@@ -308,18 +315,23 @@ KẾT LUẬN: TẤT CẢ ĐẠT 100%
    - **Ghép terminal SUCCEEDED với đúng UUID (có giá trị và khớp 100%)**:
      + Expected: Attempt: `att_1795418368121_2`, UUID: `19b6cdce36d44bfda9a864bb245051fc`.
      + Actual:   Attempt: `att_1795418368121_2`, UUID: `19b6cdce36d44bfda9a864bb245051fc`.
-     + $ightarrow$ **ĐÃ GHÉP ĐÚNG VÀ KHỚP 100% [OK]**.
+     + $
+ightarrow$ **ĐÃ GHÉP ĐÚNG VÀ KHỚP 100% [OK]**.
    - **Dữ liệu đo đạc tại thời điểm nhận terminal `SUCCEEDED` ($t_{	ext{term}} = 82.030$s)**:
      + TF `map -> base_link` (Nguồn định vị chuẩn của Nav2): $x = -0.818, y = -0.445, yaw = -1.799$ rad ($-103.1^\circ$)
-       * Sai số vị trí $\Delta xy = 0.239$ m ($\le 0.25$ m $ightarrow$ **ĐẠT [OK]**)
-       * Sai số góc $\Delta yaw = 0.229$ rad ($13.1^\circ \le 0.25$ rad $ightarrow$ **ĐẠT [OK]**)
+       * Sai số vị trí $\Delta xy = 0.239$ m ($\le 0.25$ m $
+ightarrow$ **ĐẠT [OK]**)
+       * Sai số góc $\Delta yaw = 0.229$ rad ($13.1^\circ \le 0.25$ rad $
+ightarrow$ **ĐẠT [OK]**)
      + AMCL `/amcl_pose` (t=$81.500$s): $x = -0.814, y = -0.459, yaw = -1.900$ rad ($-108.8^\circ$)
        * Sai số vị trí $\Delta xy = 0.233$ m, Sai số góc $\Delta yaw = 0.330$ rad ($18.9^\circ$)
      + TF `map -> odom`: $x = -1.197, y = 0.182, yaw = -0.144$ rad
    - **Dữ liệu sau khi dừng 2.0s ($t_{	ext{stop}} = 84.030$s)**:
      + TF `map -> base_link`: $x = -0.814, y = -0.459, yaw = -1.784$ rad ($-102.2^\circ$)
-       * Sai số vị trí: **$0.233$ m** ($\le 0.25$ m $ightarrow$ **ĐẠT [OK]**)
-       * Sai số góc: **$0.214$ rad** ($12.3^\circ \le 0.25$ rad $ightarrow$ **ĐẠT [OK]**)
+       * Sai số vị trí: **$0.233$ m** ($\le 0.25$ m $
+ightarrow$ **ĐẠT [OK]**)
+       * Sai số góc: **$0.214$ rad** ($12.3^\circ \le 0.25$ rad $
+ightarrow$ **ĐẠT [OK]**)
      + AMCL `/amcl_pose` (t=$81.500$s): $x = -0.814, y = -0.459, yaw = -1.900$ rad (sai số góc $0.330$ rad)
    - **Phân tích lệnh vận tốc `/cmd_vel` và thực đo `/odom` trong 5 giây cuối**:
      + `/cmd_vel`: $120$ mẫu, $\max |\omega_z| = 1.0000$ rad/s; mẫu cuối cùng: $v_x = 0.0000, \omega_z = 0.0000$ rad/s.
@@ -425,3 +437,15 @@ Nhập trực tiếp các câu lệnh tại Terminal 4 (hoặc qua micro):
 5. **Đổi đích khi đang di chuyển**: Gõ `đổi sang cổng A4` -> Goal A3 bị hủy an toàn, robot đổi lộ trình sang cổng A4.
 6. **Hỏi trạng thái**: Gõ `bạn đang dẫn tôi đi đâu` -> Robot báo tên đích và khoảng cách còn lại (mét).
 7. **Hủy chuyến**: Gõ `hủy chuyến đi` -> Robot dừng hẳn, goal bị cancel trên Nav2, state quay về `IDLE`.
+
+
+### 6.4. Nghiệm thu Phase 9: Tích hợp Voice Thật + Gazebo Escort + Nav2 (ĐÃ ĐẠT 100% 4/4 CA)
+- **Kịch bản thực thi**: `airport_robot_voice/scripts/execute_phase9_verification.sh` trên `ROS_DOMAIN_ID=44`.
+- **Driver kiểm thử**: `airport_robot_voice/scripts/verify_phase9_gazebo_escort.py`.
+- **Log thực thi chi tiết**: [.agent/airport_robot_voice/evidence/phase9_gazebo_escort_smoke.log](file:///home/thuytran/ws/src/.agent/airport_robot_voice/evidence/phase9_gazebo_escort_smoke.log).
+- **Log kiểm thử unit test 104/104**: [.agent/airport_robot_voice/evidence/phase9_unit_test.log](file:///home/thuytran/ws/src/.agent/airport_robot_voice/evidence/phase9_unit_test.log).
+- **Kết quả nghiệm thu 4 ca thực tế trên đồ thị Gazebo**:
+  1. **Ca 1: Chặn dispatch trước khóa**: Voice nhận lệnh navigate tới cổng 15 khi `locked == False`. Voice gating kích hoạt, từ chối dispatch (`REJECTED`, `ESCORT_NO_SESSION_ID`), phát câu TTS cảnh báo, không gửi goal tới Nav2 (`no_nav_started=True`), robot đứng yên tuyệt đối (`robot_still=True`). -> **PASSED [OK]**
+  2. **Ca 2: Phiên hợp lệ khởi hành & dẫn đường thực tế**: Khách giơ tay khóa session (`07aa733a-02fb-4ac0-86e6-275e94edd5bb`, `LOCKED_WAIT_DESTINATION`). Gửi lệnh dẫn đường tới cổng 15. Nav2 chấp nhận goal (`uuid=78b829dc27714e44a993618cfc7f7710`), Voice phát `NAVIGATION_STARTED` đủ 5 định danh. Tracking Manager chuyển sang `NAVIGATING`, Velocity Guard mở cổng an toàn, robot di chuyển vật lý trong Gazebo (`max_vx=0.500 m/s`, $\\Delta d = 0.658$ m). -> **PASSED [OK]**
+  3. **Ca 3: Mất khách -> xe dừng -> safety ABORT -> ACK -> CANCELED -> IDLE**: Ngừng phát observation mô phỏng mất khách. Trong 0.4s Velocity Guard ngắt vận tốc về 0. Sau 1.2s Tracking gửi `ABORT` (`request_id=40fd1c09-cce3-4435-b834-29589348102a`). Voice tiếp nhận, phát non-terminal ACK `CANCEL_ACKNOWLEDGED`, gọi `cancel_goal_async()`. Nav2 trả terminal `CANCELED`. Voice phát `GOAL_COMPLETED` (`status="CANCELED"`). Robot dừng hẳn và duy trì đứng yên $\\ge 2.0$s liên tục. Tracking Manager dọn dẹp phiên và trở về `IDLE` (`locked=False`). -> **PASSED [OK]**
+  4. **Ca 4: Đến đích trả SUCCEEDED và IDLE sạch sẽ**: Khóa session 2 (`293b0143-e601-4f3b-813e-61998da3c49e`). Gửi lệnh dẫn đường tới cổng 15. Robot di chuyển thẳng tới đích dọc hành lang mở, Nav2 đạt mục tiêu và trả `STATUS_SUCCEEDED`. Voice phát terminal `GOAL_COMPLETED` (`status="SUCCEEDED"`). Tracking Manager chuyển `ARRIVED` -> `IDLE` (`locked=False`). Voice FSM chuyển về `IDLE` (`has_unresolved_goals=False`). -> **PASSED [OK]**

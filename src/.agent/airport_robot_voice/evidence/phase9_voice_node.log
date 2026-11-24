@@ -1,0 +1,48 @@
+[INFO] [1795493141.493844937] [nav_command_node]: NavCommandNode đã khởi động và sẵn sàng.
+[WARN] [1795493146.423580895] [nav_command_node]: Từ chối tiếp nhận navigate do escort gating: NO_SESSION_ID
+[INFO] [1795493146.473757346] [nav_command_node]: Bỏ qua request trùng lặp: intent-c1-unlocked
+[INFO] [1795493150.627104933] [nav_command_node]: Nhận được TTS ACK hợp lệ cho [sp_2_50625] (status=COMPLETED, played=False). Tiến hành gửi goal Nav2.
+[INFO] [1795493150.627720936] [nav_command_node]: [att_1795493141454_1] Gửi goal tới Nav2 cho mission mis_1795493141454_1 (cổng 15, uuid=78b829dc27714e44a993618cfc7f7710)...
+[INFO] [1795493150.629129597] [nav_command_node]: [att_1795493141454_1] Goal được Nav2 chấp nhận (uuid=78b829dc27714e44a993618cfc7f7710). Bắt đầu di chuyển.
+[INFO] [1795493150.676418307] [nav_command_node]: Bỏ qua request trùng lặp: intent-c2-start
+[WARN] [1795493155.459875736] [nav_command_node]: Tiếp nhận ABORT từ tracking cho session=07aa733a-02fb-4ac0-86e6-275e94edd5bb, req_id=d50d3bbd-55f3-4f7e-a44b-8b4c41919940, reason=CAMERA_FREEZE.
+[INFO] [1795493155.460261849] [nav_command_node]: [att_1795493141454_1] Gọi cancel_goal_async cho active goal do ABORT.
+[INFO] [1795493155.461478802] [nav_command_node]: [att_1795493141454_1] Server chấp nhận yêu cầu hủy. Đang chờ goal kết thúc terminal...
+[INFO] [1795493155.489844391] [nav_command_node]: [att_1795493141454_1] Goal kết thúc terminal với status: 5
+[INFO] [1795493160.131656740] [nav_command_node]: Nhận được TTS ACK hợp lệ cho [sp_5_60130] (status=COMPLETED, played=False). Tiến hành gửi goal Nav2.
+[INFO] [1795493160.132150594] [nav_command_node]: [att_1795493141454_2] Gửi goal tới Nav2 cho mission mis_1795493141454_2 (cổng 15, uuid=14338c6712c7419fa30d5f680268f05c)...
+[INFO] [1795493160.133241407] [nav_command_node]: [att_1795493141454_2] Goal được Nav2 chấp nhận (uuid=14338c6712c7419fa30d5f680268f05c). Bắt đầu di chuyển.
+[INFO] [1795493160.180324609] [nav_command_node]: Bỏ qua request trùng lặp: intent-c4-arrive
+[INFO] [1795493163.033665800] [nav_command_node]: [att_1795493141454_2] Goal kết thúc terminal với status: 4
+Traceback (most recent call last):
+  File "/home/ws/build/airport_robot_voice/airport_robot_voice/nav_command_node.py", line 2204, in main
+    rclpy.spin(node)
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/__init__.py", line 247, in spin
+    executor.spin_once()
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 926, in spin_once
+    self._spin_once_impl(timeout_sec)
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 907, in _spin_once_impl
+    handler, entity, node = self.wait_for_ready_callbacks(
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 877, in wait_for_ready_callbacks
+    return next(self._cb_iter)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 785, in _wait_for_ready_callbacks
+    raise ExternalShutdownException()
+rclpy.executors.ExternalShutdownException
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/ws/install/airport_robot_voice/lib/airport_robot_voice/nav_command_node", line 33, in <module>
+    sys.exit(load_entry_point('airport-robot-voice', 'console_scripts', 'nav_command_node')())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ws/build/airport_robot_voice/airport_robot_voice/nav_command_node.py", line 2209, in main
+    rclpy.shutdown()
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/__init__.py", line 134, in shutdown
+    _shutdown(context=context)
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/utilities.py", line 82, in shutdown
+    context.shutdown()
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/context.py", line 129, in shutdown
+    self.__context.shutdown()
+rclpy._rclpy_pybind11.RCLError: failed to shutdown: rcl_shutdown already called on the given context, at ./src/rcl/init.c:333

@@ -24,6 +24,7 @@ def generate_launch_description():
     model = LaunchConfiguration('vosk_model')
     use_nav = LaunchConfiguration('use_nav')            # true | false
     launch_stt = LaunchConfiguration('launch_stt')      # true | false
+    enable_escort = LaunchConfiguration('enable_escort')# true | false
 
     return LaunchDescription([
         DeclareLaunchArgument('mode', default_value='keyboard',
@@ -44,6 +45,8 @@ def generate_launch_description():
                               description='Có khởi chạy node điều hướng nav_command_node hay không'),
         DeclareLaunchArgument('launch_stt', default_value='true',
                               description='Có khởi chạy stt_node trong launch này hay không (đặt false nếu muốn chạy stt_node riêng cho keyboard)'),
+        DeclareLaunchArgument('enable_escort', default_value='false',
+                              description='Bật chế độ tích hợp Escort Tracking (Phase 9)'),
 
         # STT Node (Chỉ chạy khi launch_stt == true)
         Node(
@@ -96,6 +99,7 @@ def generate_launch_description():
             parameters=[{
                 'places_file': places_file,
                 'tts_policy': tts_policy,
+                'enable_escort': enable_escort,
                 'use_sim_time': use_sim_time
             }],
             condition=IfCondition(use_nav)
