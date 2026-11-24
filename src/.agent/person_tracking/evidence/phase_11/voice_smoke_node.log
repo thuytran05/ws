@@ -1,0 +1,41 @@
+[INFO] [1795505512.114739733] [nav_command_node]: NavCommandNode đã khởi động và sẵn sàng.
+[WARN] [1795505519.964538385] [nav_command_node]: Từ chối tiếp nhận navigate do escort gating: NO_SESSION_ID
+[INFO] [1795505521.667076794] [nav_command_node]: Nhận được TTS ACK hợp lệ cho [sp_2_21665] (status=COMPLETED, played=True). Tiến hành gửi goal Nav2.
+[INFO] [1795505521.667998219] [nav_command_node]: [att_1795505512078_1] Gửi goal tới Nav2 cho mission mis_1795505512078_1 (cổng 15, uuid=3821e521a1df4ccfba1e2bd24d92d19d)...
+[INFO] [1795505521.669487287] [nav_command_node]: [att_1795505512078_1] Goal được Nav2 chấp nhận (uuid=3821e521a1df4ccfba1e2bd24d92d19d). Bắt đầu di chuyển.
+[WARN] [1795505524.874490388] [nav_command_node]: Tiếp nhận ABORT từ tracking cho session=05bdd991-5c1e-4efa-a723-5d2c904a02ea, req_id=d2929497-54aa-4983-894e-5b0083001102, reason=CAMERA_FREEZE.
+[INFO] [1795505524.874837747] [nav_command_node]: [att_1795505512078_1] Gọi cancel_goal_async cho active goal do ABORT.
+[INFO] [1795505524.875839214] [nav_command_node]: [att_1795505512078_1] Server chấp nhận yêu cầu hủy. Đang chờ goal kết thúc terminal...
+[INFO] [1795505524.890513958] [nav_command_node]: [att_1795505512078_1] Goal kết thúc terminal với status: 5
+Traceback (most recent call last):
+  File "/home/ws/build/airport_robot_voice/airport_robot_voice/nav_command_node.py", line 2285, in main
+    rclpy.spin(node)
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/__init__.py", line 247, in spin
+    executor.spin_once()
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 926, in spin_once
+    self._spin_once_impl(timeout_sec)
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 907, in _spin_once_impl
+    handler, entity, node = self.wait_for_ready_callbacks(
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 877, in wait_for_ready_callbacks
+    return next(self._cb_iter)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 785, in _wait_for_ready_callbacks
+    raise ExternalShutdownException()
+rclpy.executors.ExternalShutdownException
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/ws/install/airport_robot_voice/lib/airport_robot_voice/nav_command_node", line 33, in <module>
+    sys.exit(load_entry_point('airport-robot-voice', 'console_scripts', 'nav_command_node')())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ws/build/airport_robot_voice/airport_robot_voice/nav_command_node.py", line 2290, in main
+    rclpy.shutdown()
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/__init__.py", line 134, in shutdown
+    _shutdown(context=context)
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/utilities.py", line 82, in shutdown
+    context.shutdown()
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/context.py", line 129, in shutdown
+    self.__context.shutdown()
+rclpy._rclpy_pybind11.RCLError: failed to shutdown: rcl_shutdown already called on the given context, at ./src/rcl/init.c:333

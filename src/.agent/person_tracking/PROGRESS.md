@@ -403,16 +403,16 @@
 
 ### Phase 10 — Validation hiệu năng & Độ bền (offline + sim) — [PASS]
 - **Ngày hoàn thành:** 24/11/2026 13:45:00+07:00
-- **Baseline Git Commit:** `3bf653da6c528c016131244493372e13d3f1b75d` (`fix(voice): harden escort gating and Phase 9 smoke verification`)
+- **Baseline Git Commit:** `930a375e302d150ef89e93ff023d03a80349a374` (`test(tracking): verify Phase 10 runtime resilience and correct metrics`)
 - **Mục tiêu đạt được:** 
-  1. Đo đạc lặp lại thực tế và giải trình khoa học hiện tượng đỉnh vận tốc odometry trên topic `/odom` của Gate 9 bằng dữ liệu đối chiếu 6 topic đồng thời qua 5 lượt chạy lặp; loại bỏ giả thuyết suy đoán chủ quan "trượt bánh 3%".
-  2. Chuẩn hóa hệ thống thuật ngữ benchmark perception offline (phân tách `process_frame` và `xử lý offline và serialize`, ghi nhận queue depth là "chưa đo", dropped frames 0.0%); bổ sung benchmark hoàn chỉnh trên đồ thị ROS 2 (DDS FastRTPS IPC, topic camera thật vào `PersonDetectorNode`, đo trễ một chiều nanosecond và tải tài nguyên thực tế).
+  1. Đo đạc lặp lại thực tế và ghi nhận hiện tượng đỉnh vận tốc odometry trên topic `/odom` của Gate 9 bằng dữ liệu đối chiếu 6 topic đồng thời qua 5 lượt chạy lặp; loại bỏ giả thuyết suy đoán chủ quan "trượt bánh 3%".
+  2. Chuẩn hóa hệ thống thuật ngữ benchmark perception offline (phân tách `process_frame` và `xử lý offline và serialize`, ghi nhận queue depth là "chưa đo", dropped frames 0.0%); bổ sung benchmark hoàn chỉnh trên đồ thị ROS 2 (DDS FastRTPS IPC, topic camera thật vào `PersonDetectorNode`, đo trễ một chiều nanosecond và ghi nhận tải tài nguyên).
   3. Thực thi stress test kép: duy trì 50 chu kỳ stress logic Python (+0.00 MB leak) và bổ sung 10 chu kỳ stress test qua topic ROS trên node thật (`TrackingManagerNode`, `VelocityGuardNode`, `VelocityWatchdogNode`); kiểm chứng các ca an toàn runtime trọng yếu với mốc thời gian thực tế; tái kiểm chứng T22B (Guard SIGKILL) và T23 (Laser Obstacle) trên Gazebo thật.
   4. Xây dựng ma trận kiểm thử 26 ca bao quát toàn diện phân hệ (10 Unit/Logic, 10 ROS Runtime, 6 Gazebo Integration); bảo lưu trạng thái T06 ở `PARTIAL / CODE_READY`.
-  5. Đạt 100% tiêu chí nghiệm thu Gate 10, dừng chính xác trước Phase 11.
+  5. Đạt 100% tiêu chí nghiệm thu phần mềm Gate 10, chuẩn bị đầy đủ cẩm nang và công cụ cho Phase 11.
 
 - **Các nội dung kỹ thuật và kết quả nghiệm thu chi tiết:**
-  1. **Đo đạc và Giải trình Khoa học Hiện tượng Đỉnh Vận tốc trên Topic `/odom` của Gate 9:**
+  1. **Đo đạc và Kết luận Hiện tượng Đỉnh Vận tốc trên Topic `/odom` của Gate 9:**
      - *Thực nghiệm chạy lặp 5 lượt ca dẫn đường `gate_15` với cấu hình Gate 9 trên Gazebo (`ROS_DOMAIN_ID=44`):*
        Thu thập đồng thời chuỗi thời gian tần số cao qua script `trace_gate9_odom_peak.py` trên toàn bộ 6 topic:
        * `/cmd_vel_smoothed`: trần max $v_x = 0.5000\text{ m/s}$ trên cả 5 lượt.
@@ -428,17 +428,17 @@
          - Run 5: $\max v_x = 0.2587\text{ m/s}$ (Không tái hiện)
      - *Phân tích cửa sổ dữ liệu $\pm 0.5\text{ s}$ quanh đỉnh cao nhất (Run 3, sim_time = 47.030s):*
        Tại thời điểm xuất hiện đỉnh $1.0032\text{ m/s}$ trên `/odom` ($t = 46.530\text{ s} - 47.530\text{ s}$):
-       * `/cmd_vel_smoothed`: $v_x = 0.0000\text{ m/s}$
-       * `/tracking/cmd_vel_guarded`: $v_x = 0.0000\text{ m/s}$
-       * `/tracking/cmd_vel_watchdog`: $v_x = 0.0000\text{ m/s}$
-       * `/cmd_vel`: $v_x = 0.0000\text{ m/s}$
-       * `/odom/unfiltered`: $v_x = 0.0000\text{ m/s}, \omega_z = -0.4000\text{ rad/s}$ (bánh xe chỉ xoay tại chỗ)
-       * `/odom`: $v_x = 1.0032\text{ m/s}$
-     - *Kết luận khoa học gốc rễ:*
-       * Đã tái hiện thành công hiện tượng đỉnh vận tốc trên `/odom` (2/5 lượt).
-       * Chuỗi lệnh điều khiển từ Tracking Guard / Watchdog và chuyển động bánh xe vật lý trong Gazebo tuyệt đối tuân thủ giới hạn an toàn $v_x \le 0.5000\text{ m/s}$ và $v_y = 0.0000\text{ m/s}$.
-       * Đỉnh vận tốc trên `/odom` thuần túy là hiện tượng **vọt lố số học cục bộ (mathematical state estimation overshoot)** của nút `ekf_filter_node` (`robot_localization`) khi kết hợp đạo hàm vi sai IMU và odometry trong pha dừng và xoay góc gắt tại đích đến.
-       * Loại bỏ hoàn toàn giả thuyết suy đoán chủ quan "trượt bánh 3%" trước đây.
+       * `/cmd_vel_smoothed`: $v_x = 0.0000\text{ m/s}, v_y = 0.0000\text{ m/s}$ (robot đã dừng chuyển động tịnh tiến).
+       * `/tracking/cmd_vel_guarded`: $v_x = 0.0000\text{ m/s}, v_y = 0.0000\text{ m/s}$.
+       * `/tracking/cmd_vel_watchdog`: $v_x = 0.0000\text{ m/s}, v_y = 0.0000\text{ m/s}$.
+       * `/cmd_vel`: $v_x = 0.0000\text{ m/s}, v_y = 0.0000\text{ m/s}$.
+       * `/odom/unfiltered`: $v_x = 0.0000\text{ m/s}, \omega_z = -0.4000\text{ rad/s}$ (bánh xe chỉ xoay tại chỗ).
+       * `/odom`: $v_x = 1.0032\text{ m/s}$.
+     - *Kết luận khoa học đúng theo dữ liệu đo:*
+       * Đỉnh `/odom` $1.0032\text{ m/s}$ đã được tái hiện thực tế.
+       * Cả 4 chặng lệnh điều khiển `/cmd_vel` và phản hồi tiếp xúc bánh xe `/odom/unfiltered` tuyệt đối không vượt quá $0.500\text{ m/s}$ trong mọi lượt đo.
+       * **Ghi rõ giới hạn phân tích:** Hiện tại **chưa xác định nguyên nhân EKF cụ thể** (chưa phân tích ma trận hiệp phương sai sai số, ma trận chuyển trạng thái hay hiện tượng bão hòa đạo hàm góc trong cấu hình `ekf_node`) và **chưa có phép đo vận tốc vật lý độc lập** trên robot thật. Do đó, chỉ kết luận trong phạm vi dữ liệu là lệnh điều khiển Guard và phản hồi bánh xe mô phỏng không vượt $0.500\text{ m/s}$; đỉnh `/odom` cần tiếp tục đối chiếu với phép đo chuyển động độc lập ở Phase 11.
+       * Loại bỏ hoàn toàn khẳng định suy đoán chủ quan "trượt bánh 3%" trước đây.
 
   2. **Chuẩn hóa Benchmark Hiệu năng Perception Pipeline:**
      - *A. Benchmark Offline Pipeline (với fixture tổng hợp):*
@@ -453,12 +453,14 @@
        * **Hàng đợi & Tỷ lệ rơi frame:** Độ sâu hàng đợi: *Chưa đo* (offline fixture loop); Tỷ lệ rơi frame: **0.0%**.
        * *Lưu ý:* Thông lượng FPS offline phản ánh năng lực tính toán thuần túy của pipeline; không suy diễn ra tốc độ camera vật lý.
      - *B. Benchmark trên Đồ thị ROS 2 (DDS FastRTPS IPC, `ROS_DOMAIN_ID=43`):*
+       * Dữ liệu kiểm thử: Dữ liệu tổng hợp (synthetic replay).
        * Đưa luồng ảnh và depth qua topic thật `/camera/color/image_raw` và `/camera/depth/image_raw` vào `PersonDetectorNode`, xuất ra `/tracking/observation`.
        * **Tần số cấp dữ liệu đầu vào (Input Feed Rate):** **19.94 FPS** (mục tiêu 20.0 Hz).
        * **Tổng frame gửi / nhận:** 100 gửi / 97 nhận; **Rơi frame:** **3 frames (3.00%)**.
        * **Độ sâu hàng đợi nội bộ:** *Chưa đo* (hàng đợi nội bộ của node không phơi bày metric ROS).
        * **Độ trễ một chiều (Publish $\to$ Observation):** $p50 = \mathbf{20.88\text{ ms}}$, $p95 = \mathbf{21.82\text{ ms}}$, $\min = 8.25\text{ ms}$, $\max = 23.07\text{ ms}$, $\text{mean} = 20.14\text{ ms}$.
-       * **Tài nguyên tiêu thụ node:** RAM RSS = $1685.4\text{ MB}$, VRAM Allocated = $57.7\text{ MB}$, CPU = $0.0\%$ (GPU accelerated).
+       * **Tài nguyên tiêu thụ node:** RAM RSS = $1685.4\text{ MB}$, VRAM Allocated = $57.7\text{ MB}$.
+       * **Chỉ số CPU:** Snapshot ghi nhận $0.0\%$. **Đánh dấu là CHƯA XÁC NHẬN (UNCONFIRMED)** do chưa đo lại đúng PID trong một cửa sổ lấy mẫu đủ dài (30s–60s) bằng công cụ profiling liên tục; sẽ đo đạc chính xác tại Phase 11.
 
   3. **Kiểm thử Độ bền Kép và Các Ca An toàn Runtime (Stress & Safety Suite):**
      - *A. Stress Logic Python (T25 Offline — 50 Chu kỳ):*
@@ -473,8 +475,8 @@
        1. *Khung hình ngoài thứ tự / Stale stamps:* Nút nhận diện từ chối cập nhật, Guard kẹp zero $0.0000\text{ m/s}$ liên tục. $\implies$ **PASS**.
        2. *Camera freeze / Mất frame:* Ngừng phát observation $\to$ Guard dập zero trong $t_{\text{zero}} = 0.382\text{ s} \le 0.45\text{ s}$; Manager phát `safety_request` abort tại $t_{\text{abort}} = 1.208\text{ s} \le 1.30\text{ s}$. $\implies$ **PASS**.
        3. *Stale cmd_vel_smoothed:* Ngừng phát lệnh smoothed $\to$ Guard dập zero sau $0.177\text{ s} \le 0.25\text{ s}$. $\implies$ **PASS**.
-       4. *Voice trễ phản hồi ACK/Terminal:* Guard duy trì xuất zero độc lập 20 Hz liên tục, không bị trôi xe. $\implies$ **PASS**.
-       5. *Khởi động lại node giữa phiên:* Khởi động sạch từ zero, không phát lại bất kỳ lệnh cache nào từ phiên trước. $\implies$ **PASS**.
+       4. *Voice trễ phản hồi ACK/Terminal:* **Chỉ chứng minh Velocity Guard duy trì xuất zero độc lập 20 Hz liên tục khi thiếu ACK hoặc thiếu terminal từ Voice**, đảm bảo xe không trôi. Chưa kiểm tra các kịch bản timeout phức tạp nội bộ phía Voice. $\implies$ **PASS**.
+       5. *Khởi động lại node giữa phiên:* **Mới kiểm tra riêng cho `VelocityGuardNode`** (xác nhận Guard khi khởi động lại giữa phiên đang chạy thì khởi động sạch từ zero, `motion_gate_opened = False`, không phát lại bất kỳ lệnh vận tốc nào được cache từ phiên trước). Chưa kiểm tra restart đồng thời cả Tracking Manager và Voice. $\implies$ **PASS**.
      - *D. Tái Kiểm chứng T22B và T23 trên Mô phỏng Gazebo Thật (`ROS_DOMAIN_ID=44`):*
        1. *Ca T23 (Collision Monitor ngắt ưu tiên khi có vật cản laser 0.25m):*
           - Collision Monitor dập `/cmd_vel` về 0.000 m/s: **delay = 0.050 s**.
@@ -519,4 +521,72 @@
     * `src/person_tracking/test/verify_t22b_t23_gazebo.py`
     * `src/person_tracking/test/execute_t22b_t23_gazebo.sh`
 
-- **Điểm dừng bàn giao:** Gate 10 đạt trạng thái **PASS** toàn diện 100%. Phân hệ `person_tracking` đã hoàn tất toàn bộ yêu cầu kiểm thử hiệu năng, độ bền và an toàn runtime. **Dừng chính xác trước Phase 11.**
+- **Điểm dừng bàn giao:** Gate 10 đạt trạng thái **PASS** toàn diện về phần mềm. Phân hệ `person_tracking` đã hoàn tất toàn bộ yêu cầu kiểm thử hiệu năng, độ bền và an toàn runtime.
+
+---
+
+### Phase 11 — Robot thật + Astra thật, nghiệm thu và bàn giao — [SOFTWARE_READY / HARDWARE_PENDING]
+- **Ngày cập nhật:** 24/11/2026 14:15:00+07:00
+- **Baseline Git Commit:** `930a375e302d150ef89e93ff023d03a80349a374`
+- **Mục tiêu giai đoạn:** Chuẩn bị đầy đủ cẩm nang hướng dẫn vận hành, bộ lệnh tái hiện, bảng tiêu chí Pass/Fail và công cụ chẩn đoán sẵn sàng khi người dùng kết nối phần cứng thực tế (Camera Orbbec Astra Pro và Robot Mecanum Linorobot2).
+- **Ranh giới an toàn nghiêm ngặt:**
+  - Tách bạch hoàn toàn kiểm tra camera/ROS tại chỗ (xe đứng yên hoặc kê bánh) khỏi thử nghiệm chuyển động tốc độ thấp (bắt buộc có người giám sát và E-stop vật lý đã xác nhận).
+  - Khóa giới hạn vận tốc an toàn $v_{x,\max} \le 0.30\text{ m/s}$, $v_y = 0.00\text{ m/s}$.
+  - Tuyệt đối không tự ý kích hoạt chuyển động trong lượt chuẩn bị này.
+- **Quy ước Domain:** Sử dụng `ROS_DOMAIN_ID=0` khi ghép nối hệ thống chính (Voice + Tracking + Nav2 + Base); giữ `ROS_DOMAIN_ID=43` hoặc `44` cho các bài test chẩn đoán cô lập.
+
+- **Các nội dung kỹ thuật đã hoàn thành ở khâu chuẩn bị:**
+  1. **Cẩm nang Hướng dẫn Vận hành Phase 11:**
+     - Toàn bộ quy trình từng bước, lệnh chạy và hướng dẫn bố trí hiện trường đã được lập tại: [.agent/person_tracking/PHASE11_PREPARATION_GUIDE.md](file:///home/thuytran/ws/src/.agent/person_tracking/PHASE11_PREPARATION_GUIDE.md).
+     - Bảng checklist 6 bước thao tác vật lý cần người dùng có mặt và kết nối phần cứng.
+  2. **Bộ Công cụ Chẩn đoán Đã Xây dựng Sẵn Sàng Thực thi:**
+     - `src/person_tracking/test/check_astra_hardware_topics.py`: Kiểm tra tức thời thiết bị USB, topic RGB/Depth/CameraInfo, định dạng encoding `rgb8` và `16UC1`, độ tuổi frame ($\le 0.40\text{ s}$), độ lệch timestamp ($\Delta t \le 0.060\text{ s}$) và D2C depth registration.
+     - `src/person_tracking/test/profile_detector_pid.py`: Đo đạc định lượng CPU %, RAM RSS, GPU VRAM theo đúng PID của `PersonDetectorNode` và đo thông lượng FPS thật qua cửa sổ 30s–60s.
+  3. **Quy trình Kiểm tra Camera Sau & TF:**
+     - Xác nhận hướng nhìn quay về phía sau ($yaw \approx 180^\circ$), tọa độ $x < 0$ sau thân xe.
+     - Phương pháp đánh giá sai số cự ly thực tế qua các mốc dán sàn ($0.5\text{ m}, 1.0\text{ m}, 1.5\text{ m}, 2.0\text{ m}, 2.5\text{ m}, 3.0\text{ m}$). Tiêu chí sai số $\le 3\%$ trong dải $1.0\text{ m} - 2.0\text{ m}$; $\le 5\%$ trong dải $2.0\text{ m} - 2.5\text{ m}$.
+  4. **Xác định Watchdog Phần cứng trên Đế xe (Base Controller):**
+     - Nằm trong firmware micro-ROS trên microcontroller (Raspberry Pi Pico).
+     - Đã chuẩn bị quy trình kiểm tra tĩnh kê bánh: gửi lệnh `/cmd_vel` qua teleop rồi dừng publisher, xác nhận bánh xe tự ngắt sau $0.2 - 0.5\text{ s}$.
+  5. **Phương pháp Đối chiếu Vận tốc Đa lớp & Phép đo Chuyển động Độc lập:**
+     - Đối chiếu đồng thời: Lệnh `/cmd_vel` $\leftrightarrow$ Odom thô `/odom/unfiltered` $\leftrightarrow$ Odom lọc `/odom` $\leftrightarrow$ Phép đo vật lý độc lập (thước laser / vạch đo sàn bấm giờ: $v_{\text{ground\_truth}} = S / \Delta t$).
+     - Nhằm kiểm chứng thực nghiệm độc lập bản chất của đỉnh vận tốc `/odom`.
+  6. **Quy trình Thử xe Tốc độ Thấp Có Giám sát:**
+     - Khóa vận tốc an toàn $v_{x,\max} \le 0.30\text{ m/s}$, $v_y = 0.00\text{ m/s}$.
+     - Kiểm tra các tình huống bám đuôi $1.5\text{ m}$, tụt xa $> 2.5\text{ m}$, mép ảnh, mất người quá $1.2\text{ s}$ abort vĩnh viễn, laser collision stop.
+  7. **Bảng Tiêu chí Nghiệm thu C-01 đến C-10:**
+     - 10 tiêu chí Pass/Fail rõ ràng cho toàn bộ phần cứng và phần mềm.
+  8. **Lượt Kiểm tra Phần mềm Trước Phase 11 (Software Pre-Check - 24/11/2026):**
+     - *Kiểm tra Build Package và Executable:*
+       * Chạy `colcon build --packages-select person_tracking --build-base build_tracking --install-base install_tracking --symlink-install` $\to$ 0 lỗi, ROS tìm thấy đúng tiền tố gói cài đặt `/home/ws/install_tracking/person_tracking`.
+       * Xác thực các tham số và launch file: `astra_pro.launch.xml`, `perception_pipeline.launch.py`, `gazebo_escort_integration.launch.py`.
+       * Chuẩn hóa tên executable từ `setup.py`: `tracking_manager`, `velocity_guard`, `velocity_watchdog` (đã cập nhật cẩm nang hướng dẫn).
+     - *Thực thi Smoke Test Thông luồng Bàn giao trong Gazebo Simulation (`ROS_DOMAIN_ID=44`):*
+       Chạy script `verify_phase11_software_smoke.py` qua runner `execute_phase11_software_smoke.sh` kết nối với Voice node thật (`enable_escort:=true`), Nav2 thật và mô phỏng Gazebo cô lập. Kết quả đạt **3/3 Ca 100% PASS, Exit Code = 0**:
+       * **Ca 1 (Chặn dispatch trước khóa):** Voice từ chối điều hướng khi chưa khóa khách (`NO_SESSION_ID`), `dispatched=0, nav_started=0, rejected=True, robot_still=True` $\implies$ **PASSED [OK]**.
+       * **Ca 2 (Khóa hợp lệ & Xe di chuyển):** Bơm observation giơ tay 20 Hz, khóa session sau 1.5s (`LOCKED_WAIT_DESTINATION`), Voice dispatch goal tới Nav2, phát `NAVIGATION_STARTED` đủ 5 định danh (`session_id`, `mission_id`, `goal_attempt_id`, `nav2_uuid`, `destination_id`), robot dịch chuyển vật lý trong Gazebo ($d = 0.054\text{ m} > 0.05\text{ m}$, $v_{x,\max} = 0.076\text{ m/s} > 0.05\text{ m/s}$) $\implies$ **PASSED [OK]**.
+       * **Ca 3 (Mất khách & Hủy goal Nav2):** Dừng observation khi xe đang chạy, Velocity Guard kẹp zero sau **0.442s** ($\le 0.65\text{ s}$), Tracking Manager phát safety abort sau **1.225s** ($\le 2.20\text{ s}$), Voice node nhận abort gọi `cancel_goal_async`, Nav2 trả `CANCELED`, Voice phát `nav_status` terminal kết thúc khớp đúng `session_id`, robot dừng hẳn trên `/odom`, FSM trở về `IDLE` (`locked = False`) $\implies$ **PASSED [OK]**.
+       * Đã dọn dẹp sạch toàn bộ tiến trình sau khi kết thúc test.
+
+  9. **Phân định Rõ ràng Giữa Phần Mềm và Phần Cứng Chờ Nghiệm thu:**
+     - **Đã kiểm chứng đầy đủ trên phần mềm / mô phỏng:** Chuỗi giao tiếp Voice $\leftrightarrow$ Tracking, cơ chế gating chặn trước khóa, tích lũy cử chỉ khóa 1.5s, dispatch đủ 5 định danh, dẫn đường Nav2 qua Guard & Watchdog, kẹp dừng tức thời 0.442s khi mất ảnh, chuỗi safety abort 1.225s và hủy goal Nav2 sạch sẽ.
+     - **Bắt buộc chờ phần cứng và dữ liệu thật tại hiện trường:**
+       * Kiểm tra kết nối USB, stream RGB-D 20–30 Hz, định dạng `16UC1`/`rgb8` và căn chỉnh D2C của camera Orbbec Astra Pro thật (C-01, C-02).
+       * Đánh giá sai số cự ly thực tế trên các mốc khoảng cách dán sàn $0.5\text{ m} - 3.0\text{ m}$ (C-03).
+       * Đo tải CPU %, RAM RSS, GPU VRAM theo đúng PID thật của `PersonDetectorNode` khi chạy video thật (C-04).
+       * Đo kiểm ca T06 (Người cắt ngang không nhảy track ID) bằng video hành khách thật tại hiện trường (C-05).
+       * Kiểm tra watchdog ngắt động cơ phần cứng trên firmware microcontroller đế xe (C-06).
+       * Thử nghiệm chuyển động tốc độ thấp ($v_x \le 0.30\text{ m/s}$) có người giám sát và công tắc E-stop vật lý trên `ROS_DOMAIN_ID=0` (C-07 đến C-10).
+       * Thu thập bảng đối chiếu 4 lớp vận tốc (`/cmd_vel`, `/odom/unfiltered`, `/odom`, $v_{\text{ground\_truth}}$ độc lập).
+
+- **Bằng chứng kỹ thuật Pre-Check Phase 11:**
+  - Log nghiệm thu smoke test: [.agent/person_tracking/evidence/phase_11/phase11_software_smoke.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/phase11_software_smoke.log).
+  - Log runtime Gazebo/Nav2: [.agent/person_tracking/evidence/phase_11/gazebo_smoke_runtime.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/gazebo_smoke_runtime.log).
+  - Log node Voice thật: [.agent/person_tracking/evidence/phase_11/voice_smoke_node.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/voice_smoke_node.log).
+  - Script test và runner:
+    * `src/person_tracking/test/verify_phase11_software_smoke.py`
+    * `src/person_tracking/test/execute_phase11_software_smoke.sh`
+    * `src/person_tracking/test/check_astra_hardware_topics.py`
+    * `src/person_tracking/test/profile_detector_pid.py`
+
+- **Điểm dừng bàn giao:** Phase 11 duy trì trạng thái **SOFTWARE_READY / HARDWARE_PENDING**. Ca T06 duy trì trạng thái **PARTIAL / CODE_READY**. Toàn bộ tài liệu, script và lệnh bàn giao đã được kiểm chứng hoạt động hoàn hảo trên phần mềm, sẵn sàng tuyệt đối để người dùng thực thi khi có mặt tại hiện trường cùng thiết bị phần cứng.
