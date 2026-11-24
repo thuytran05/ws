@@ -1,12 +1,12 @@
-[INFO] [1795505512.114739733] [nav_command_node]: NavCommandNode đã khởi động và sẵn sàng.
-[WARN] [1795505519.964538385] [nav_command_node]: Từ chối tiếp nhận navigate do escort gating: NO_SESSION_ID
-[INFO] [1795505521.667076794] [nav_command_node]: Nhận được TTS ACK hợp lệ cho [sp_2_21665] (status=COMPLETED, played=True). Tiến hành gửi goal Nav2.
-[INFO] [1795505521.667998219] [nav_command_node]: [att_1795505512078_1] Gửi goal tới Nav2 cho mission mis_1795505512078_1 (cổng 15, uuid=3821e521a1df4ccfba1e2bd24d92d19d)...
-[INFO] [1795505521.669487287] [nav_command_node]: [att_1795505512078_1] Goal được Nav2 chấp nhận (uuid=3821e521a1df4ccfba1e2bd24d92d19d). Bắt đầu di chuyển.
-[WARN] [1795505524.874490388] [nav_command_node]: Tiếp nhận ABORT từ tracking cho session=05bdd991-5c1e-4efa-a723-5d2c904a02ea, req_id=d2929497-54aa-4983-894e-5b0083001102, reason=CAMERA_FREEZE.
-[INFO] [1795505524.874837747] [nav_command_node]: [att_1795505512078_1] Gọi cancel_goal_async cho active goal do ABORT.
-[INFO] [1795505524.875839214] [nav_command_node]: [att_1795505512078_1] Server chấp nhận yêu cầu hủy. Đang chờ goal kết thúc terminal...
-[INFO] [1795505524.890513958] [nav_command_node]: [att_1795505512078_1] Goal kết thúc terminal với status: 5
+[INFO] [1795526154.920493505] [nav_command_node]: NavCommandNode đã khởi động và sẵn sàng.
+[WARN] [1795526160.771567846] [nav_command_node]: Từ chối tiếp nhận navigate do escort gating: NO_SESSION_ID
+[INFO] [1795526162.473649313] [nav_command_node]: Nhận được TTS ACK hợp lệ cho [sp_2_62472] (status=COMPLETED, played=True). Tiến hành gửi goal Nav2.
+[INFO] [1795526162.474160681] [nav_command_node]: [att_1795526154870_1] Gửi goal tới Nav2 cho mission mis_1795526154870_1 (cổng 15, uuid=dffcaf874dd64d07af0b6037dd48fc49)...
+[INFO] [1795526162.479943964] [nav_command_node]: [att_1795526154870_1] Goal được Nav2 chấp nhận (uuid=dffcaf874dd64d07af0b6037dd48fc49). Bắt đầu di chuyển.
+[WARN] [1795526166.046412495] [nav_command_node]: Tiếp nhận ABORT từ tracking cho session=c6b2d1e3-f95f-4d5b-9562-9ea5b4ac7db4, req_id=cd3917ba-26ff-470f-9193-a5a95e3b54db, reason=CAMERA_FREEZE.
+[INFO] [1795526166.046800025] [nav_command_node]: [att_1795526154870_1] Gọi cancel_goal_async cho active goal do ABORT.
+[INFO] [1795526166.047951731] [nav_command_node]: [att_1795526154870_1] Server chấp nhận yêu cầu hủy. Đang chờ goal kết thúc terminal...
+[INFO] [1795526166.050723931] [nav_command_node]: [att_1795526154870_1] Goal kết thúc terminal với status: 5
 Traceback (most recent call last):
   File "/home/ws/build/airport_robot_voice/airport_robot_voice/nav_command_node.py", line 2285, in main
     rclpy.spin(node)
@@ -20,9 +20,10 @@ Traceback (most recent call last):
   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 877, in wait_for_ready_callbacks
     return next(self._cb_iter)
            ^^^^^^^^^^^^^^^^^^^
-  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 785, in _wait_for_ready_callbacks
-    raise ExternalShutdownException()
-rclpy.executors.ExternalShutdownException
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 757, in _wait_for_ready_callbacks
+    wait_set = _rclpy.WaitSet(
+               ^^^^^^^^^^^^^^^
+rclpy._rclpy_pybind11.RCLError: failed to initialize wait set: the given context is not valid, either rcl_init() was not called or rcl_shutdown() was called., at ./src/rcl/wait.c:130
 
 During handling of the above exception, another exception occurred:
 

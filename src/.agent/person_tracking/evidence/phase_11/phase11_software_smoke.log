@@ -1,31 +1,31 @@
-[2026-11-24 07:31:55] ================================================================================
-[2026-11-24 07:31:55] PHASE 11 PRE-CHECK: SOFTWARE ESCORT HANDOVER SMOKE TEST (GAZEBO SIMULATION)
-[2026-11-24 07:31:55] ================================================================================
-[2026-11-24 07:31:55] [Bước 0] Đang chờ Gazebo, Nav2, /clock và /odom sẵn sàng...
-[2026-11-24 07:31:56] [Bước 0] Sẵn sàng! Clock sec=10, odom pos=(-0.000, 0.000)
-[2026-11-24 07:31:56] [Bước 0] Chờ DDS kết nối tới Voice node (/voice/intent)...
-[2026-11-24 07:31:58] [Bước 0] Đã kết nối /voice/intent: subs=1
-[2026-11-24 07:31:59] --------------------------------------------------------------------------------
-[2026-11-24 07:31:59] CA 1: CHƯA KHÓA HÀNH KHÁCH -> VOICE KHÔNG GỬI GOAL, XE ĐỨNG YÊN
-[2026-11-24 07:31:59] --------------------------------------------------------------------------------
-[2026-11-24 07:32:00] Kết quả Ca 1: PASSED [OK] (dispatched=0, rejected=True, robot_still=True)
-[2026-11-24 07:32:00] --------------------------------------------------------------------------------
-[2026-11-24 07:32:00] CA 2: KHÓA HỢP LỆ -> VOICE GỬI GOAL -> NAVIGATION_STARTED -> XE CHẠY
-[2026-11-24 07:32:00] --------------------------------------------------------------------------------
-[2026-11-24 07:32:00] Bắt đầu phát observation giơ tay 20 Hz để khóa...
-[2026-11-24 07:32:01]   [Trạng thái khóa] locked_session_id=05bdd991-5c1e-4efa-a723-5d2c904a02ea
-[2026-11-24 07:32:01] Chờ Nav2 tính toán đường đi và robot di chuyển trong Gazebo...
-[2026-11-24 07:32:02] Kết quả Ca 2: PASSED [OK] (dispatched=1, dist_moved=0.054m, max_vx=0.076m/s)
-[2026-11-24 07:32:03] --------------------------------------------------------------------------------
-[2026-11-24 07:32:03] CA 3: MẤT QUAN SÁT -> CMD_VEL ZERO -> SAFETY ABORT -> NAV2 CANCEL -> DỪNG HẲN
-[2026-11-24 07:32:03] --------------------------------------------------------------------------------
-[2026-11-24 07:32:03] Mô phỏng mất khách: Ngừng phát /tracking/observation...
-[2026-11-24 07:32:04]   [Mốc đo lường] dt_zero=0.442s (<=0.65s), dt_abort=1.225s (<=2.20s)
-[2026-11-24 07:32:05] Kết quả Ca 3: PASSED [OK] (dt_zero=0.442s, dt_abort=1.225s, terminal_canceled=True, matching_goal=True)
-[2026-11-24 07:32:05] ================================================================================
-[2026-11-24 07:32:05] TỔNG KẾT SMOKE TEST PHASE 11:
-[2026-11-24 07:32:05]   - Case 1 (Chặn dispatch trước khóa): PASSED | dispatched=0, nav_started=0, rejected=True, robot_still=True
-[2026-11-24 07:32:05]   - Case 2 (Khóa hợp lệ & Xe di chuyển): PASSED | dispatched=1, has_5_ids=True, dist_moved=0.054m, max_vx=0.076m/s
-[2026-11-24 07:32:05]   - Case 3 (Mất khách & Hủy goal Nav2): PASSED | dt_zero=0.442s, dt_abort=1.225s, terminal_canceled=True, matching_goal=True, c3_stopped=True, fsm_idle=True
-[2026-11-24 07:32:05] KẾT LUẬN TOÀN BỘ: PASS (100% ĐẠT)
-[2026-11-24 07:32:05] ================================================================================
+[2026-11-24 13:15:58] ================================================================================
+[2026-11-24 13:15:58] PHASE 11 PRE-CHECK: SOFTWARE ESCORT HANDOVER SMOKE TEST (GAZEBO SIMULATION)
+[2026-11-24 13:15:58] ================================================================================
+[2026-11-24 13:15:58] [Bước 0] Đang chờ Gazebo, Nav2, /clock và /odom sẵn sàng...
+[2026-11-24 13:15:59] [Bước 0] Sẵn sàng! Clock sec=11, odom pos=(-0.000, 0.000)
+[2026-11-24 13:15:59] [Bước 0] Chờ DDS kết nối tới Voice node (/voice/intent)...
+[2026-11-24 13:15:59] [Bước 0] Đã kết nối /voice/intent: subs=1
+[2026-11-24 13:16:00] --------------------------------------------------------------------------------
+[2026-11-24 13:16:00] CA 1: CHƯA KHÓA HÀNH KHÁCH -> VOICE KHÔNG GỬI GOAL, XE ĐỨNG YÊN
+[2026-11-24 13:16:00] --------------------------------------------------------------------------------
+[2026-11-24 13:16:00] Kết quả Ca 1: PASSED [OK] (dispatched=0, rejected=True, robot_still=True)
+[2026-11-24 13:16:00] --------------------------------------------------------------------------------
+[2026-11-24 13:16:00] CA 2: KHÓA HỢP LỆ -> VOICE GỬI GOAL -> NAVIGATION_STARTED -> XE CHẠY
+[2026-11-24 13:16:00] --------------------------------------------------------------------------------
+[2026-11-24 13:16:00] Bắt đầu phát observation giơ tay 20 Hz để khóa...
+[2026-11-24 13:16:02]   [Trạng thái khóa] locked_session_id=c6b2d1e3-f95f-4d5b-9562-9ea5b4ac7db4
+[2026-11-24 13:16:02] Chờ Nav2 tính toán đường đi và robot di chuyển trong Gazebo...
+[2026-11-24 13:16:03] Kết quả Ca 2: PASSED [OK] (dispatched=1, dist_moved=0.294m, max_vx=0.500m/s)
+[2026-11-24 13:16:04] --------------------------------------------------------------------------------
+[2026-11-24 13:16:04] CA 3: MẤT QUAN SÁT -> CMD_VEL ZERO -> SAFETY ABORT -> NAV2 CANCEL -> DỪNG HẲN
+[2026-11-24 13:16:04] --------------------------------------------------------------------------------
+[2026-11-24 13:16:04] Mô phỏng mất khách: Ngừng phát /tracking/observation...
+[2026-11-24 13:16:06]   [Mốc đo lường] dt_zero=0.442s (<=0.65s), dt_abort=1.185s (<=2.20s)
+[2026-11-24 13:16:07] Kết quả Ca 3: PASSED [OK] (dt_zero=0.442s, dt_abort=1.185s, terminal_canceled=True, matching_goal=True)
+[2026-11-24 13:16:07] ================================================================================
+[2026-11-24 13:16:07] TỔNG KẾT SMOKE TEST PHASE 11:
+[2026-11-24 13:16:07]   - Case 1 (Chặn dispatch trước khóa): PASSED | dispatched=0, nav_started=0, rejected=True, robot_still=True
+[2026-11-24 13:16:07]   - Case 2 (Khóa hợp lệ & Xe di chuyển): PASSED | dispatched=1, has_5_ids=True, dist_moved=0.294m, max_vx=0.500m/s
+[2026-11-24 13:16:07]   - Case 3 (Mất khách & Hủy goal Nav2): PASSED | dt_zero=0.442s, dt_abort=1.185s, terminal_canceled=True, matching_goal=True, c3_stopped=True, fsm_idle=True
+[2026-11-24 13:16:07] KẾT LUẬN TOÀN BỘ: PASS (100% ĐẠT)
+[2026-11-24 13:16:07] ================================================================================
