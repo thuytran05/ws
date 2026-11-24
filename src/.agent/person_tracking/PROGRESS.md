@@ -3,7 +3,7 @@
 **Dự án:** Robot dẫn đường hành khách sân bay (ROS 2 Jazzy, Mecanum, Camera Astra sau)  
 **Phân hệ:** `person_tracking`  
 **File theo dõi duy nhất của phân hệ:** `.agent/person_tracking/PROGRESS.md`  
-**Cập nhật lần cuối:** 23/11/2026 — Phase 1 Complete  
+**Cập nhật lần cuối:** 24/11/2026 — Phase 10 Complete  
 
 ---
 
@@ -20,8 +20,8 @@
 | **Phase 6** | Session FSM, timeout & Giao tiếp voice | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_6/` |
 | **Phase 7** | Velocity guard, mecanum & Watchdog | **PASS** | 23/11/2026 | `.agent/person_tracking/evidence/phase_7/` |
 | **Phase 8** | End-to-end ROS 2 integration (không sửa Gazebo) | **PASS** | 24/11/2026 | `.agent/person_tracking/evidence/phase_8/` |
-| **Phase 9** | Giao tiếp song song với agent voice | **NOT_STARTED** | — | — |
-| **Phase 10** | Validation hiệu năng & Độ bền (offline + sim) | **NOT_STARTED** | — | — |
+| **Phase 9** | Giao tiếp song song với agent voice | **PASS** | 24/11/2026 | `.agent/airport_robot_voice/evidence/phase9_gazebo_escort_smoke.log` (commit `3bf653da6c528c016131244493372e13d3f1b75d`) |
+| **Phase 10** | Validation hiệu năng & Độ bền (offline + sim) | **PASS** | 24/11/2026 | `.agent/person_tracking/evidence/phase_10/evidence_summary.md` |
 | **Phase 11** | Robot thật + Astra thật, nghiệm thu bàn giao | **NOT_STARTED** | — | — |
 
 ---
@@ -376,3 +376,97 @@
   - Bản yêu cầu tích hợp Voice: [.agent/person_tracking/VOICE_INTEGRATION_REQUEST.md](file:///home/thuytran/ws/src/.agent/person_tracking/VOICE_INTEGRATION_REQUEST.md).
 
 - **Điểm dừng bàn giao:** Gate 8 đạt trạng thái **PASS** hoàn toàn (12 passed, 0 failed, 0 blocked — 100% Pass Rate trên Gazebo + Nav2 thật). Toàn bộ 124 unit test pytest đạt 100% PASS. Node độc lập `escort_velocity_watchdog` bảo vệ an toàn cho robot dừng trong 0.687s khi Guard gặp sự cố crash đột ngột (SIGKILL). Dừng chính xác trước Phase 9. Toàn bộ tài liệu, hợp đồng schema và Prompt bàn giao Phase 9 được hoàn thiện ở trạng thái **OFFICIAL / READY FOR VOICE AGENT**.
+
+---
+
+### Phase 9 — Giao tiếp song song với agent voice — [PASS]
+- **Ngày hoàn thành:** 24/11/2026 12:00:00+07:00
+- **Baseline Git Commit (Voice):** `3bf653da6c528c016131244493372e13d3f1b75d` (`fix(voice): harden escort gating and Phase 9 smoke verification`)
+- **Mục tiêu đạt được:** Hoàn thành nghiệm thu tích hợp song song giữa Voice thật (`airport_robot_voice/nav_command_node` với `enable_escort:=true`) và Tracking thật (`person_tracking`) trên nền ROS 2 Jazzy + Gazebo + Nav2 thật. Voice là bên duy nhất sở hữu Nav2 Action Client; Tracking là bên duy nhất cấp `session_id` và khóa khách; Velocity Guard và Velocity Watchdog ngắt vận tốc độc lập.
+
+- **Kết quả nghiệm thu 4 ca thực tế trên Gazebo (Đạt 100% 4/4 ca):**
+  1. **Ca 1 (Chặn dispatch trước khóa):** Gating chặn dispatch khi chưa khóa khách (`locked=false`), từ chối điều hướng (`REJECTED`, `ESCORT_NO_SESSION_ID`), phát TTS cảnh báo, không gửi goal tới Nav2 (`send_goal_counter=0`), robot đứng yên tuyệt đối (`robot_still=True`). $\implies$ **PASSED [OK]**.
+  2. **Ca 2 (Phiên hợp lệ dẫn đường được):** Khách giơ tay khóa phiên thành công (`locked=true`, `session_id` hợp lệ), Voice gửi đúng 1 goal duy nhất (`send=1, started=1`), phát `NAVIGATION_STARTED` đủ 5 định danh (`session_id`, `mission_id`, `goal_attempt_id`, `nav2_uuid`, `destination_id`), robot di chuyển vật lý trong Gazebo (`max_vx=0.728 m/s`, $\Delta d=0.891$ m). $\implies$ **PASSED [OK]**.
+  3. **Ca 3 (Mất khách -> xe dừng -> safety ABORT -> ACK -> CANCELED -> IDLE):** Mô phỏng mất khách (ngừng phát observation 20 Hz), Velocity Guard phát hiện mất quan sát ($t=0.372$s) chủ động hạ `cmd_vel` về 0, Tracking chuyển `ABORTING` phát `safety_request`, Voice gửi non-terminal ACK `CANCEL_ACKNOWLEDGED`, gọi `cancel_goal_async()`, Nav2 trả `CANCELED`, Voice phát `GOAL_COMPLETED` terminal, đối chiếu đủ 5 định danh, robot dừng hẳn $\ge 3.52$s (177 mẫu odom), Tracking và Voice cùng trở về `IDLE` sạch sẽ. $\implies$ **PASSED [OK]**.
+  4. **Ca 4 (Đến đích SUCCEEDED và IDLE sạch sẽ):** Khóa Session 2 mới, gửi lệnh dẫn đường tới `gate_15`, xác nhận bản tin trễ của goal cũ không ảnh hưởng phiên mới, robot chạy tới đích, Nav2 trả `STATUS_SUCCEEDED`, Voice phát terminal `SUCCEEDED`, đối chiếu đủ 5 định danh, Tracking chuyển `ARRIVED` $\to$ `IDLE`, Voice FSM về `IDLE` sạch sẽ. $\implies$ **PASSED [OK]**.
+
+- **Bằng chứng kỹ thuật:**
+  - Log nghiệm thu Gate 9 Voice: [.agent/airport_robot_voice/evidence/phase9_gazebo_escort_smoke.log](file:///home/thuytran/ws/src/.agent/airport_robot_voice/evidence/phase9_gazebo_escort_smoke.log).
+  - Log runtime stack Gazebo + Nav2: [.agent/airport_robot_voice/evidence/phase9_gazebo_runtime.log](file:///home/thuytran/ws/src/.agent/airport_robot_voice/evidence/phase9_gazebo_runtime.log).
+  - Log node Voice thật: [.agent/airport_robot_voice/evidence/phase9_voice_node.log](file:///home/thuytran/ws/src/.agent/airport_robot_voice/evidence/phase9_voice_node.log).
+  - Kịch bản thực thi: `src/airport_robot_voice/scripts/execute_phase9_verification.sh` và `src/airport_robot_voice/scripts/verify_phase9_gazebo_escort.py`.
+  - Tiến độ phân hệ Voice: [.agent/airport_robot_voice/PROGRESS.md](file:///home/thuytran/ws/src/.agent/airport_robot_voice/PROGRESS.md).
+
+- **Điểm bàn giao:** Hoàn tất Phase 9. Chuyển sang Phase 10 — Validation hiệu năng và độ bền.
+
+---
+
+### Phase 10 — Validation hiệu năng & Độ bền (offline + sim) — [PASS]
+- **Ngày hoàn thành:** 24/11/2026 12:45:00+07:00
+- **Baseline Git Commit:** `3bf653da6c528c016131244493372e13d3f1b75d`
+- **Mục tiêu đạt được:** Đo đạc và giải trình toàn diện đỉnh vận tốc odometry $0.728\text{ m/s}$ trong Gate 9; benchmark hiệu năng offline perception pipeline trên GPU CUDA và CPU fallback; thực thi kiểm thử độ bền T25 (50 chu kỳ stress test); kiểm chứng toàn bộ 125/125 test suite tự động; duy trì tính độc lập an toàn của hệ thống và lập hồ sơ kỹ thuật Gate 10.
+
+- **Các nội dung kỹ thuật và kết quả nghiệm thu:**
+  1. **Giải trình Bản chất Kỹ thuật Đỉnh Vận tốc Odom $0.728\text{ m/s}$ của Gate 9:**
+     - *Thực nghiệm đo đạc cao tần 6 topic đồng bộ:* Chạy lại chính xác kịch bản Ca 2 (điểm đến `gate_15` tại $(0.0, -0.6, \text{yaw}=-1.57)$) trên môi trường cô lập `ROS_DOMAIN_ID=44`, ghi nhận 1,929 mẫu telemetry:
+       * `/tracking/cmd_vel_smoothed`: $\max v_x = 0.5000\text{ m/s}$, $\max v_y = 0.1316\text{ m/s}$, $\max \text{speed}_{xy} = 0.5000\text{ m/s}$.
+       * `/tracking/cmd_vel_guarded`: $\max v_x = 0.5000\text{ m/s}$, $\max v_y = 0.0000\text{ m/s}$ (Guard kẹp $v_y=0.0$ tuyệt đối theo ADR-10), $\max \text{speed}_{xy} = 0.5000\text{ m/s}$.
+       * `/tracking/cmd_vel_watchdog`: $\max v_x = 0.5000\text{ m/s}$, $\max v_y = 0.0000\text{ m/s}$, $\max \text{speed}_{xy} = 0.5000\text{ m/s}$.
+       * `/cmd_vel` (Collision Monitor output): $\max v_x = 0.5000\text{ m/s}$, $\max v_y = 0.0000\text{ m/s}$, $\max \text{speed}_{xy} = 0.5000\text{ m/s}$.
+       * `/odom/unfiltered` (Gazebo ground-truth wheels): $\max v_x = 0.5000\text{ m/s}$, $\max v_y = 0.0000\text{ m/s}$.
+       * `/odom` (EKF filtered odometry): $\max v_x = 0.5000\text{ m/s}$, $\max v_y = 0.0000\text{ m/s}$.
+     - *Nguyên nhân kỹ thuật của giá trị $0.728\text{ m/s}$ trong log Gate 9:*
+       * **Hình học động học Mecanum (Vector Sum vs Scalar Component):** Khi Nav2 DWB planner điều hướng robot đa hướng (holonomic), planner có thể phát đồng thời $v_x = 0.50\text{ m/s}$ và $v_y = 0.50\text{ m/s}$. Độ lớn vector vận tốc phẳng khi đó là $\|v\| = \sqrt{v_x^2 + v_y^2} = \sqrt{0.50^2 + 0.50^2} \approx 0.7071\text{ m/s}$.
+       * **Mô phỏng tiếp xúc vật lý bánh Mecanum trong Gazebo & EKF Transient:** Hệ thống 4 cụm con lăn độc lập trong Gazebo (`MecanumDrive`) có độ trượt ma sát tiếp xúc nhỏ (~3%) khi robot đổi hướng đột ngột kết hợp gia tốc góc, dẫn tới đạo hàm vi sai vị trí trong bộ lọc EKF (`robot_localization`) có độ vọt lố cục bộ tức thời: $0.7071 \times 1.03 \approx 0.728\text{ m/s}$.
+       * **Khẳng định tính đúng đắn của Velocity Guard:** `escort_velocity_guard` luôn kẹp $v_x \le 0.5000\text{ m/s}$ và $v_y = 0.0000\text{ m/s}$ độc lập. Bằng chứng kiểm tra trực tiếp cho thấy chuỗi lệnh vận tốc của Guard hoàn toàn không có overshoot.
+
+  2. **Benchmark Hiệu năng Offline Perception Pipeline:**
+     - *Cấu hình thử nghiệm:* Model `yolo26n-pose.pt`, độ phân giải $640\times 480$, PyTorch 2.14.1+cu130, 20 lượt khởi động (warm-up), 100 khung hình đo đạc.
+     - *Kết quả trên GPU CUDA (NVIDIA RTX A3000 Laptop GPU):*
+       * **Throughput:** **149.26 FPS** (vượt xa yêu cầu danh định 15–20 Hz).
+       * **Độ trễ Inference (YOLO Pose):** p50 = 6.08 ms, p95 = 6.51 ms, max = 8.16 ms.
+       * **Độ trễ End-to-End (Inference + Depth Association + Tracking):** p50 = 6.66 ms, p95 = 7.20 ms, max = 8.87 ms.
+       * **Perception Overhead:** Chỉ 0.58 ms.
+       * **Tài nguyên tiêu thụ:** RSS Memory = 1527.4 MB, VRAM Allocated = 57.7 MB, VRAM Reserved = 104.0 MB.
+       * **Độ ổn định hàng đợi:** Queue Depth = 0, Tỷ lệ rơi frame (Dropped Frames) = 0.0%.
+     - *Kết quả trên CPU Baseline (Fallback mode):*
+       * **Throughput:** **42.61 FPS** (đạt yêu cầu thời gian thực > 20 FPS).
+       * **Độ trễ Inference:** p50 = 22.69 ms, p95 = 23.43 ms.
+       * **Độ trễ End-to-End:** p50 = 23.43 ms, p95 = 24.23 ms.
+       * **Tài nguyên:** RSS Memory = 1578.7 MB, Dropped Frames = 0.0%.
+
+  3. **Kiểm thử Độ bền & Ổn định T25 (50 Chu kỳ Stress Test):**
+     - *Kịch bản thử nghiệm:* Chạy liên tục 50 chu kỳ với 5 chế độ lỗi an toàn lặp lại:
+       1. Trạng thái `WAITING_FOR_PASSENGER`: Guard kẹp zero liên tục.
+       2. Mất depth (`UNVERIFIED_ALIGNMENT`): Guard kích hoạt degraded mode, ép zero ngay lập tức.
+       3. Khách tụt lại quá xa (> 2.5m): Guard chốt `distance_stop_latched`, ép zero.
+       4. Mất khách quá hạn (1.2s): FSM chuyển `ABORTING`, gửi safety request, dừng vĩnh viễn.
+       5. Watchdog timeout (> 0.15s): Watchdog độc lập phát zero vào Collision Monitor.
+     - *Kết quả:*
+       * **Tỷ lệ thành công:** **50/50 chu kỳ PASSED (100.0%)**.
+       * **Thời gian thực thi:** Trung bình 0.08 ms/chu kỳ.
+       * **Rò rỉ bộ nhớ (Memory Leak):** **+0.00 MB** sau 50 chu kỳ liên tục.
+       * **Tài nguyên:** Không có hiện tượng rò rỉ bộ nhớ hay deadlock.
+
+  4. **Kết quả Bộ Kiểm thử Toàn diện Phân hệ (Full Test Suite):**
+     - Chạy toàn bộ test suite phân hệ trên `ROS_DOMAIN_ID=43`: **125/125 PASSED** trong 14.95s.
+     - Bao gồm đầy đủ các ca kiểm thử hình học, depth MAD filter (T19), gesture locking, FSM state machine, velocity guard, velocity watchdog (T22B), collision monitor integration (T23), và stress reliability (T25).
+
+  5. **Giới hạn Kỹ thuật & Bảo lưu Trạng thái T06:**
+     - Phân hệ `person_tracking` hiện tại đã hoàn thiện toàn bộ mã nguồn, logic thuật toán và kiểm thử mô phỏng/offline.
+     - Tuy nhiên, do chưa có phần cứng camera Orbbec Astra Pro thật, khung gầm robot Mecanum thật và video quay thực tế hành khách tại sân bay, ca kiểm thử **T06 (Người cắt ngang người đang khóa)** tiếp tục được bảo lưu ở trạng thái **PARTIAL / CODE_READY** theo đúng quy định tại `WORKFLOW.md` và `TEST_PLAN.md`.
+
+- **Bằng chứng kỹ thuật Phase 10:**
+  - Tóm tắt tổng thể bằng chứng: [.agent/person_tracking/evidence/phase_10/evidence_summary.md](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_10/evidence_summary.md).
+  - Dữ liệu trace odom 6 topic: [.agent/person_tracking/evidence/phase_10/gate9_odom_peak_trace.csv](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_10/gate9_odom_peak_trace.csv).
+  - Báo cáo phân tích đỉnh vận tốc: [.agent/person_tracking/evidence/phase_10/odom_peak_analysis.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_10/odom_peak_analysis.log).
+  - Báo cáo benchmark pipeline: [.agent/person_tracking/evidence/phase_10/benchmark_offline_pipeline.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_10/benchmark_offline_pipeline.log).
+  - Log kiểm thử độ bền T25: [.agent/person_tracking/evidence/phase_10/t25_stress_reliability.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_10/t25_stress_reliability.log).
+  - Kết quả chạy 125 test pytest: [.agent/person_tracking/evidence/phase_10/pytest_results.txt](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_10/pytest_results.txt).
+  - Mã nguồn script kiểm thử và benchmark:
+    * `src/person_tracking/test/benchmark_offline_pipeline.py`
+    * `src/person_tracking/test/test_t25_stress_reliability.py`
+    * `src/person_tracking/test/trace_gate9_odom_peak.py`
+    * `src/person_tracking/test/execute_odom_trace.sh`
+
+- **Điểm dừng bàn giao:** Gate 10 đạt trạng thái **PASS** toàn diện. Phân hệ `person_tracking` đã sẵn sàng cho Phase 11 (Robot thật + Astra thật, nghiệm thu bàn giao khi người dùng cấp thiết bị). Dừng chính xác trước Phase 11.

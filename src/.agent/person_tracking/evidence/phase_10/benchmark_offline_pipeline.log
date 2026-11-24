@@ -1,0 +1,36 @@
+================================================================================
+PHASE 10: BENCHMARK HIỆU NĂNG OFFLINE PERCEPTION PIPELINE
+================================================================================
+1. THÔNG SỐ CẤU HÌNH KIỂM THỬ:
+   - Model Checkpoint: yolo26n-pose.pt (YOLO Pose + ByteTrack)
+   - Input Resolution: 640x480 RGB-D (RGB 8UC3 + Depth 16UC1)
+   - Framework: PyTorch 2.14.1+cu130
+   - CUDA Device: NVIDIA RTX A3000 Laptop GPU
+   - OS Container: Ubuntu 24.04 (ROS 2 Jazzy)
+
+2. BẢNG TỔNG HỢP HIỆU NĂNG THỰC ĐO:
+--------------------------------------------------------------------------------
+Thiết bị (Device) | FPS      | Infer p50    | Infer p95    | E2E p50      | E2E p95      | RSS (MB)   | VRAM (MB) 
+--------------------------------------------------------------------------------
+cuda:0       | 149.26   | 6.08         | 6.51         | 6.66         | 7.20         | 1527.4     | 57.7      
+cpu          | 42.61    | 22.69        | 23.43        | 23.43        | 24.23        | 1578.7     | 32.0      
+--------------------------------------------------------------------------------
+
+3. PHÂN TÍCH ĐỘ TRỄ SUY LUẬN VS TOÀN CHUỖI:
+   - Trên [cuda:0]:
+     * Độ trễ suy luận YOLO (Inference): p50 = 6.08 ms, p95 = 6.51 ms.
+     * Độ trễ toàn chuỗi (E2E Pipeline):  p50 = 6.66 ms, p95 = 7.20 ms.
+     * Độ trễ phụ thuộc khác (Overhead - ByteTrack, Depth MAD, JSON serialization): 0.58 ms.
+   - Trên [cpu]:
+     * Độ trễ suy luận YOLO (Inference): p50 = 22.69 ms, p95 = 23.43 ms.
+     * Độ trễ toàn chuỗi (E2E Pipeline):  p50 = 23.43 ms, p95 = 24.23 ms.
+     * Độ trễ phụ thuộc khác (Overhead - ByteTrack, Depth MAD, JSON serialization): 0.75 ms.
+
+4. TỒN TẠI KỸ THUẬT VÀ PHẦN CHƯA KIỂM CHỨNG (PHYSICAL LIMITATIONS):
+   - Thiếu phần cứng camera Orbbec Astra Pro vật lý tại môi trường kiểm thử.
+   - Thiếu tập video quay thực tế hành khách người thật tại sân bay với trang phục và góc nhìn camera sau.
+   - Ca T06 (Người khác cắt ngang người đang khóa):
+     * Trạng thái duy trì: PARTIAL / CODE_READY.
+     * Mã nguồn ByteTrack, ngưỡng IoU > 0.35 và cờ is_ambiguous = True đã sẵn sàng.
+     * Cần video thực tế có người đi cắt ngang trên robot thật để nghiệm thu chính thức tại Phase 11.
+================================================================================
