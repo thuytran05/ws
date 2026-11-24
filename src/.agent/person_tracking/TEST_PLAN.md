@@ -113,24 +113,34 @@ Danh sách 26 ca kiểm thử trọng tâm phân loại rõ ràng:
 - **Cấu hình & Launch Overlay Phân hệ Tracking:**
   * Launch gốc `linorobot2_navigation/launch/navigation.launch.py` bị đánh dấu **BLOCKED** do gán cứng `params_file:=navigation.yaml` (nối Collision Monitor trực tiếp vào `cmd_vel_smoothed`, bỏ qua Guard và Watchdog).
   * Đã tạo overlay launch độc lập: `src/person_tracking/launch/escort_navigation_real.launch.py` nạp cấu hình `src/person_tracking/config/navigation_guard.yaml` đảm bảo an toàn 4 khâu.
+  * Đã tạo launch mô phỏng base độc lập: `src/person_tracking/launch/gazebo_sim_base.launch.py` (chỉ cấp physics, TF, scan, odom, clock; không chạy Nav2/Guard/Watchdog).
 - **Yêu cầu Xác thực Trước Chuyển động (Pre-Motion Topic Verification):**
   * Chạy `ros2 topic info -v` trên 4 topic vận tốc (`/cmd_vel_smoothed`, `/tracking/cmd_vel_guarded`, `/tracking/cmd_vel_watchdog`, `/cmd_vel`) trước khi cấp nguồn động cơ hoặc cho robot chạm sàn.
-- **Quy ước Camera Astra & TF per ADR-10:**
+  * Đã kiểm chứng qua [escort_real_topic_graph.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/escort_real_topic_graph.log): Duy nhất `collision_monitor` phát ra `/cmd_vel`, `/cmd_vel_docking` được remap cách ly, không có bypass.
+- **Quy ước Camera Astra, TF per ADR-10 & Gating `UNVERIFIED_ALIGNMENT`:**
   * Frame quang học: `camera_color_optical_frame` (base frame `base_link`).
   * Trục quang: $+Z_{\text{opt}}$ ra sau robot ($-X_{\text{base}}$), $+X_{\text{opt}}$ sang phải ảnh ($+Y_{\text{base}}$), $+Y_{\text{opt}}$ xuống đáy ảnh ($-Z_{\text{base}}$).
   * Tách biệt 3 bước kiểm tra: (A) Stream Check, (B) Timestamp Pairing ($\Delta t \le 0.060\text{ s}$, age $\le 0.400\text{ s}$), (C) D2C Hardware Registration Proof.
-  * Khi chưa có chứng minh căn chỉnh D2C: pipeline xuất `data_quality: "UNVERIFIED_ALIGNMENT"` $\implies$ Guard kích hoạt `(False, "DEGRADED_UNVERIFIED_DEPTH")`, dập zero $0.0000\text{ m/s}$. Sai số cự ly mốc thật ($0.5\text{ m} - 3.0\text{ m}$), profiling PID thật và ca T06 tiếp tục chờ phần cứng/video thật.
+  * Cơ chế Fail-Closed: Khi chưa có chứng minh căn chỉnh D2C từ camera thật, detector trả `UNVERIFIED_ALIGNMENT` $\implies$ Guard kích hoạt `(False, "DEGRADED_UNVERIFIED_DEPTH")`, dập zero $0.0000\text{ m/s}$. Sai số cự ly mốc thật ($0.5\text{ m} - 3.0\text{ m}$), profiling PID thật và ca T06 tiếp tục chờ phần cứng/video thật. Tuyệt đối không dùng mô phỏng để thay thế cho căn chỉnh D2C Astra hay watchdog firmware vi điều khiển.
 - **Watchdog Đế Xe: Phân định Bench Test & Trạng thái Hardware Pending:**
   * Trạng thái: **HARDWARE_PENDING (Chưa có mã nguồn/cấu hình firmware vi điều khiển trong repo làm bằng chứng)**. Repo chỉ có `linorobot2_bringup` chạy `micro_ros_agent` qua `/dev/ttyACM0`.
   * Phép thử ngắt lệnh kê bánh xe bằng `pub --once /cmd_vel` chỉ là probe bench test tại chỗ; cảnh báo rõ ràng rằng phát trực tiếp `/cmd_vel` không phải là chế độ escort.
   * Yêu cầu người dùng trực tiếp có mặt để kê bánh, kiểm tra nút E-stop, cắm cáp USB, quan sát bánh tự ngắt và xác nhận model vi điều khiển cùng timeout phần cứng.
-- **Kết quả Pre-Check Phần mềm Smoke Test (Gazebo Simulation, 24/11/2026):**
-  * Ca 1 (Chặn dispatch trước khóa): **PASS** (`dispatched=0, nav_started=0, rejected=True, robot_still=True`).
-  * Ca 2 (Khóa hợp lệ & Xe di chuyển): **PASS** (`dispatched=1, has_5_ids=True, dist_moved=0.054m, max_vx=0.076m/s`).
-  * Ca 3 (Mất khách & Hủy goal Nav2): **PASS** (`dt_zero=0.442s, dt_abort=1.225s, terminal_canceled=True, matching_goal=True, c3_stopped=True, fsm_idle=True`).
-  * Làm rõ Ca 3: Cờ `matching_goal=True` xác thực việc kiểm tra `session_id == locked_session_id` trên bản tin terminal `CANCELED`. Bằng chứng kiểm chứng toàn diện cả 5 định danh (`session_id`, `mission_id`, `goal_attempt_id`, `nav2_uuid`, `destination_id`) xuyên suốt vòng đời điều hướng và hủy goal đã được lưu tại Gate 9: [.agent/airport_robot_voice/evidence/phase9_gazebo_escort_smoke.log](file:///home/thuytran/ws/src/.agent/airport_robot_voice/evidence/phase9_gazebo_escort_smoke.log).
-  * Log bằng chứng smoke test: [.agent/person_tracking/evidence/phase_11/phase11_software_smoke.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/phase11_software_smoke.log).
+- **Kết quả Kiểm chứng Nghiệm thu `escort_navigation_real.launch.py` (Gazebo Base Cô lập, 24/11/2026):**
+  * Runner: `src/person_tracking/test/execute_escort_real_verification.sh`
+  * Script test: `src/person_tracking/test/verify_escort_real_launch.py`
+  * Audit topic graph: Duy nhất `collision_monitor` phát vào `/cmd_vel` $\implies$ **PASS**.
+  * Xác minh tham số: Guard và Watchdog đều kẹp chuẩn trần $v_{x,\max} = 0.30\text{ m/s}$ và $\omega_{z,\max} = 0.20\text{ rad/s}$ $\implies$ **PASS**.
+  * Ca 1 (Chặn dispatch trước khóa): Voice từ chối khi chưa khóa (`NO_SESSION_ID`), robot đứng yên $\implies$ **PASS**.
+  * Ca 2 (Khóa hợp lệ & Xe di chuyển): Khóa session thành công, dispatch đủ 5 định danh, robot dịch chuyển $d=0.083\text{ m}$, $v_{x,\max}=0.300\text{ m/s}$ $\implies$ **PASS**.
+  * Ca 3 (Mất khách & Hủy goal Nav2 khớp 3 định danh): Dập zero sau 0.462s ($\le 0.65\text{ s}$), abort sau 1.285s ($\le 2.20\text{ s}$), Voice hủy goal Nav2 (`CANCELED`), đối chiếu khớp 100% cả 3 định danh giữa dispatch và cancel (`match_session=True`, `match_attempt=True`, `match_uuid=True`), xe dừng hẳn $\implies$ **PASS**.
+  * Log bằng chứng nghiệm thu:
+    - [escort_real_smoke.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/escort_real_smoke.log)
+    - [escort_real_topic_graph.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/escort_real_topic_graph.log)
+    - [escort_real_params.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/escort_real_params.log)
+  * Log hồi quy của launch cũ:
+    - [phase11_software_smoke.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/phase11_software_smoke.log)
 - **Phân định Trách nhiệm Nghiệm thu:**
-  * **Phần mềm (Software Readiness):** 100% ĐẠT yêu cầu bàn giao thông luồng, quản lý phiên, launch overlay và ngắt an toàn.
+  * **Phần mềm (Software Readiness):** 100% ĐẠT yêu cầu bàn giao thông luồng, quản lý phiên, launch overlay độc lập và ngắt an toàn.
   * **Phần cứng (Hardware Acceptance Pending):** Bắt buộc người dùng có mặt tại hiện trường để cắm thiết bị, kiểm tra stream Astra, dán mốc đo cự ly, xác nhận watchdog đế xe, chạy video thật ca T06 và đo vận tốc vật lý độc lập.
 - **Điều kiện Gate 11:** Chỉ chuyển sang **DONE / HARDWARE_VALIDATED** khi có đầy đủ log nghiệm thu đo đạc thật trên camera Orbbec Astra Pro và robot Mecanum vật lý theo bộ tiêu chí C-01 đến C-10.

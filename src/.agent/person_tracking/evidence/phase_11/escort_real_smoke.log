@@ -1,0 +1,50 @@
+[2026-11-24 13:34:14] ================================================================================
+[2026-11-24 13:34:14] PHASE 11: VERIFYING escort_navigation_real.launch.py WITH ISOLATED GAZEBO BASE
+[2026-11-24 13:34:14] ================================================================================
+[2026-11-24 13:34:14] [Bước 0] Đang chờ Gazebo base, Nav2, /clock và /odom sẵn sàng...
+[2026-11-24 13:34:16] [Bước 0] Sẵn sàng! Clock sec=18, odom pos=(-0.000, 0.000)
+[2026-11-24 13:34:16] --------------------------------------------------------------------------------
+[2026-11-24 13:34:16] MỤC 1: XÁC THỰC TOPIC INFO GRAPH VÀ AUDIT PUBLISHER /cmd_vel
+[2026-11-24 13:34:16] --------------------------------------------------------------------------------
+[2026-11-24 13:34:17] Topic /cmd_vel_smoothed: Checked info -v
+[2026-11-24 13:34:17] Topic /tracking/cmd_vel_guarded: Checked info -v
+[2026-11-24 13:34:17] Topic /tracking/cmd_vel_watchdog: Checked info -v
+[2026-11-24 13:34:17] Topic /cmd_vel: Checked info -v
+[2026-11-24 13:34:18] Topic graph details written to: /home/ws/src/.agent/person_tracking/evidence/phase_11/escort_real_topic_graph.log
+[2026-11-24 13:34:18]   [Audit Publisher /cmd_vel] Duy nhất Collision Monitor phát: True
+[2026-11-24 13:34:18] --------------------------------------------------------------------------------
+[2026-11-24 13:34:18] MỤC 2: XÁC MINH THAM SỐ RUNTIME TẠI GUARD VÀ WATCHDOG
+[2026-11-24 13:34:18] --------------------------------------------------------------------------------
+[2026-11-24 13:34:26] Runtime parameters logged to: /home/ws/src/.agent/person_tracking/evidence/phase_11/escort_real_params.log
+[2026-11-24 13:34:26]   Guard limits: vx=Double value is: 0.3, wz=Double value is: 0.2
+[2026-11-24 13:34:26]   Watchdog limits: vx=Double value is: 0.3, wz=Double value is: 0.2
+[2026-11-24 13:34:26] Chờ kết nối /voice/intent...
+[2026-11-24 13:34:26] Đã kết nối /voice/intent: subs=1
+[2026-11-24 13:34:27] --------------------------------------------------------------------------------
+[2026-11-24 13:34:27] CA 1: CHƯA KHÓA HÀNH KHÁCH -> VOICE KHÔNG GỬI GOAL, XE ĐỨNG YÊN
+[2026-11-24 13:34:27] --------------------------------------------------------------------------------
+[2026-11-24 13:34:27] Kết quả Ca 1: PASSED [OK] (dispatched=0, rejected=True, robot_still=True)
+[2026-11-24 13:34:27] --------------------------------------------------------------------------------
+[2026-11-24 13:34:27] CA 2: KHÓA HỢP LỆ -> VOICE GỬI GOAL -> NAVIGATION_STARTED -> XE CHẠY
+[2026-11-24 13:34:27] --------------------------------------------------------------------------------
+[2026-11-24 13:34:27] Bắt đầu phát observation giơ tay 20 Hz để khóa...
+[2026-11-24 13:34:29]   [Trạng thái khóa] locked_session_id=0e993354-e3bb-47fb-b659-e02e482f6397
+[2026-11-24 13:34:29] Chờ Nav2 tính toán đường đi và robot di chuyển trong Gazebo...
+[2026-11-24 13:34:30]   [Định danh Goal Active] session_id=0e993354-e3bb-47fb-b659-e02e482f6397, goal_attempt_id=att_1795527250801_1, nav2_uuid=e7c0c40816574f27aed202b31a0e0379
+[2026-11-24 13:34:30] Kết quả Ca 2: PASSED [OK] (dispatched=1, dist_moved=0.083m, max_vx=0.300m/s)
+[2026-11-24 13:34:31] --------------------------------------------------------------------------------
+[2026-11-24 13:34:31] CA 3: MẤT QUAN SÁT -> CMD_VEL ZERO -> SAFETY ABORT -> NAV2 CANCEL -> DỪNG HẲN
+[2026-11-24 13:34:31] --------------------------------------------------------------------------------
+[2026-11-24 13:34:31] Mô phỏng mất khách: Ngừng phát /tracking/observation...
+[2026-11-24 13:34:32]   [Mốc đo lường] dt_zero=0.462s (<=0.65s), dt_abort=1.285s (<=2.20s)
+[2026-11-24 13:34:32]   [Đối chiếu 3 Định danh Hủy Goal] match_session=True (0e993354-e3bb-47fb-b659-e02e482f6397), match_attempt=True (att_1795527250801_1), match_uuid=True (e7c0c40816574f27aed202b31a0e0379)
+[2026-11-24 13:34:33] Kết quả Ca 3: PASSED [OK] (dt_zero=0.462s, dt_abort=1.285s, terminal_canceled=True, matching_3_ids=True)
+[2026-11-24 13:34:33] ================================================================================
+[2026-11-24 13:34:33] TỔNG KẾT NGHIỆM THU escort_navigation_real.launch.py TRÊN GAZEBO CÔ LẬP:
+[2026-11-24 13:34:33]   - Audit Publisher /cmd_vel (Duy nhất Collision Monitor): PASSED | Raw pubs output contains collision_monitor and no direct bypass: True
+[2026-11-24 13:34:33]   - Xác minh Giới hạn Vận tốc 0.30 m/s & 0.20 rad/s: PASSED | guard_ok=True, watchdog_ok=True
+[2026-11-24 13:34:33]   - Case 1 (Chặn dispatch trước khóa): PASSED | dispatched=0, nav_started=0, rejected=True, robot_still=True
+[2026-11-24 13:34:33]   - Case 2 (Khóa hợp lệ & Xe di chuyển): PASSED | dispatched=1, has_5_ids=True, dist_moved=0.083m, max_vx=0.300m/s
+[2026-11-24 13:34:33]   - Case 3 (Mất khách & Hủy goal Nav2 khớp 3 ID): PASSED | dt_zero=0.462s, dt_abort=1.285s, terminal_canceled=True, matching_3_ids=True, c3_stopped=True, fsm_idle=True
+[2026-11-24 13:34:33] KẾT LUẬN TOÀN BỘ: PASS (100% ĐẠT)
+[2026-11-24 13:34:33] ================================================================================

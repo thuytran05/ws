@@ -21,7 +21,7 @@ def generate_launch_description():
 
     # Default paths
     nav2_launch_path = PathJoinSubstitution([pkg_nav2_bringup, 'launch', 'bringup_launch.py'])
-    default_map_path = PathJoinSubstitution([pkg_linorobot2_nav, 'maps', 'turtlebot3_world.yaml'])
+    default_test_map_path = PathJoinSubstitution([pkg_linorobot2_nav, 'maps', 'turtlebot3_world.yaml'])
     guard_nav_params_path = PathJoinSubstitution([pkg_tracking, 'config', 'navigation_guard.yaml'])
 
     # Launch Configurations
@@ -41,28 +41,13 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             name='map',
-            default_value=default_map_path,
-            description='Full path to map yaml file'
+            default_value=default_test_map_path,
+            description='Full path to map yaml file (Required for physical airport/facility map; turtlebot3_world.yaml is used only for testing/simulation)'
         ),
         DeclareLaunchArgument(
             name='params_file',
             default_value=guard_nav_params_path,
             description='Full path to ROS 2 parameters file with Collision Monitor overlay'
-        ),
-        DeclareLaunchArgument(
-            name='initial_pose_x',
-            default_value='0.0',
-            description='Initial robot X coordinate'
-        ),
-        DeclareLaunchArgument(
-            name='initial_pose_y',
-            default_value='0.0',
-            description='Initial robot Y coordinate'
-        ),
-        DeclareLaunchArgument(
-            name='initial_pose_yaw',
-            default_value='0.0',
-            description='Initial robot heading (rad)'
         ),
         DeclareLaunchArgument(
             name='max_linear_x',
@@ -81,6 +66,8 @@ def generate_launch_description():
         ),
 
         # 1. Nav2 Stack with Guard Navigation Params Overlay (Collision Monitor input: /tracking/cmd_vel_watchdog)
+        # Note on Initial Pose: Nav2 Jazzy bringup_launch.py does not take initial_pose_* launch arguments.
+        # Initial pose is configured via params_file (amcl.ros__parameters.initial_pose) or at runtime via /initialpose topic.
         GroupAction(
             actions=[
                 SetRemap(src='docking_server:cmd_vel', dst='/cmd_vel_docking'),
@@ -91,9 +78,6 @@ def generate_launch_description():
                         'use_sim_time': use_sim_time,
                         'params_file': params_file,
                         'autostart': 'true',
-                        'initial_pose_x': LaunchConfiguration('initial_pose_x'),
-                        'initial_pose_y': LaunchConfiguration('initial_pose_y'),
-                        'initial_pose_yaw': LaunchConfiguration('initial_pose_yaw'),
                     }.items()
                 ),
             ]

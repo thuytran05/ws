@@ -1,0 +1,4 @@
+Guard max_linear_x: Double value is: 0.3
+Guard max_angular_z: Double value is: 0.2
+Watchdog max_linear_x: Double value is: 0.3
+Watchdog max_angular_z: Double value is: 0.2

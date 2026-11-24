@@ -526,58 +526,63 @@
 ---
 
 ### Phase 11 — Robot thật + Astra thật, nghiệm thu và bàn giao — [SOFTWARE_READY / HARDWARE_PENDING]
-- **Ngày cập nhật:** 24/11/2026 15:30:00+07:00
-- **Baseline Git Commit:** `930a375e302d150ef89e93ff023d03a80349a374`
-- **Mục tiêu giai đoạn:** Hoàn thiện cẩm nang hướng dẫn vận hành, kiểm tra cấu hình bằng mã nguồn & launch arguments, tạo overlay launch cho phân hệ tracking, xác thực các topic an toàn, và chuẩn bị đầy đủ bộ công cụ chẩn đoán sẵn sàng khi người dùng kết nối phần cứng thực tế (Camera Orbbec Astra Pro và Khung gầm Mecanum Linorobot2).
+- **Ngày cập nhật:** 24/11/2026 20:35:00+07:00
+- **Baseline Git Commit:** `4abc7af4d8104245f171b6e1c36ecc8a11366adc`
+- **Mục tiêu giai đoạn:** Xác minh chính xác launch overlay `escort_navigation_real.launch.py` trên môi trường ROS 2 Jazzy và Gazebo Base cô lập (`ROS_DOMAIN_ID=44`), kiểm tra topic graph, audit publisher `/cmd_vel`, xác thực giới hạn vận tốc $0.30\text{ m/s}$ & $0.20\text{ rad/s}$, kiểm tra đối chiếu 3 định danh khi hủy goal, và hoàn thiện cẩm nang hướng dẫn bàn giao.
 - **Ranh giới an toàn nghiêm ngặt (Safety Mandate):**
   - Tách bạch hoàn toàn kiểm tra camera/ROS tại chỗ (xe đứng yên hoặc kê 4 bánh hổng sàn) khỏi thử nghiệm chuyển động tốc độ thấp (bắt buộc có người giám sát và E-stop vật lý đã xác nhận).
-  - Khóa giới hạn vận tốc an toàn $v_{x,\max} \le 0.30\text{ m/s}$, $v_y = 0.00\text{ m/s}$.
-  - Tuyệt đối không tự ý kích hoạt chuyển động trong lượt chuẩn bị này.
-- **Quy ước Domain:** Sử dụng `ROS_DOMAIN_ID=0` khi ghép nối hệ thống chính (Voice + Tracking + Nav2 + Base); giữ `ROS_DOMAIN_ID=43` hoặc `44` cho các bài test chẩn đoán cô lập.
+  - Khóa giới hạn vận tốc an toàn $v_{x,\max} \le 0.30\text{ m/s}$, $\omega_{z,\max} \le 0.20\text{ rad/s}$, $v_y = 0.00\text{ m/s}$.
+  - Tuyệt đối không tự ý kích hoạt chuyển động trên hệ thống chính (`ROS_DOMAIN_ID=0`).
+  - Không dùng dữ liệu mô phỏng để thay thế cho bằng chứng căn chỉnh phần cứng camera Astra hay watchdog firmware vi điều khiển.
+- **Quy ước Domain:** Sử dụng `ROS_DOMAIN_ID=0` khi ghép nối hệ thống chính; giữ `ROS_DOMAIN_ID=44` cho toàn bộ quá trình kiểm thử phần mềm cô lập.
 
-- **Các nội dung kỹ thuật đã hoàn thành ở khâu chuẩn bị & đối chiếu cấu hình:**
-  1. **Chuỗi Điều khiển Vận tốc Escort Hoàn chỉnh (Chained Escort Pipeline):**
-     - Sơ đồ chuỗi vận tốc 4 tầng:
-       $$\text{Nav2 Smoother} \xrightarrow{\text{/cmd\_vel\_smoothed}} \text{Guard} \xrightarrow{\text{/tracking/cmd\_vel\_guarded}} \text{Watchdog} \xrightarrow{\text{/tracking/cmd\_vel\_watchdog}} \text{Collision Monitor} \xrightarrow{\text{/cmd\_vel}} \text{Base}$$
-     - Input của Guard: Bắt buộc là `/cmd_vel_smoothed` (lệnh mượt từ Nav2).
-     - Input của Collision Monitor: Bắt buộc là `/tracking/cmd_vel_watchdog` (lệnh đã qua Guard và Watchdog).
-  2. **Phát hiện Rủi ro Cấu hình & Tạo Launch Overlay Tracking:**
-     - Đã kiểm tra `src/linorobot2/linorobot2_navigation/launch/navigation.launch.py`: phát hiện gán cứng `params_file` trỏ vào `linorobot2_navigation/config/navigation.yaml` (nối Collision Monitor trực tiếp vào `cmd_vel_smoothed`, bỏ qua Guard và Watchdog). Đánh dấu **BLOCKED** đối với việc gọi trực tiếp `linorobot2_navigation navigation.launch.py` cho chế độ escort. Nêu rõ yêu cầu maintainer package cần bổ sung `DeclareLaunchArgument('params_file', ...)`.
-     - Đã tạo launch overlay thuộc quyền sở hữu của tracking: `src/person_tracking/launch/escort_navigation_real.launch.py`, nạp `src/person_tracking/config/navigation_guard.yaml` (cấu hình Collision Monitor nhận `/tracking/cmd_vel_watchdog`), đồng thời nạp tự động `tracking_manager`, `velocity_guard` và `velocity_watchdog`.
-  3. **Yêu cầu Xác thực Trước Chuyển động (Pre-Motion Topic Verification):**
-     - Bắt buộc kiểm tra 4 topic vận tốc bằng `ros2 topic info -v` trước khi cấp nguồn động cơ hoặc cho xe chạm sàn:
-       * `/cmd_vel_smoothed`: Pub = Nav2 `velocity_smoother`, Sub = `escort_velocity_guard`.
-       * `/tracking/cmd_vel_guarded`: Pub = `escort_velocity_guard`, Sub = `escort_velocity_watchdog`.
-       * `/tracking/cmd_vel_watchdog`: Pub = `escort_velocity_watchdog`, Sub = Nav2 `collision_monitor`.
-       * `/cmd_vel`: Pub = Nav2 `collision_monitor`, Sub = Base `micro_ros_agent`.
-  4. **Kiểm tra Camera Astra, TF Optical Frame per ADR-10 & Gating `UNVERIFIED_ALIGNMENT`:**
-     - Tên frame quang học chuẩn: `camera_color_optical_frame` (base frame `base_link`).
-     - Trục quang học theo ADR-10: $+Z_{\text{opt}}$ hướng dọc trục quang ra ngoài ống kính (ra sau robot, $-X_{\text{base}}$), $+X_{\text{opt}}$ hướng sang phải ảnh ($+Y_{\text{base}}$, sang trái robot), $+Y_{\text{opt}}$ hướng xuống đáy ảnh ($-Z_{\text{base}}$, xuống sàn).
-     - Tách biệt 3 bước kiểm tra camera: (A) Stream Check, (B) Timestamp Pairing Check ($\Delta t \le 0.060\text{ s}$, age $\le 0.400\text{ s}$), (C) D2C Hardware Depth Registration Proof.
-     - Khi chưa có chứng minh căn chỉnh D2C từ phần cứng: pipeline xuất `data_quality: "UNVERIFIED_ALIGNMENT"`, `is_metric_valid: false`, `candidates[i]["depth_valid"]: false`, `depth_proven: false` $\implies$ Velocity Guard khóa cổng an toàn `(False, "DEGRADED_UNVERIFIED_DEPTH")`, giữ vận tốc $0.0000\text{ m/s}$. Sai số cự ly mốc thật ($0.5\text{ m} - 3.0\text{ m}$), profiling PID thật và ca T06 tiếp tục chờ phần cứng/video thật.
-  5. **Watchdog Đế Xe: Phân định Bench Test & Trạng thái Hardware Pending:**
-     - Đánh dấu trạng thái: **HARDWARE_PENDING (Chưa có mã nguồn/cấu hình firmware vi điều khiển trong repo làm bằng chứng)** vì trong repo chỉ có `linorobot2_bringup` chạy `micro_ros_agent` qua `/dev/ttyACM0`.
-     - Phép thử ngắt lệnh kê bánh xe bằng `pub --once /cmd_vel` chỉ là probe bench test tại chỗ; cảnh báo rõ ràng rằng phát trực tiếp `/cmd_vel` không phải là chế độ escort.
-     - Nêu rõ 5 thao tác bắt buộc cần sự có mặt trực tiếp của người dùng.
-  6. **Kết quả Pre-Check Phần mềm Smoke Test (Gazebo Simulation, 24/11/2026):**
-     - Đạt 3/3 ca 100% PASS, exit code 0 (`src/person_tracking/test/verify_phase11_software_smoke.py`).
-     - Ca 1: Voice từ chối khi chưa khóa (`NO_SESSION_ID`) $\implies$ PASS.
-     - Ca 2: Khóa giơ tay 1.5s, dispatch đủ 5 định danh, robot dịch chuyển $d=0.054\text{ m}$, $v_{x,\max}=0.076\text{ m/s}$ $\implies$ PASS.
-     - Ca 3: Mất khách, Guard kẹp zero sau 0.442s, Tracking phát abort sau 1.225s, Voice nhận abort hủy Nav2 goal (`CANCELED`), kiểm tra `matching_goal=True` (xác nhận `session_id` khớp `locked_session_id` trên bản tin terminal cancel `st.get("session_id") == locked_session_id`).
-     - Bằng chứng kiểm chứng toàn diện cả 5 định danh (`session_id`, `mission_id`, `goal_attempt_id`, `nav2_uuid`, `destination_id`) xuyên suốt vòng đời điều hướng và hủy goal đã được kiểm chứng tại Gate 9: [.agent/airport_robot_voice/evidence/phase9_gazebo_escort_smoke.log](file:///home/thuytran/ws/src/.agent/airport_robot_voice/evidence/phase9_gazebo_escort_smoke.log).
-  7. **Cẩm nang Hướng dẫn Vận hành Phase 11 & Checklist Bàn giao:**
-     - Toàn bộ hướng dẫn chi tiết, bộ lệnh 5 terminal, quy trình đo 4 lớp vận tốc, bảng tiêu chí C-01 đến C-10 và checklist tuần tự 7 bước đã được cập nhật hoàn chỉnh tại [.agent/person_tracking/PHASE11_PREPARATION_GUIDE.md](file:///home/thuytran/ws/src/.agent/person_tracking/PHASE11_PREPARATION_GUIDE.md).
+- **Các nội dung kỹ thuật đã hoàn thành:**
+  1. **Rà soát & Tối ưu hóa `escort_navigation_real.launch.py` trên Nav2 Jazzy:**
+     - Xác minh `nav2_bringup/launch/bringup_launch.py` trên Nav2 Jazzy: không khai báo hay tiếp nhận các đối số `initial_pose_*`. Đã loại bỏ các đối số không có tác dụng khỏi launch file.
+     - Tài liệu hóa 2 cách thiết lập initial pose có thể kiểm tra được: (1) Cấu hình tĩnh trong `navigation_guard.yaml` (`amcl.ros__parameters.initial_pose`), (2) Phát động tại runtime qua topic `/initialpose`.
+     - Cấu hình tham số `map`: yêu cầu truyền đường dẫn map cơ sở thật khi chạy robot thật; map `turtlebot3_world.yaml` chỉ dùng làm fallback kiểm thử/mô phỏng.
+     - Xác nhận đối số trần vận tốc an toàn `max_linear_x:=0.30` và `max_angular_z:=0.20` được nạp đầy đủ vào cả `escort_velocity_guard` và `escort_velocity_watchdog`.
+  2. **Tách biệt Môi trường Mô phỏng Gazebo Base (`gazebo_sim_base.launch.py`):**
+     - Đã tạo launch file `src/person_tracking/launch/gazebo_sim_base.launch.py` chuyên trách cung cấp phần vật lý mô phỏng: thế giới Gazebo, robot entity, `ros_gz_bridge` (`/clock`, `/cmd_vel`, `/odom/unfiltered`, `/imu`, `/scan`), robot_state_publisher (TF) và EKF node (`/odom`).
+     - Tuyệt đối không khởi chạy trùng lặp Nav2, Guard hay Watchdog trong phần mô phỏng.
+  3. **Nghiệm thu Thực tế `escort_navigation_real.launch.py` trên Gazebo Base Cô lập (`ROS_DOMAIN_ID=44`):**
+     - Chạy chính `escort_navigation_real.launch.py` với `use_sim_time:=true` kết nối Voice node thật (`enable_escort:=true`) và observation giả lập COCO 17-keypoint.
+     - Runner: `src/person_tracking/test/execute_escort_real_verification.sh`
+     - Test Suite: `src/person_tracking/test/verify_escort_real_launch.py`
+     - Kết quả đạt **100% PASS (Exit Code = 0)**:
+       * **Audit Topic Graph (`ros2 topic info -v`):** Duy nhất `collision_monitor` phát vào topic `/cmd_vel` (`Publisher count: 1`). Đã kiểm tra `/cmd_vel_docking` được remap cách ly, không có publisher teleop hay docking đè lên `/cmd_vel`. Lưu chi tiết tại [escort_real_topic_graph.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/escort_real_topic_graph.log).
+       * **Xác minh Tham số Runtime (`ros2 param get`):** Đo đạc tại runtime xác nhận `Guard` ($v_x=0.3, \omega_z=0.2$) và `Watchdog` ($v_x=0.3, \omega_z=0.2$) đạt 100% tiêu chuẩn an toàn. Lưu chi tiết tại [escort_real_params.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/escort_real_params.log).
+       * **Ca 1 (Chặn dispatch trước khóa):** Voice từ chối khi chưa khóa (`NO_SESSION_ID`), robot đứng yên $\implies$ **PASSED [OK]**.
+       * **Ca 2 (Khóa hợp lệ & Xe di chuyển):** Khóa session thành công (`locked_session_id=0e993354-e3bb-47fb-b659-e02e482f6397`), dispatch goal tới Nav2, robot di chuyển vật lý trong Gazebo ($d = 0.083\text{ m} > 0.05\text{ m}$, $v_{x,\max} = 0.300\text{ m/s}$ kẹp chuẩn trần) $\implies$ **PASSED [OK]**.
+       * **Ca 3 (Mất khách & Hủy goal Nav2 đối chiếu 3 định danh):** Dừng observation $\to$ Guard kẹp zero sau **$0.462\text{ s}$** ($\le 0.65\text{ s}$) $\to$ Tracking Manager phát abort sau **$1.285\text{ s}$** ($\le 2.20\text{ s}$) $\to$ Voice gọi `cancel_goal_async` $\to$ Nav2 trả `CANCELED`.
+         Xác nhận khớp chính xác cả 3 định danh giữa goal được gửi và goal bị hủy:
+         - `match_session = True` (`0e993354-e3bb-47fb-b659-e02e482f6397`)
+         - `match_attempt = True` (`att_1795527250801_1`)
+         - `match_uuid = True` (`e7c0c40816574f27aed202b31a0e0379`)
+         Xe dừng hẳn trên `/odom`, FSM trở về `IDLE` $\implies$ **PASSED [OK]**.
+       * Toàn bộ tiến trình do test tạo đã được dọn sạch sau khi hoàn thành.
+  4. **Bảo toàn Bộ Log Hồi Quy của Launch Cũ:**
+     - Bộ log kiểm thử thông luồng cũ từ `gazebo_escort_integration.launch.py` được lưu giữ đầy đủ dưới nhãn hồi quy tại [.agent/person_tracking/evidence/phase_11/phase11_software_smoke.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/phase11_software_smoke.log).
+  5. **Làm Rõ Cơ Chế Fail-Closed Khi Chưa Có Camera Astra:**
+     - Detector và adapter yêu cầu bằng chứng căn chỉnh D2C (`require_hardware_alignment_proof = True`).
+     - Khi chưa có thiết bị thật, pipeline trả `UNVERIFIED_ALIGNMENT`, Guard lập tức đóng cổng `(False, "DEGRADED_UNVERIFIED_DEPTH")`, giữ vận tốc $0.0000\text{ m/s}$.
+     - Bằng chứng căn chỉnh D2C và watchdog firmware đế xe tiếp tục chờ người dùng có mặt cùng phần cứng để đo đạc trực quan.
 
 - **Bằng chứng kỹ thuật Phase 11:**
   - Cẩm nang vận hành chi tiết: [.agent/person_tracking/PHASE11_PREPARATION_GUIDE.md](file:///home/thuytran/ws/src/.agent/person_tracking/PHASE11_PREPARATION_GUIDE.md).
-  - Launch overlay phần cứng: `src/person_tracking/launch/escort_navigation_real.launch.py`.
-  - Log nghiệm thu smoke test: [.agent/person_tracking/evidence/phase_11/phase11_software_smoke.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/phase11_software_smoke.log).
-  - Log runtime Gazebo/Nav2: [.agent/person_tracking/evidence/phase_11/gazebo_smoke_runtime.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/gazebo_smoke_runtime.log).
-  - Log node Voice thật: [.agent/person_tracking/evidence/phase_11/voice_smoke_node.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/voice_smoke_node.log).
+  - Launch overlay phần cứng thực tế: `src/person_tracking/launch/escort_navigation_real.launch.py`.
+  - Launch mô phỏng base độc lập: `src/person_tracking/launch/gazebo_sim_base.launch.py`.
+  - Log nghiệm thu overlay thật: [.agent/person_tracking/evidence/phase_11/escort_real_smoke.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/escort_real_smoke.log).
+  - Log topic graph audit: [.agent/person_tracking/evidence/phase_11/escort_real_topic_graph.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/escort_real_topic_graph.log).
+  - Log tham số runtime: [.agent/person_tracking/evidence/phase_11/escort_real_params.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/escort_real_params.log).
+  - Log runtime các thành phần:
+    * Gazebo base: [.agent/person_tracking/evidence/phase_11/gazebo_base_runtime.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/gazebo_base_runtime.log).
+    * Escort real launch: [.agent/person_tracking/evidence/phase_11/escort_real_runtime.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/escort_real_runtime.log).
+    * Voice node: [.agent/person_tracking/evidence/phase_11/voice_real_node.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11/voice_real_node.log).
   - Script test và runner:
-    * `src/person_tracking/test/verify_phase11_software_smoke.py`
-    * `src/person_tracking/test/execute_phase11_software_smoke.sh`
-    * `src/person_tracking/test/check_astra_hardware_topics.py`
-    * `src/person_tracking/test/profile_detector_pid.py`
+    * `src/person_tracking/test/verify_escort_real_launch.py`.
+    * `src/person_tracking/test/execute_escort_real_verification.sh`.
+    * `src/person_tracking/test/check_astra_hardware_topics.py`.
+    * `src/person_tracking/test/profile_detector_pid.py`.
 
-- **Điểm dừng bàn giao:** Phase 11 duy trì trạng thái **SOFTWARE_READY / HARDWARE_PENDING**. Ca T06 duy trì trạng thái **PARTIAL / CODE_READY**. Toàn bộ tài liệu, script, launch overlay và quy trình an toàn đã sẵn sàng tuyệt đối để người dùng thực thi khi có mặt tại hiện trường cùng thiết bị phần cứng.
+- **Điểm dừng bàn giao:** Phase 11 duy trì trạng thái **SOFTWARE_READY / HARDWARE_PENDING**. Ca T06 duy trì trạng thái **PARTIAL / CODE_READY**. Toàn bộ mã nguồn, launch overlay, kịch bản test và tài liệu đã được xác thực 100% trên phần mềm, sẵn sàng tuyệt đối để người dùng thực thi khi có mặt tại hiện trường cùng thiết bị phần cứng.
