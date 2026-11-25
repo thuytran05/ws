@@ -1,53 +1,54 @@
-[2026-11-24 04:59:37] ================================================================================
-[2026-11-24 04:59:37] KHỞI ĐỘNG SMOKE TEST PHASE 9: VOICE THẬT + GAZEBO ESCORT + NAV2
-[2026-11-24 04:59:37] ================================================================================
-[2026-11-24 04:59:37] [Bước 0] Đang chờ hệ thống Gazebo, Nav2, /clock và /odom sẵn sàng...
-[2026-11-24 04:59:41] [Bước 0] Hệ thống sẵn sàng! Clock sec=10, odom x=-0.000
-[2026-11-24 04:59:43] --------------------------------------------------------------------------------
-[2026-11-24 04:59:43] CA 1: KIỂM CHỨNG CHẶN DISPATCH KHI CHƯA KHÓA HÀNH KHÁCH
-[2026-11-24 04:59:43] --------------------------------------------------------------------------------
-[2026-11-24 04:59:45] Kết quả Ca 1: PASSED [OK] (send_goal_counter=0, rejected=True, robot_still=True)
-[2026-11-24 04:59:45] --------------------------------------------------------------------------------
-[2026-11-24 04:59:45] CA 2: PHIÊN HỢP LỆ KHỞI HÀNH VÀ DẪN ĐƯỜNG THỰC TẾ TRONG GAZEBO
-[2026-11-24 04:59:45] --------------------------------------------------------------------------------
-[2026-11-24 04:59:45] Bắt đầu phát observation giơ tay 20 Hz...
-[2026-11-24 04:59:47] Trạng thái Tracking: locked_session_id=93f3d00e-fdee-48ae-a573-cc697c8a2fc0
-[2026-11-24 04:59:47] Gửi lệnh dẫn đường tới cổng 15 cho session 93f3d00e-fdee-48ae-a573-cc697c8a2fc0...
-[2026-11-24 04:59:47] Nhận NAVIGATION_STARTED: session=93f3d00e-fdee-48ae-a573-cc697c8a2fc0, mission=mis_1795496374806_1, goal=att_1795496374806_1, uuid=006d1d40fc7e483b9e75a2ef30e5466a
-[2026-11-24 04:59:47] Đang theo dõi robot di chuyển vật lý trong Gazebo...
-[2026-11-24 04:59:51] Kết quả Ca 2: PASSED [OK] (goals=1, max_vx=0.728 m/s, delta_d=0.891 m)
-[2026-11-24 04:59:51] --------------------------------------------------------------------------------
-[2026-11-24 04:59:51] CA 3: MẤT KHÁCH -> XE DỪNG -> SAFETY ABORT -> ACK -> CANCELED -> IDLE
-[2026-11-24 04:59:51] --------------------------------------------------------------------------------
-[2026-11-24 04:59:51] Mô phỏng mất khách: ngừng phát /tracking/observation...
-[2026-11-24 04:59:51]   [Mốc 1: Mất quan sát] t_stop_obs=6063.855
-[2026-11-24 04:59:51]   [Mốc 2: cmd_vel về zero] t_cmd_zero=6064.227 (độ trễ 0.372s)
-[2026-11-24 04:59:52]   [Yêu cầu ABORT] t_abort_req=6065.107, req_id=996a9271-d76a-4f0c-aaa4-6079d94913f1
-[2026-11-24 04:59:52]   [Mốc 3: ACK nhận được] t_ack=6065.107 (độ trễ 0.000s)
-[2026-11-24 04:59:52]   [Mốc 4: Terminal Nav2 CANCELED] t_term_canceled=6065.107
-[2026-11-24 04:59:54]   [Mốc 5: Chuyển về IDLE] t_idle=6067.607, tracking_idle=True, voice_idle=True
-[2026-11-24 04:59:54]   [Đối chiếu ACK 5 ID]: True (sess=93f3d00e-fdee-48ae-a573-cc697c8a2fc0, mission=mis_1795496374806_1, attempt=att_1795496374806_1, uuid=006d1d40fc7e483b9e75a2ef30e5466a, req=996a9271-d76a-4f0c-aaa4-6079d94913f1)
-[2026-11-24 04:59:54]   [Đối chiếu Terminal 5 ID]: True (sess=93f3d00e-fdee-48ae-a573-cc697c8a2fc0, mission=mis_1795496374806_1, attempt=att_1795496374806_1, uuid=006d1d40fc7e483b9e75a2ef30e5466a, req=996a9271-d76a-4f0c-aaa4-6079d94913f1)
-[2026-11-24 04:59:55]   [Cửa sổ dừng Odometry]: duration=3.52s, samples=177, fresh=True, after_cancel=True -> True
-[2026-11-24 04:59:55] Kết quả Ca 3: PASSED [OK] (abort=True, ack_5id=True, term_5id=True, stop_duration=3.52s)
-[2026-11-24 04:59:55] --------------------------------------------------------------------------------
-[2026-11-24 04:59:55] CA 4: ĐẾN ĐÍCH TRẢ SUCCEEDED VÀ TRACKING VỀ IDLE SẠCH SẼ
-[2026-11-24 04:59:55] --------------------------------------------------------------------------------
-[2026-11-24 04:59:55] Bắt đầu phát observation giơ tay để khóa phiên mới (session 2)...
-[2026-11-24 04:59:57] Trạng thái Tracking Session 2: cf4a3c89-fd47-47be-bfdf-286a7fc323c0
-[2026-11-24 04:59:58] Gửi lệnh dẫn đường tới cổng 15 cho session 2 (cf4a3c89-fd47-47be-bfdf-286a7fc323c0)...
-[2026-11-24 04:59:58] Session 2 đã khởi hành: mission=mis_1795496374806_2, attempt=att_1795496374806_2, uuid=a1079e04b308421caa62aed36f7e41ec
-[2026-11-24 04:59:58] Xác nhận bản tin late old goal không ảnh hưởng Session 2: True (current_session=cf4a3c89-fd47-47be-bfdf-286a7fc323c0, state=NAVIGATING)
-[2026-11-24 04:59:58]   [Ca 4 Progress] t=0.0s | pos=(0.86, -0.16) | vx=-0.00
-[2026-11-24 05:00:00] Nhận được terminal SUCCEEDED cho session 2! Đối chiếu 5 ID: True
-[2026-11-24 05:00:00] Kết quả Ca 4: PASSED [OK] (succeeded=True, ids_match=True, late_ignored=True, tracking_idle=True, voice_idle=True)
-[2026-11-24 05:00:00] ================================================================================
-[2026-11-24 05:00:00] TỔNG HỢP KẾT QUẢ SMOKE TEST PHASE 9 THỰC TẾ TRÊN GAZEBO
-[2026-11-24 05:00:00] ================================================================================
-[2026-11-24 05:00:00]   * Ca 1 (Không dispatch trước khóa)   : PASSED [OK] (send_goal_counter=0, nav_started_count=0, rejected=True, robot_still=True)
-[2026-11-24 05:00:00]   * Ca 2 (Phiên hợp lệ dẫn đường)      : PASSED [OK] (one_goal=True (send=1, started=1), ids_match=True, max_vx=0.728m/s, delta_d=0.891m)
-[2026-11-24 05:00:00]   * Ca 3 (Mất khách xe dừng và hủy goal): PASSED [OK] (abort=True, ack_5id=True, term_5id=True, stop_window=True (3.52s, n=177), idle=True)
-[2026-11-24 05:00:00]   * Ca 4 (Đến đích SUCCEEDED và IDLE)  : PASSED [OK] (succeeded=True, ids_match=True, late_ignored=True, tracking_idle=True, voice_idle=True)
-[2026-11-24 05:00:00] ================================================================================
-[2026-11-24 05:00:00] KẾT LUẬN: TẤT CẢ ĐẠT 100%
-[2026-11-24 05:00:00] ================================================================================
+[2026-11-25 13:41:37] ================================================================================
+[2026-11-25 13:41:37] KHỞI ĐỘNG SMOKE TEST PHASE 9: VOICE THẬT + GAZEBO ESCORT + NAV2
+[2026-11-25 13:41:37] ================================================================================
+[2026-11-25 13:41:37] [Bước 0] Đang chờ hệ thống Gazebo, Nav2, /clock và /odom sẵn sàng...
+[2026-11-25 13:41:37] [Bước 0] Hệ thống sẵn sàng! Clock sec=9, odom x=-0.000
+[2026-11-25 13:41:39] --------------------------------------------------------------------------------
+[2026-11-25 13:41:39] CA 1: KIỂM CHỨNG CHẶN DISPATCH KHI CHƯA KHÓA HÀNH KHÁCH
+[2026-11-25 13:41:39] --------------------------------------------------------------------------------
+[2026-11-25 13:41:41] Kết quả Ca 1: PASSED [OK] (send_goal_counter=0, rejected=True, robot_still=True)
+[2026-11-25 13:41:41] --------------------------------------------------------------------------------
+[2026-11-25 13:41:41] CA 2: PHIÊN HỢP LỆ KHỞI HÀNH VÀ DẪN ĐƯỜNG THỰC TẾ TRONG GAZEBO
+[2026-11-25 13:41:41] --------------------------------------------------------------------------------
+[2026-11-25 13:41:41] Bắt đầu phát observation giơ tay 20 Hz...
+[2026-11-25 13:41:43] Trạng thái Tracking: locked_session_id=31b8f3ed-3dda-4ffb-b0c1-3a3b85b413b6
+[2026-11-25 13:41:44] Gửi lệnh dẫn đường tới cổng 15 cho session 31b8f3ed-3dda-4ffb-b0c1-3a3b85b413b6...
+[2026-11-25 13:41:44] Nhận NAVIGATION_STARTED: session=31b8f3ed-3dda-4ffb-b0c1-3a3b85b413b6, mission=mis_1795588894825_1, goal=att_1795588894825_1, uuid=287b729fa8ad422aa89231871e46f9c5
+[2026-11-25 13:41:44] Đang theo dõi robot di chuyển vật lý trong Gazebo...
+[2026-11-25 13:41:47] Kết quả Ca 2: PASSED [OK] (goals=1, max_vx=0.500 m/s, delta_d=0.872 m)
+[2026-11-25 13:41:47] --------------------------------------------------------------------------------
+[2026-11-25 13:41:47] CA 3: MẤT KHÁCH -> XE DỪNG -> SAFETY ABORT -> ACK -> CANCELED -> IDLE
+[2026-11-25 13:41:47] --------------------------------------------------------------------------------
+[2026-11-25 13:41:47] Mô phỏng mất khách: ngừng phát /tracking/observation...
+[2026-11-25 13:41:47]   [Mốc 1: Mất quan sát] t_stop_obs=4654.381
+[2026-11-25 13:41:48]   [Mốc 2: cmd_vel về zero] t_cmd_zero=4654.754 (độ trễ 0.373s)
+[2026-11-25 13:41:48]   [Yêu cầu ABORT] t_abort_req=4655.633, req_id=ab7fb308-d67c-4172-8505-19a0a7aa00df
+[2026-11-25 13:41:48]   [Mốc 3: ACK nhận được] t_ack=4655.633 (độ trễ 0.000s)
+[2026-11-25 13:41:48]   [Mốc 4: Terminal Nav2 CANCELED] t_term_canceled=4655.684
+[2026-11-25 13:41:51]   [Mốc 5: Chuyển về IDLE] t_idle=4658.184, tracking_idle=True, voice_idle=True
+[2026-11-25 13:41:51]   [Đối chiếu ACK 5 ID]: True (sess=31b8f3ed-3dda-4ffb-b0c1-3a3b85b413b6, mission=mis_1795588894825_1, attempt=att_1795588894825_1, uuid=287b729fa8ad422aa89231871e46f9c5, req=ab7fb308-d67c-4172-8505-19a0a7aa00df)
+[2026-11-25 13:41:51]   [Đối chiếu Terminal 5 ID]: True (sess=31b8f3ed-3dda-4ffb-b0c1-3a3b85b413b6, mission=mis_1795588894825_1, attempt=att_1795588894825_1, uuid=287b729fa8ad422aa89231871e46f9c5, req=ab7fb308-d67c-4172-8505-19a0a7aa00df)
+[2026-11-25 13:41:52]   [Cửa sổ dừng Odometry]: duration=3.56s, samples=179, fresh=True, after_cancel=True -> True
+[2026-11-25 13:41:52] Kết quả Ca 3: PASSED [OK] (abort=True, ack_5id=True, term_5id=True, stop_duration=3.56s)
+[2026-11-25 13:41:52] --------------------------------------------------------------------------------
+[2026-11-25 13:41:52] CA 4: ĐẾN ĐÍCH TRẢ SUCCEEDED VÀ TRACKING VỀ IDLE SẠCH SẼ
+[2026-11-25 13:41:52] --------------------------------------------------------------------------------
+[2026-11-25 13:41:52] Bắt đầu phát observation giơ tay để khóa phiên mới (session 2)...
+[2026-11-25 13:41:54] Trạng thái Tracking Session 2: 07fe8f6b-da56-4231-b5b4-7e3031760326
+[2026-11-25 13:41:54] Gửi lệnh dẫn đường tới cổng 15 cho session 2 (07fe8f6b-da56-4231-b5b4-7e3031760326)...
+[2026-11-25 13:41:54] Session 2 đã khởi hành: mission=mis_1795588894825_2, attempt=att_1795588894825_2, uuid=64c6b32e82b1425ea2d70d2606978d6e
+[2026-11-25 13:41:55] Xác nhận bản tin late old goal không ảnh hưởng Session 2: True (current_session=07fe8f6b-da56-4231-b5b4-7e3031760326, state=NAVIGATING)
+[2026-11-25 13:41:55]   [Ca 4 Progress] t=0.0s | pos=(0.83, -0.08) | vx=-0.00
+[2026-11-25 13:41:57]   [Ca 4 Progress] t=2.0s | pos=(0.83, -0.08) | vx=-0.00
+[2026-11-25 13:41:57] Nhận được terminal SUCCEEDED cho session 2! Đối chiếu 5 ID: True
+[2026-11-25 13:41:57] Kết quả Ca 4: PASSED [OK] (succeeded=True, ids_match=True, late_ignored=True, tracking_idle=True, voice_idle=True)
+[2026-11-25 13:41:57] ================================================================================
+[2026-11-25 13:41:57] TỔNG HỢP KẾT QUẢ SMOKE TEST PHASE 9 THỰC TẾ TRÊN GAZEBO
+[2026-11-25 13:41:57] ================================================================================
+[2026-11-25 13:41:57]   * Ca 1 (Không dispatch trước khóa)   : PASSED [OK] (send_goal_counter=0, nav_started_count=0, rejected=True, robot_still=True)
+[2026-11-25 13:41:57]   * Ca 2 (Phiên hợp lệ dẫn đường)      : PASSED [OK] (one_goal=True (send=1, started=1), ids_match=True, max_vx=0.500m/s, delta_d=0.872m)
+[2026-11-25 13:41:57]   * Ca 3 (Mất khách xe dừng và hủy goal): PASSED [OK] (abort=True, ack_5id=True, term_5id=True, stop_window=True (3.56s, n=179), idle=True)
+[2026-11-25 13:41:57]   * Ca 4 (Đến đích SUCCEEDED và IDLE)  : PASSED [OK] (succeeded=True, ids_match=True, late_ignored=True, tracking_idle=True, voice_idle=True)
+[2026-11-25 13:41:57] ================================================================================
+[2026-11-25 13:41:57] KẾT LUẬN: TẤT CẢ ĐẠT 100%
+[2026-11-25 13:41:57] ================================================================================

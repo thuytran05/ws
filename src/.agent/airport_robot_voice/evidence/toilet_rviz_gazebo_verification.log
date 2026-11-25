@@ -1,0 +1,64 @@
+
+=== TEST POSE 1: Cánh trái (-1.0, 1.3, yaw=1.57) - ưu tiên toilet_1 | cau='Nhà vệ sinh ở đâu?' | AMCL=(-1.049, 1.292) ===
+  [TRONG LUC TTS] state=ANNOUNCING target=toilet_1 mid=mis_1795594854397_1
+  [RVIZ TRONG LUC TTS] /plan_end=(1.4563673450011265, -1.0, 1.8, 19) | /voice/confirmed_goal=(1.3563137840010313, -1.0, 1.8) | /voice/confirmed_path_end=(1.3562092980009766, -1.0, 1.8, 19) | /waypoints=(1.35661077199984, 'ADD', -1.0, 1.8, 'ĐÃ CHỐT: nhà vệ sinh sảnh A (toilet_1)')
+  [DEBUG MARKERS] (1.354894645000968, ['[CHỌN] toilet_1: 0.52m', '[THỬ] toilet_2: 1.47m'])
+  [SAU KHI TTS XONG] state=NAVIGATING target=toilet_1 mid=mis_1795594854397_1 att=att_1795594854397_1 uuid=cb871a64c19f4448b3d864931bd0ac82
+  [RVIZ SAU TTS] /plan_end=(3.363920634999886, -1.0, 1.8, 19)
+  [FB DISPATCHED] target=toilet_1 mid=mis_1795594854397_1 att=att_1795594854397_1 uuid=cb871a64c19f4448b3d864931bd0ac82
+  [CANCEL] IDLE sạch sẽ, has_unresolved_goals=False
+[INFO] [1795594857.771627388] [nav_command_node]: [res_1_57770] Bắt đầu truy vấn planner cho 2 ứng viên trong nhóm toilet...
+[INFO] [1795594857.775364592] [nav_command_node]: [res_1_57770] Ứng viên toilet_1: pose=(-1.00, 1.80, yaw=1.57), đường đi hợp lệ = 0.52m
+[INFO] [1795594857.778239744] [nav_command_node]: [res_1_57770] Ứng viên toilet_2: pose=(0.20, 1.80, yaw=1.57), đường đi hợp lệ = 1.47m
+[INFO] [1795594857.778520787] [nav_command_node]: [res_1_57770] Planner đã chọn toilet_1 (khoảng cách 0.52m) trong các ứng viên: {'toilet_1': 0.5207104614458844, 'toilet_2': 1.4714085060027189}
+[INFO] [1795594857.779892756] [nav_command_node]: [mis_1795594854397_1] Đã chốt đích toilet_1 (nhà vệ sinh sảnh A) pose=(-1.00, 1.80); phát TTS xác nhận trước khi gửi NavigateToPose.
+[INFO] [1795594859.785180538] [nav_command_node]: [att_1795594854397_1] Gửi goal tới Nav2 cho mission mis_1795594854397_1 (target=toilet_1, name=nhà vệ sinh sảnh A, pose=(-1.00, 1.80), uuid=cb871a64c19f4448b3d864931bd0ac82)...
+[INFO] [1795594859.787278341] [nav_command_node]: [att_1795594854397_1] Goal được Nav2 chấp nhận (uuid=cb871a64c19f4448b3d864931bd0ac82). Bắt đầu di chuyển.
+[INFO] [1795594860.299149250] [nav_command_node]: [att_1795594854397_1] Server chấp nhận yêu cầu hủy. Đang chờ goal kết thúc terminal...
+
+=== TEST POSE 2: Gần gate_a2 (-1.0, 0.6, yaw=1.57) - ưu tiên toilet_2 | cau='Dẫn tôi đến nhà vệ sinh' | AMCL=(-1.039, 0.584) ===
+  [TRONG LUC TTS] state=ANNOUNCING target=toilet_2 mid=mis_1795594880932_1
+  [RVIZ TRONG LUC TTS] /plan_end=(2.480459882001014, 0.2, 1.8, 113) | /voice/confirmed_goal=(2.3762942789999215, 0.2, 1.8) | /voice/confirmed_path_end=(2.380265359999612, 0.2, 1.8, 113) | /waypoints=(2.376525756999399, 'ADD', 0.2, 1.8, 'ĐÃ CHỐT: nhà vệ sinh sảnh B (toilet_2)')
+  [DEBUG MARKERS] (2.3757223840002553, ['[THỬ] toilet_1: 3.87m', '[CHỌN] toilet_2: 3.05m'])
+  [SAU KHI TTS XONG] state=NAVIGATING target=toilet_2 mid=mis_1795594880932_1 att=att_1795594880932_1 uuid=04428a6d8255467ab0fc28e511cb0ef2
+  [RVIZ SAU TTS] /plan_end=(4.390406086000439, 0.2, 1.8, 113)
+  [FB DISPATCHED] target=toilet_2 mid=mis_1795594880932_1 att=att_1795594880932_1 uuid=04428a6d8255467ab0fc28e511cb0ef2
+  [CANCEL] IDLE sạch sẽ, has_unresolved_goals=False
+[INFO] [1795594885.258675507] [nav_command_node]: [res_1_85257] Bắt đầu truy vấn planner cho 2 ứng viên trong nhóm toilet...
+[INFO] [1795594885.266359470] [nav_command_node]: [res_1_85257] Ứng viên toilet_1: pose=(-1.00, 1.80, yaw=1.57), đường đi hợp lệ = 3.87m
+[INFO] [1795594885.272634150] [nav_command_node]: [res_1_85257] Ứng viên toilet_2: pose=(0.20, 1.80, yaw=1.57), đường đi hợp lệ = 3.05m
+[INFO] [1795594885.273115893] [nav_command_node]: [res_1_85257] Planner đã chọn toilet_2 (khoảng cách 3.05m) trong các ứng viên: {'toilet_1': 3.872505995079033, 'toilet_2': 3.051760257255864}
+[INFO] [1795594885.277450702] [nav_command_node]: [mis_1795594880932_1] Đã chốt đích toilet_2 (nhà vệ sinh sảnh B) pose=(0.20, 1.80); phát TTS xác nhận trước khi gửi NavigateToPose.
+[INFO] [1795594887.285698254] [nav_command_node]: [att_1795594880932_1] Gửi goal tới Nav2 cho mission mis_1795594880932_1 (target=toilet_2, name=nhà vệ sinh sảnh B, pose=(0.20, 1.80), uuid=04428a6d8255467ab0fc28e511cb0ef2)...
+[INFO] [1795594887.287122257] [nav_command_node]: [att_1795594880932_1] Goal được Nav2 chấp nhận (uuid=04428a6d8255467ab0fc28e511cb0ef2). Bắt đầu di chuyển.
+[INFO] [1795594887.799461503] [nav_command_node]: [att_1795594880932_1] Server chấp nhận yêu cầu hủy. Đang chờ goal kết thúc terminal...
+
+=== TEST POSE 3: Hành lang trái (-1.0, 0.0, yaw=1.57) + Pause/Resume/Cancel | cau='Nhà vệ sinh ở đâu?' | AMCL=(-1.064, -0.005) ===
+  [TRONG LUC TTS] state=ANNOUNCING target=toilet_2 mid=mis_1795594906558_1
+  [RVIZ TRONG LUC TTS] /plan_end=(3.1683000270004413, 0.2, 1.8, 210) | /voice/confirmed_goal=(3.0666119050001726, 0.2, 1.8) | /voice/confirmed_path_end=(3.0664335639994533, 0.2, 1.8, 210) | /waypoints=(3.066882451999845, 'ADD', 0.2, 1.8, 'ĐÃ CHỐT: nhà vệ sinh sảnh B (toilet_2)')
+  [DEBUG MARKERS] (3.0623896990000503, ['[THỬ] toilet_1: 6.47m', '[CHỌN] toilet_2: 5.27m'])
+  [SAU KHI TTS XONG] state=NAVIGATING target=toilet_2 mid=mis_1795594906558_1 att=att_1795594906558_1 uuid=6bd680c3401b4d31966a5053a5eab86e
+  [RVIZ SAU TTS] /plan_end=(5.079541208999217, 0.2, 1.8, 210)
+  [FB DISPATCHED] target=toilet_2 mid=mis_1795594906558_1 att=att_1795594906558_1 uuid=6bd680c3401b4d31966a5053a5eab86e
+  [PAUSE] PAUSED giữ nguyên target=toilet_2
+  [RESUME] NAVIGATING giữ nguyên target=toilet_2 att=att_1795594906558_2
+  [CANCEL] IDLE sạch sẽ, has_unresolved_goals=False
+  [CANCEL_DURING_ANNOUNCING] IDLE sạch sẽ trước khi gửi NavigateToPose!
+[INFO] [1795594911.790396568] [nav_command_node]: [res_1_11789] Bắt đầu truy vấn planner cho 2 ứng viên trong nhóm toilet...
+[INFO] [1795594911.799556174] [nav_command_node]: [res_1_11789] Ứng viên toilet_1: pose=(-1.00, 1.80, yaw=1.57), đường đi hợp lệ = 6.47m
+[INFO] [1795594911.808638232] [nav_command_node]: [res_1_11789] Ứng viên toilet_2: pose=(0.20, 1.80, yaw=1.57), đường đi hợp lệ = 5.27m
+[INFO] [1795594911.808924876] [nav_command_node]: [res_1_11789] Planner đã chọn toilet_2 (khoảng cách 5.27m) trong các ứng viên: {'toilet_1': 6.474062736593097, 'toilet_2': 5.274062866532544}
+[INFO] [1795594911.812239368] [nav_command_node]: [mis_1795594906558_1] Đã chốt đích toilet_2 (nhà vệ sinh sảnh B) pose=(0.20, 1.80); phát TTS xác nhận trước khi gửi NavigateToPose.
+[INFO] [1795594913.822781290] [nav_command_node]: [att_1795594906558_1] Gửi goal tới Nav2 cho mission mis_1795594906558_1 (target=toilet_2, name=nhà vệ sinh sảnh B, pose=(0.20, 1.80), uuid=6bd680c3401b4d31966a5053a5eab86e)...
+[INFO] [1795594913.824679365] [nav_command_node]: [att_1795594906558_1] Goal được Nav2 chấp nhận (uuid=6bd680c3401b4d31966a5053a5eab86e). Bắt đầu di chuyển.
+[INFO] [1795594914.336626312] [nav_command_node]: Đang gửi yêu cầu hủy goal để tạm dừng...
+[INFO] [1795594914.349600234] [nav_command_node]: [att_1795594906558_2] Gửi goal tới Nav2 cho mission mis_1795594906558_1 (target=toilet_2, name=nhà vệ sinh sảnh B, pose=(0.20, 1.80), uuid=c74d2c9c6e134a5b939712584badb93a)...
+[INFO] [1795594914.350705639] [nav_command_node]: [att_1795594906558_2] Goal được Nav2 chấp nhận (uuid=c74d2c9c6e134a5b939712584badb93a). Bắt đầu di chuyển.
+[INFO] [1795594914.352386459] [nav_command_node]: [att_1795594906558_2] Server chấp nhận yêu cầu hủy. Đang chờ goal kết thúc terminal...
+[INFO] [1795594914.364211394] [nav_command_node]: [res_2_14363] Bắt đầu truy vấn planner cho 2 ứng viên trong nhóm toilet...
+[INFO] [1795594914.371211592] [nav_command_node]: [res_2_14363] Ứng viên toilet_1: pose=(-1.00, 1.80, yaw=1.57), đường đi hợp lệ = 6.40m
+[INFO] [1795594914.377504179] [nav_command_node]: [res_2_14363] Ứng viên toilet_2: pose=(0.20, 1.80, yaw=1.57), đường đi hợp lệ = 5.20m
+[INFO] [1795594914.377859142] [nav_command_node]: [res_2_14363] Planner đã chọn toilet_2 (khoảng cách 5.20m) trong các ứng viên: {'toilet_1': 6.4030570843486805, 'toilet_2': 5.20305566578604}
+[INFO] [1795594914.380877601] [nav_command_node]: [mis_1795594906558_2] Đã chốt đích toilet_2 (nhà vệ sinh sảnh B) pose=(0.20, 1.80); phát TTS xác nhận trước khi gửi NavigateToPose.
+
+=== ALL 3 GAZEBO POSES + PAUSE/RESUME/CANCEL PASSED ===

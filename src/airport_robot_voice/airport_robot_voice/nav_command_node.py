@@ -28,7 +28,9 @@ from rclpy.action import ActionClient
 from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 
 from std_msgs.msg import String, Bool
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Point
+from nav_msgs.msg import Path
+from visualization_msgs.msg import Marker, MarkerArray
 from nav2_msgs.action import NavigateToPose, ComputePathToPose
 from action_msgs.msg import GoalStatus
 from unique_identifier_msgs.msg import UUID as MsgUUID
@@ -108,6 +110,8 @@ class NavCommandNode(Node):
         self.declare_parameter('safety_request_topic', '/tracking/safety_request')
         self.declare_parameter('nav_status_topic', '/voice/nav_status')
         self.declare_parameter('escort_heartbeat_timeout_sec', 1.0)
+        self.declare_parameter('publish_rviz_markers', True)
+        self.declare_parameter('sync_nav2_plan_topic', True)
         if not self.has_parameter('use_sim_time'):
             self.declare_parameter('use_sim_time', False)
         self._steady_clock = Clock(clock_type=ClockType.STEADY_TIME)
@@ -129,6 +133,8 @@ class NavCommandNode(Node):
         self.safety_request_topic = str(self.get_parameter('safety_request_topic').value)
         self.nav_status_topic = str(self.get_parameter('nav_status_topic').value)
         self.escort_heartbeat_timeout = float(self.get_parameter('escort_heartbeat_timeout_sec').value)
+        self.publish_rviz_markers = bool(self.get_parameter('publish_rviz_markers').value)
+        self.sync_nav2_plan_topic = bool(self.get_parameter('sync_nav2_plan_topic').value)
 
         with open(places_path, 'r', encoding='utf-8') as f:
             db = json.load(f)
@@ -173,6 +179,7 @@ class NavCommandNode(Node):
         self._planner_eval = None
         self._planner_candidate_timer = None
         self._paused_resolution = None  # Lưu category khi pause trong lúc RESOLVING
+        self._confirmed_path = None     # Đường đi đã chốt để đồng bộ hiển thị RViz trước khi chạy
 
         # Quản lý Announcing (TTS)
         self._pending_speech_id = None
@@ -192,6 +199,7 @@ class NavCommandNode(Node):
         self._cancel_terminal_timer_attempt = None
         self._tts_timeout_timer = None
         self._tts_timer_speech_id = None
+        self._confirmed_plan_resync_timer = None
 
         # Feedback
         self._distance_remaining = None
@@ -216,6 +224,14 @@ class NavCommandNode(Node):
         self.pub_say = self.create_publisher(String, '/voice/say', 10)
         self.pub_tts_cancel = self.create_publisher(String, '/voice/tts_cancel', 10)
 
+        # Publishers hiển thị điểm đến & đường đi đã chốt cho RViz (tách khỏi đường thử nghiệm)
+        self.pub_confirmed_goal = self.create_publisher(PoseStamped, '/voice/confirmed_goal', qos_transient)
+        self.pub_confirmed_path = self.create_publisher(Path, '/voice/confirmed_path', qos_transient)
+        self.pub_confirmed_markers = self.create_publisher(MarkerArray, '/voice/confirmed_goal_marker', qos_transient)
+        self.pub_planner_debug_markers = self.create_publisher(MarkerArray, '/voice/planner_debug_markers', qos_transient)
+        self.pub_waypoints_markers = self.create_publisher(MarkerArray, '/waypoints', 10)
+        self.pub_rviz_plan = self.create_publisher(Path, '/plan', 10)
+
         # Escort tracking integration pub/sub
         qos_safety = QoSProfile(
             depth=10,
@@ -237,6 +253,219 @@ class NavCommandNode(Node):
         self.publish_state()
         self.get_logger().info('NavCommandNode đã khởi động và sẵn sàng.')
 
+    # ------------------------------------------------------------------
+    # Đồng bộ hiển thị điểm đến & đường đi trên RViz
+    # ------------------------------------------------------------------
+    def _build_confirmed_goal_markers(self, action_type: int) -> MarkerArray:
+        ma = MarkerArray()
+        now_msg = self.get_clock().now().to_msg()
+        frame = self._current_target_pose.header.frame_id if self._current_target_pose else self.frame_id
+
+        pin = Marker()
+        pin.header.frame_id = frame
+        pin.header.stamp = now_msg
+        pin.ns = 'voice_confirmed_goal'
+        pin.id = 0
+        pin.type = Marker.CYLINDER
+        pin.action = action_type
+
+        arrow = Marker()
+        arrow.header.frame_id = frame
+        arrow.header.stamp = now_msg
+        arrow.ns = 'voice_confirmed_goal'
+        arrow.id = 1
+        arrow.type = Marker.ARROW
+        arrow.action = action_type
+
+        label = Marker()
+        label.header.frame_id = frame
+        label.header.stamp = now_msg
+        label.ns = 'voice_confirmed_goal'
+        label.id = 2
+        label.type = Marker.TEXT_VIEW_FACING
+        label.action = action_type
+
+        if action_type == Marker.ADD and self._current_target_pose is not None:
+            pose = self._current_target_pose.pose
+            pin.pose = pose
+            pin.pose.position.z = 0.15
+            pin.scale.x = 0.28
+            pin.scale.y = 0.28
+            pin.scale.z = 0.30
+            pin.color.r = 0.10
+            pin.color.g = 0.85
+            pin.color.b = 0.25
+            pin.color.a = 0.90
+
+            arrow.pose = pose
+            arrow.pose.position.z = 0.18
+            arrow.scale.x = 0.55
+            arrow.scale.y = 0.10
+            arrow.scale.z = 0.10
+            arrow.color.r = 0.05
+            arrow.color.g = 0.95
+            arrow.color.b = 0.35
+            arrow.color.a = 0.95
+
+            label.pose.position.x = pose.position.x
+            label.pose.position.y = pose.position.y
+            label.pose.position.z = 0.72
+            label.pose.orientation.w = 1.0
+            label.scale.z = 0.22
+            label.color.r = 0.05
+            label.color.g = 0.65
+            label.color.b = 0.15
+            label.color.a = 1.0
+            target_id = self._current_target_key or ''
+            target_name = self._current_target_name or target_id
+            label.text = f'ĐÃ CHỐT: {target_name} ({target_id})'
+
+        ma.markers = [pin, arrow, label]
+        return ma
+
+    def _publish_planner_debug_markers(self, paths_by_key: dict, results_by_key: dict, chosen_key: str = None):
+        if not self.publish_rviz_markers:
+            return
+        ma = MarkerArray()
+        clear_marker = Marker()
+        clear_marker.header.frame_id = self.frame_id
+        clear_marker.header.stamp = self.get_clock().now().to_msg()
+        clear_marker.ns = 'voice_trial_candidates'
+        clear_marker.id = 0
+        clear_marker.action = Marker.DELETEALL
+        ma.markers.append(clear_marker)
+
+        now_msg = self.get_clock().now().to_msg()
+        marker_id = 1
+        for cand_key, length in results_by_key.items():
+            path_msg = paths_by_key.get(cand_key)
+            is_winner = (cand_key == chosen_key)
+            frame = (path_msg.header.frame_id if path_msg and path_msg.header.frame_id else self.frame_id)
+            if path_msg and getattr(path_msg, 'poses', None):
+                line = Marker()
+                line.header.frame_id = frame
+                line.header.stamp = now_msg
+                line.ns = 'voice_trial_candidates'
+                line.id = marker_id
+                marker_id += 1
+                line.type = Marker.LINE_STRIP
+                line.action = Marker.ADD
+                line.scale.x = 0.06 if is_winner else 0.03
+                if is_winner:
+                    line.color.r, line.color.g, line.color.b, line.color.a = 0.10, 0.85, 0.25, 0.95
+                else:
+                    line.color.r, line.color.g, line.color.b, line.color.a = 0.95, 0.55, 0.10, 0.55
+                for ps in path_msg.poses:
+                    pt = Point()
+                    pt.x = ps.pose.position.x
+                    pt.y = ps.pose.position.y
+                    pt.z = 0.06 if is_winner else 0.03
+                    line.points.append(pt)
+                ma.markers.append(line)
+
+            place = self.places.get(cand_key, {})
+            lbl = Marker()
+            lbl.header.frame_id = frame
+            lbl.header.stamp = now_msg
+            lbl.ns = 'voice_trial_candidates'
+            lbl.id = marker_id
+            marker_id += 1
+            lbl.type = Marker.TEXT_VIEW_FACING
+            lbl.action = Marker.ADD
+            lbl.pose.position.x = float(place.get('x', 0.0))
+            lbl.pose.position.y = float(place.get('y', 0.0))
+            lbl.pose.position.z = 0.45 if is_winner else 0.30
+            lbl.pose.orientation.w = 1.0
+            lbl.scale.z = 0.18 if is_winner else 0.14
+            if is_winner:
+                lbl.color.r, lbl.color.g, lbl.color.b, lbl.color.a = 0.10, 0.85, 0.25, 1.0
+                lbl.text = f'[CHỌN] {cand_key}: {length:.2f}m'
+            else:
+                lbl.color.r, lbl.color.g, lbl.color.b, lbl.color.a = 0.95, 0.55, 0.10, 0.85
+                lbl.text = f'[THỬ] {cand_key}: {length:.2f}m'
+            ma.markers.append(lbl)
+
+        self.pub_planner_debug_markers.publish(ma)
+
+    def _publish_confirmed_destination_visuals(self):
+        if self._current_target_pose is None:
+            return
+        now_msg = self.get_clock().now().to_msg()
+        goal_msg = PoseStamped()
+        goal_msg.header.frame_id = self._current_target_pose.header.frame_id or self.frame_id
+        goal_msg.header.stamp = now_msg
+        goal_msg.pose = self._current_target_pose.pose
+        self.pub_confirmed_goal.publish(goal_msg)
+
+        if self.publish_rviz_markers:
+            ma = self._build_confirmed_goal_markers(Marker.ADD)
+            self.pub_confirmed_markers.publish(ma)
+            self.pub_waypoints_markers.publish(ma)
+
+        if self._confirmed_path is not None and getattr(self._confirmed_path, 'poses', None):
+            confirmed_path = Path()
+            confirmed_path.header.frame_id = self._confirmed_path.header.frame_id or self.frame_id
+            confirmed_path.header.stamp = now_msg
+            confirmed_path.poses = list(self._confirmed_path.poses)
+        else:
+            confirmed_path = Path()
+            confirmed_path.header.frame_id = goal_msg.header.frame_id
+            confirmed_path.header.stamp = now_msg
+            confirmed_path.poses = []
+
+        self.pub_confirmed_path.publish(confirmed_path)
+        if self.sync_nav2_plan_topic:
+            self.pub_rviz_plan.publish(confirmed_path)
+
+    def _stop_confirmed_plan_resync_timer(self):
+        if getattr(self, '_confirmed_plan_resync_timer', None) is not None:
+            try:
+                self._confirmed_plan_resync_timer.cancel()
+                self.destroy_timer(self._confirmed_plan_resync_timer)
+            except Exception:
+                pass
+            self._confirmed_plan_resync_timer = None
+
+    def _on_confirmed_plan_resync(self, expected_mission_id: str):
+        self._stop_confirmed_plan_resync_timer()
+        if (self.state != MissionState.ANNOUNCING or
+                self._current_mission_id != expected_mission_id or
+                self._confirmed_path is None or
+                not self.sync_nav2_plan_topic):
+            return
+        if getattr(self._confirmed_path, 'poses', None):
+            synced = Path()
+            synced.header.frame_id = self._confirmed_path.header.frame_id or self.frame_id
+            synced.header.stamp = self.get_clock().now().to_msg()
+            synced.poses = list(self._confirmed_path.poses)
+            self.pub_rviz_plan.publish(synced)
+
+    def _clear_destination_visuals(self, clear_debug: bool = True, clear_plan: bool = True):
+        self._stop_confirmed_plan_resync_timer()
+        now_msg = self.get_clock().now().to_msg()
+        if self.publish_rviz_markers:
+            ma = self._build_confirmed_goal_markers(Marker.DELETE)
+            self.pub_confirmed_markers.publish(ma)
+            self.pub_waypoints_markers.publish(ma)
+            if clear_debug:
+                dma = MarkerArray()
+                dm = Marker()
+                dm.header.frame_id = self.frame_id
+                dm.header.stamp = now_msg
+                dm.ns = 'voice_trial_candidates'
+                dm.id = 0
+                dm.action = Marker.DELETEALL
+                dma.markers = [dm]
+                self.pub_planner_debug_markers.publish(dma)
+
+        empty_path = Path()
+        empty_path.header.frame_id = self.frame_id
+        empty_path.header.stamp = now_msg
+        empty_path.poses = []
+        self.pub_confirmed_path.publish(empty_path)
+        if clear_plan and self.sync_nav2_plan_topic:
+            self.pub_rviz_plan.publish(empty_path)
+
     def destroy_node(self):
         if hasattr(self, '_heartbeat_timer') and self._heartbeat_timer:
             try:
@@ -244,6 +473,7 @@ class NavCommandNode(Node):
                 self.destroy_timer(self._heartbeat_timer)
             except Exception:
                 pass
+        self._stop_confirmed_plan_resync_timer()
         self._cancel_tts_timeout_timer()
         self._cancel_planner_candidate_timer()
         self._stop_acceptance_timer()
@@ -1045,11 +1275,14 @@ class NavCommandNode(Node):
             return
 
         self.get_logger().info(f'[{res_id}] Bắt đầu truy vấn planner cho {len(candidates)} ứng viên trong nhóm {category}...')
+        self._confirmed_path = None
+        self._clear_destination_visuals(clear_debug=True, clear_plan=True)
         self._planner_eval = {
             'resolution_id': res_id,
             'candidates': candidates,
             'current_idx': 0,
             'results': {},
+            'paths': {},
             'req_id': req_id,
             'category': category
         }
@@ -1074,8 +1307,11 @@ class NavCommandNode(Node):
             if results:
                 best_key = min(results, key=results.get)
                 best_length = results[best_key]
+                paths_by_key = eval_data.get('paths', {})
+                best_path = paths_by_key.get(best_key)
                 self.get_logger().info(f"[{res_id}] Planner đã chọn {best_key} (khoảng cách {best_length:.2f}m) trong các ứng viên: {results}")
-                self.start_specific_mission(best_key, eval_data['req_id'])
+                self._publish_planner_debug_markers(paths_by_key, results, chosen_key=best_key)
+                self.start_specific_mission(best_key, eval_data['req_id'], confirmed_path=best_path)
             else:
                 self.get_logger().error(f"[{res_id}] Tất cả các ứng viên đều không tìm được đường đi khả dụng.")
                 self.say('Hệ thống không tìm thấy đường đi tới các điểm yêu cầu.')
@@ -1175,7 +1411,13 @@ class NavCommandNode(Node):
             if error_code == 0 and len(poses) >= 2:
                 length = compute_path_length(path)
                 self._planner_eval['results'][cand_key] = length
-                self.get_logger().info(f"[{res_id}] Ứng viên {cand_key}: đường đi hợp lệ = {length:.2f}m")
+                self._planner_eval.setdefault('paths', {})[cand_key] = path
+                place = self.places.get(cand_key, {})
+                self.get_logger().info(
+                    f"[{res_id}] Ứng viên {cand_key}: pose=({float(place.get('x', 0.0)):.2f}, "
+                    f"{float(place.get('y', 0.0)):.2f}, yaw={float(place.get('yaw', 0.0)):.2f}), "
+                    f"đường đi hợp lệ = {length:.2f}m"
+                )
             elif 100 <= error_code < 200:
                 self.get_logger().warn(f"[{res_id}] Ứng viên {cand_key}: Lỗi TF (error_code={error_code})")
             else:
@@ -1212,7 +1454,7 @@ class NavCommandNode(Node):
                     pass
         return None
 
-    def start_specific_mission(self, target_key: str, req_id: str, custom_speech: str = None):
+    def start_specific_mission(self, target_key: str, req_id: str, custom_speech: str = None, confirmed_path=None):
         if self.enable_escort:
             allowed, reason, speech = self.check_escort_gating()
             if not allowed:
@@ -1232,7 +1474,28 @@ class NavCommandNode(Node):
         place = self.places[target_key]
         self._current_target_name = place.get('name', target_key)
         self._current_target_pose = self.create_pose_stamped(place)
+        self._confirmed_path = confirmed_path
         self._paused_resolution = None
+
+        if confirmed_path is None:
+            self._clear_destination_visuals(clear_debug=True, clear_plan=True)
+
+        # Hiển thị điểm đến và đường đi đã chốt lên RViz TRƯỚC khi phát câu xác nhận
+        self._publish_confirmed_destination_visuals()
+        self.get_logger().info(
+            f"[{self._current_mission_id}] Đã chốt đích {self._current_target_key} "
+            f"({self._current_target_name}) pose=({self._current_target_pose.pose.position.x:.2f}, "
+            f"{self._current_target_pose.pose.position.y:.2f}); phát TTS xác nhận trước khi gửi NavigateToPose."
+        )
+
+        if confirmed_path is not None and self.sync_nav2_plan_topic:
+            self._stop_confirmed_plan_resync_timer()
+            expected_mid = self._current_mission_id
+            self._confirmed_plan_resync_timer = self.create_timer(
+                0.10,
+                lambda: self._on_confirmed_plan_resync(expected_mid),
+                clock=self._steady_clock,
+            )
 
         # Trạng thái ANNOUNCING: Phát câu nói và chờ tts_ack
         self.state = MissionState.ANNOUNCING
@@ -1282,6 +1545,7 @@ class NavCommandNode(Node):
                 return
             self._current_session_id = self._latest_session_state.get('session_id')
 
+        self._stop_confirmed_plan_resync_timer()
         if self.has_unresolved_goals():
             self.get_logger().error('Không thể gửi goal Nav2: còn attempt chưa xác minh.')
             speech = 'Chưa xác nhận được chuyến đi cũ đã kết thúc.'
@@ -1291,8 +1555,19 @@ class NavCommandNode(Node):
             self.publish_state()
             return
 
-        if not self._current_target_pose:
-            self.get_logger().error('Không có pose để gửi cho Nav2!')
+        if not self._current_target_pose or (
+            self._current_target_key and not self.validate_target(self._current_target_key)
+        ):
+            target_desc = self._current_target_name or self._current_target_key or 'đã chọn'
+            self.get_logger().error(f'Điểm đến đã chốt ({target_desc}) không còn hợp lệ hoặc không khả dụng trước khi gửi goal Nav2!')
+            speech = f'Địa điểm {target_desc} hiện không còn khả dụng để dẫn đường.'
+            self._clear_destination_visuals(clear_debug=True, clear_plan=True)
+            self._current_target_key = None
+            self._current_target_name = None
+            self._current_target_pose = None
+            self._confirmed_path = None
+            self.say(speech)
+            self.publish_feedback('FAILED', 'TARGET_BECAME_UNAVAILABLE', speech)
             self.state = MissionState.IDLE
             self.publish_state()
             return
@@ -1313,7 +1588,11 @@ class NavCommandNode(Node):
         goal = NavigateToPose.Goal()
         goal.pose = self._current_target_pose
 
-        self.get_logger().info(f'[{attempt_id}] Gửi goal tới Nav2 cho mission {mission_id} ({self._current_target_name}, uuid={rec.nav2_uuid})...')
+        self.get_logger().info(
+            f'[{attempt_id}] Gửi goal tới Nav2 cho mission {mission_id} '
+            f'(target={self._current_target_key}, name={self._current_target_name}, '
+            f'pose=({goal.pose.pose.position.x:.2f}, {goal.pose.pose.position.y:.2f}), uuid={rec.nav2_uuid})...'
+        )
         self.publish_feedback(
             'NAV_GOAL_DISPATCHED', 'OK',
             f'Gửi goal {self._current_target_key} tới Nav2 (attempt={attempt_id}, uuid={rec.nav2_uuid})'
@@ -1397,6 +1676,11 @@ class NavCommandNode(Node):
                 self._transition_to_cancelled()
                 return
 
+            self._clear_destination_visuals(clear_debug=True, clear_plan=True)
+            self._current_target_key = None
+            self._current_target_name = None
+            self._current_target_pose = None
+            self._confirmed_path = None
             self.say('Tôi không thể di chuyển tới đó lúc này.')
             self.state = MissionState.IDLE
             self.publish_state()
@@ -1772,10 +2056,12 @@ class NavCommandNode(Node):
             speech = f'Chúng ta đã tới {self._current_target_name}. Chúc bạn chuyến đi vui vẻ!'
             self.say(speech)
             self.publish_feedback('SUCCEEDED', 'OK', speech)
+            self._clear_destination_visuals(clear_debug=True, clear_plan=True)
             self.state = MissionState.IDLE
             self._current_target_key = None
             self._current_target_name = None
             self._current_target_pose = None
+            self._confirmed_path = None
             self._pending_replace_target = None
             self._pending_replace_category = None
             self.publish_state()
@@ -1786,10 +2072,12 @@ class NavCommandNode(Node):
             speech = 'Tôi gặp trở ngại trên đường đi và không thể tiếp tục.'
             self.say(speech)
             self.publish_feedback('FAILED', 'ABORTED', speech)
+            self._clear_destination_visuals(clear_debug=True, clear_plan=True)
             self.state = MissionState.IDLE
             self._current_target_key = None
             self._current_target_name = None
             self._current_target_pose = None
+            self._confirmed_path = None
             self._pending_replace_target = None
             self._pending_replace_category = None
             self.publish_state()
@@ -1835,11 +2123,14 @@ class NavCommandNode(Node):
 
         elif self.state == MissionState.RESOLVING:
             self._resolving_active = False
+            self._current_cand_attempt_id = None
+            self._current_resolution_id = None
             self._cancel_planner_candidate_timer()
             self._paused_resolution = {
                 'category': self._planner_eval.get('category'),
                 'req_id': self._planner_eval.get('req_id')
             } if self._planner_eval else None
+            self._clear_destination_visuals(clear_debug=True, clear_plan=True)
             self._transition_to_paused(is_resolving_pause=True)
 
         elif self.state == MissionState.PAUSED:
@@ -2000,6 +2291,8 @@ class NavCommandNode(Node):
             self.cancel_tts(speech_id=self._pending_speech_id, mission_id=self._current_mission_id)
             self._pending_speech_id = None
             self._resolving_active = False
+            self._current_cand_attempt_id = None
+            self._current_resolution_id = None
             self._cancel_planner_candidate_timer()
             self._paused_resolution = None
             for att_id, rec in self._attempts.items():
@@ -2100,13 +2393,15 @@ class NavCommandNode(Node):
             self._current_session_id = None
             self._current_abort_request_id = None
 
-        # Dọn dẹp trạng thái về IDLE
+        # Dọn dẹp trạng thái về IDLE & xóa đánh dấu RViz
+        self._clear_destination_visuals(clear_debug=True, clear_plan=True)
         self.state = MissionState.IDLE
         self._current_mission_id = None
         self._current_goal_attempt_id = None
         self._current_target_key = None
         self._current_target_name = None
         self._current_target_pose = None
+        self._confirmed_path = None
         self._active_goal_handle = None
         self._pending_replace_target = None
         self._pending_replace_category = None
@@ -2155,7 +2450,10 @@ class NavCommandNode(Node):
                 self._current_target_key = valid_key
                 self._current_target_name = new_name
                 self._current_target_pose = self.create_pose_stamped(new_place)
+                self._confirmed_path = None
                 self._paused_resolution = None
+                self._clear_destination_visuals(clear_debug=True, clear_plan=True)
+                self._publish_confirmed_destination_visuals()
                 speech = f'Đã đổi đích sang {new_name}. Bạn bảo đi tiếp khi sẵn sàng nhé.'
             else:
                 cat_name = self.categories[valid_cat].get('name', valid_cat)
@@ -2163,6 +2461,8 @@ class NavCommandNode(Node):
                 self._current_target_key = None
                 self._current_target_name = cat_name
                 self._current_target_pose = None
+                self._confirmed_path = None
+                self._clear_destination_visuals(clear_debug=True, clear_plan=True)
                 speech = f'Đã đổi đích sang {cat_name}. Bạn bảo đi tiếp khi sẵn sàng để tôi tìm đường nhé.'
 
             self.say(speech)
@@ -2176,6 +2476,8 @@ class NavCommandNode(Node):
             self.cancel_tts(speech_id=self._pending_speech_id, mission_id=self._current_mission_id)
             self._pending_speech_id = None
             self._resolving_active = False
+            self._current_cand_attempt_id = None
+            self._current_resolution_id = None
             self._cancel_planner_candidate_timer()
             if valid_cat:
                 self.resolve_category_and_start(valid_cat, req_id)
@@ -2261,8 +2563,17 @@ class NavCommandNode(Node):
             else:
                 speech = f'Tôi đang dẫn bạn đến {self._current_target_name}.'
         elif self.state == MissionState.PAUSED:
-            speech = f'Tôi đang tạm dừng trên đường tới {self._current_target_name}.'
-        elif self.state in (MissionState.ANNOUNCING, MissionState.STARTING, MissionState.RESOLVING):
+            if self._paused_resolution:
+                cat_key = self._paused_resolution.get('category', '')
+                cat_name = self.categories.get(cat_key, {}).get('name', cat_key or 'điểm đến')
+                speech = f'Tôi đang tạm dừng khi tìm đường tới {cat_name}.'
+            else:
+                speech = f'Tôi đang tạm dừng trên đường tới {self._current_target_name}.'
+        elif self.state == MissionState.RESOLVING:
+            cat_key = self._planner_eval.get('category', '') if self._planner_eval else ''
+            cat_name = self.categories.get(cat_key, {}).get('name', cat_key or 'điểm đến')
+            speech = f'Tôi đang tìm đường tới {cat_name} phù hợp nhất.'
+        elif self.state in (MissionState.ANNOUNCING, MissionState.STARTING):
             speech = f'Tôi đang chuẩn bị dẫn bạn tới {self._current_target_name}.'
         elif self.state in (MissionState.PAUSING, MissionState.CANCELING):
             speech = 'Hệ thống đang xử lý thay đổi lộ trình, vui lòng chờ.'

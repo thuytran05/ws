@@ -1,19 +1,19 @@
-[INFO] [1795496374.840365157] [nav_command_node]: NavCommandNode đã khởi động và sẵn sàng.
-[WARN] [1795496383.353250332] [nav_command_node]: Từ chối tiếp nhận navigate do escort gating: NO_SESSION_ID
-[INFO] [1795496383.403284606] [nav_command_node]: Bỏ qua request trùng lặp: intent-c1-unlocked
-[INFO] [1795496387.555845986] [nav_command_node]: Nhận được TTS ACK hợp lệ cho [sp_2_87554] (status=COMPLETED, played=False). Tiến hành gửi goal Nav2.
-[INFO] [1795496387.556384037] [nav_command_node]: [att_1795496374806_1] Gửi goal tới Nav2 cho mission mis_1795496374806_1 (cổng 15, uuid=006d1d40fc7e483b9e75a2ef30e5466a)...
-[INFO] [1795496387.557677679] [nav_command_node]: [att_1795496374806_1] Goal được Nav2 chấp nhận (uuid=006d1d40fc7e483b9e75a2ef30e5466a). Bắt đầu di chuyển.
-[INFO] [1795496387.605089333] [nav_command_node]: Bỏ qua request trùng lặp: intent-c2-start
-[WARN] [1795496392.370867901] [nav_command_node]: Tiếp nhận ABORT từ tracking cho session=93f3d00e-fdee-48ae-a573-cc697c8a2fc0, req_id=996a9271-d76a-4f0c-aaa4-6079d94913f1, reason=CAMERA_FREEZE.
-[INFO] [1795496392.371211437] [nav_command_node]: [att_1795496374806_1] Gọi cancel_goal_async cho active goal do ABORT.
-[INFO] [1795496392.372079398] [nav_command_node]: [att_1795496374806_1] Server chấp nhận yêu cầu hủy. Đang chờ goal kết thúc terminal...
-[INFO] [1795496392.378961474] [nav_command_node]: [att_1795496374806_1] Goal kết thúc terminal với status: 5
-[INFO] [1795496398.010579790] [nav_command_node]: Nhận được TTS ACK hợp lệ cho [sp_5_98009] (status=COMPLETED, played=False). Tiến hành gửi goal Nav2.
-[INFO] [1795496398.011084052] [nav_command_node]: [att_1795496374806_2] Gửi goal tới Nav2 cho mission mis_1795496374806_2 (cổng 15, uuid=a1079e04b308421caa62aed36f7e41ec)...
-[INFO] [1795496398.011994211] [nav_command_node]: [att_1795496374806_2] Goal được Nav2 chấp nhận (uuid=a1079e04b308421caa62aed36f7e41ec). Bắt đầu di chuyển.
-[INFO] [1795496398.060179996] [nav_command_node]: Bỏ qua request trùng lặp: intent-c4-arrive
-[INFO] [1795496400.262277619] [nav_command_node]: [att_1795496374806_2] Goal kết thúc terminal với status: 4
+[INFO] [1795588894.859217375] [nav_command_node]: NavCommandNode đã khởi động và sẵn sàng.
+[WARN] [1795588899.836465768] [nav_command_node]: Từ chối tiếp nhận navigate do escort gating: NO_SESSION_ID
+[INFO] [1795588899.886656900] [nav_command_node]: Bỏ qua request trùng lặp: intent-c1-unlocked
+[INFO] [1795588904.039172230] [nav_command_node]: Nhận được TTS ACK hợp lệ cho [sp_2_4038] (status=COMPLETED, played=False). Tiến hành gửi goal Nav2.
+[INFO] [1795588904.039870579] [nav_command_node]: [att_1795588894825_1] Gửi goal tới Nav2 cho mission mis_1795588894825_1 (cổng 15, uuid=287b729fa8ad422aa89231871e46f9c5)...
+[INFO] [1795588904.041069893] [nav_command_node]: [att_1795588894825_1] Goal được Nav2 chấp nhận (uuid=287b729fa8ad422aa89231871e46f9c5). Bắt đầu di chuyển.
+[INFO] [1795588904.088556452] [nav_command_node]: Bỏ qua request trùng lặp: intent-c2-start
+[WARN] [1795588908.880947292] [nav_command_node]: Tiếp nhận ABORT từ tracking cho session=31b8f3ed-3dda-4ffb-b0c1-3a3b85b413b6, req_id=ab7fb308-d67c-4172-8505-19a0a7aa00df, reason=CAMERA_FREEZE.
+[INFO] [1795588908.881340689] [nav_command_node]: [att_1795588894825_1] Gọi cancel_goal_async cho active goal do ABORT.
+[INFO] [1795588908.882353677] [nav_command_node]: [att_1795588894825_1] Server chấp nhận yêu cầu hủy. Đang chờ goal kết thúc terminal...
+[INFO] [1795588908.911947809] [nav_command_node]: [att_1795588894825_1] Goal kết thúc terminal với status: 5
+[INFO] [1795588914.543968907] [nav_command_node]: Nhận được TTS ACK hợp lệ cho [sp_5_14542] (status=COMPLETED, played=False). Tiến hành gửi goal Nav2.
+[INFO] [1795588914.544473753] [nav_command_node]: [att_1795588894825_2] Gửi goal tới Nav2 cho mission mis_1795588894825_2 (cổng 15, uuid=64c6b32e82b1425ea2d70d2606978d6e)...
+[INFO] [1795588914.545506145] [nav_command_node]: [att_1795588894825_2] Goal được Nav2 chấp nhận (uuid=64c6b32e82b1425ea2d70d2606978d6e). Bắt đầu di chuyển.
+[INFO] [1795588914.593199662] [nav_command_node]: Bỏ qua request trùng lặp: intent-c4-arrive
+[INFO] [1795588917.705820015] [nav_command_node]: [att_1795588894825_2] Goal kết thúc terminal với status: 4
 Traceback (most recent call last):
   File "/home/ws/build/airport_robot_voice/airport_robot_voice/nav_command_node.py", line 2285, in main
     rclpy.spin(node)
