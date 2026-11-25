@@ -1,0 +1,491 @@
+=== 1. POST-FINAL-EDIT BUILD, 61/61 NLU & 122/122 PYTEST ===
+Starting >>> airport_robot_voice
+Finished <<< airport_robot_voice [1.12s]
+
+Summary: 1 package finished [1.21s]
+[OK ] "xin chào robot"
+      -> intent=greeting, action=None, target=None
+      "Xin chào! Tôi là robot hỗ trợ hành khách. Tôi có thể giúp gì cho bạn?"
+
+[OK ] "chào bạn"
+      -> intent=greeting, action=None, target=None
+      "Xin chào! Tôi là robot hỗ trợ hành khách. Tôi có thể giúp gì cho bạn?"
+
+[OK ] "ê robot"
+      -> intent=greeting, action=None, target=None
+      "Xin chào! Tôi là robot hỗ trợ hành khách. Tôi có thể giúp gì cho bạn?"
+
+[OK ] "cảm ơn bạn nhiều"
+      -> intent=thanks, action=None, target=None
+      "Rất vui được giúp bạn. Chúc bạn có chuyến bay tốt lành!"
+
+[OK ] "cám ơn nhé"
+      -> intent=thanks, action=None, target=None
+      "Rất vui được giúp bạn. Chúc bạn có chuyến bay tốt lành!"
+
+[OK ] "tạm biệt robot"
+      -> intent=goodbye, action=None, target=None
+      "Tạm biệt bạn, chúc bạn có chuyến đi thượng lộ bình an!"
+
+[OK ] "thôi tôi đi đây"
+      -> intent=goodbye, action=None, target=None
+      "Tạm biệt bạn, chúc bạn có chuyến đi thượng lộ bình an!"
+
+[OK ] "bạn giúp được gì cho tôi"
+      -> intent=capability, action=help, target=None
+      "Tôi có thể dẫn đường tới các cổng ra máy bay, quầy làm thủ tục, nhà vệ sinh, khu ăn uống, hoặc giải đáp thông tin Wi-Fi và tiện ích sân bay."
+
+[OK ] "robot biết làm những gì vậy"
+      -> intent=capability, action=help, target=None
+      "Tôi có thể dẫn đường tới các cổng ra máy bay, quầy làm thủ tục, nhà vệ sinh, khu ăn uống, hoặc giải đáp thông tin Wi-Fi và tiện ích sân bay."
+
+[OK ] "cách sử dụng robot"
+      -> intent=capability, action=help, target=None
+      "Tôi có thể dẫn đường tới các cổng ra máy bay, quầy làm thủ tục, nhà vệ sinh, khu ăn uống, hoặc giải đáp thông tin Wi-Fi và tiện ích sân bay."
+
+[OK ] "em ơi cổng a3 ở đâu"
+      -> intent=guide_me, action=navigate, target=gate_a3
+      "Tôi sẽ dẫn bạn đến cổng A3."
+
+[OK ] "cổng A3 ở đâu"
+      -> intent=guide_me, action=navigate, target=gate_a3
+      "Tôi sẽ dẫn bạn đến cổng A3."
+
+[OK ] "cổng a ba ở đâu"
+      -> intent=guide_me, action=navigate, target=gate_a3
+      "Tôi sẽ dẫn bạn đến cổng A3."
+
+[OK ] "dẫn tôi đến cổng a3"
+      -> intent=guide_me, action=navigate, target=gate_a3
+      "Tôi sẽ dẫn bạn đến cổng A3."
+
+[OK ] "cho tôi tới cổng bê hai"
+      -> intent=guide_me, action=navigate, target=gate_b2
+      "Tôi sẽ dẫn bạn đến cổng B2."
+
+[OK ] "cổng b2 chỗ nào"
+      -> intent=ask_gate_location, action=navigate, target=gate_b2
+      "Tôi sẽ dẫn bạn đến cổng B2."
+
+[OK ] "cổng số 15 ở đâu ạ"
+      -> intent=ask_gate_location, action=navigate, target=gate_15
+      "Tôi sẽ dẫn bạn đến cổng 15."
+
+[OK ] "cổng số mười lăm ở đâu"
+      -> intent=ask_gate_location, action=navigate, target=gate_15
+      "Tôi sẽ dẫn bạn đến cổng 15."
+
+[OK ] "gate a1 ở chỗ nào"
+      -> intent=ask_gate_location, action=navigate, target=gate_a1
+      "Tôi sẽ dẫn bạn đến cổng A1."
+
+[OK ] "dẫn tôi đến cổng a tư"
+      -> intent=guide_me, action=navigate, target=gate_a4
+      "Tôi sẽ dẫn bạn đến cổng A4."
+
+[OK ] "dẫn tôi đến cổng a99"
+      -> intent=place_not_found, action=None, target=None
+      "Địa điểm A99 chưa có trong danh mục của tôi."
+
+[OK ] "cổng b99 ở đâu"
+      -> intent=place_not_found, action=None, target=None
+      "Địa điểm B99 chưa có trong danh mục của tôi."
+
+[OK ] "dẫn tôi đến cổng a123"
+      -> intent=place_not_found, action=None, target=None
+      "Địa điểm A123 chưa có trong danh mục của tôi."
+
+[OK ] "dẫn tôi đến cổng a10"
+      -> intent=place_not_found, action=None, target=None
+      "Địa điểm A10 chưa có trong danh mục của tôi."
+
+[OK ] "quầy check in ở đâu vậy"
+      -> intent=ask_checkin, action=navigate, target=checkin
+      "Tôi sẽ dẫn bạn đến quầy làm thủ tục."
+
+[OK ] "tôi làm thủ tục lên máy bay ở đâu"
+      -> intent=ask_checkin, action=navigate, target=checkin
+      "Tôi sẽ dẫn bạn đến quầy làm thủ tục."
+
+[OK ] "quay lam thu tuc o dau"
+      -> intent=ask_checkin, action=navigate, target=checkin
+      "Tôi sẽ dẫn bạn đến quầy làm thủ tục."
+
+[OK ] "cho tôi tới quầy check-in"
+      -> intent=guide_me, action=navigate, target=checkin
+      "Tôi sẽ dẫn bạn đến quầy làm thủ tục."
+
+[OK ] "cho tôi hỏi nhà vệ sinh ở đâu ạ"
+      -> intent=ask_toilet, action=navigate, target=None
+      "Tôi sẽ tìm đường tới nhà vệ sinh phù hợp nhất cho bạn."
+
+[OK ] "toilet chỗ nào"
+      -> intent=ask_toilet, action=navigate, target=None
+      "Tôi sẽ tìm đường tới nhà vệ sinh phù hợp nhất cho bạn."
+
+[OK ] "wc ở đâu vậy bạn"
+      -> intent=ask_toilet, action=navigate, target=None
+      "Tôi sẽ tìm đường tới nhà vệ sinh phù hợp nhất cho bạn."
+
+[OK ] "tôi muốn đi vệ sinh quá"
+      -> intent=guide_me, action=navigate, target=None
+      "Tôi sẽ tìm đường tới nhà vệ sinh phù hợp nhất cho bạn."
+
+[OK ] "nha ve sinh o dau"
+      -> intent=ask_toilet, action=navigate, target=None
+      "Tôi sẽ tìm đường tới nhà vệ sinh phù hợp nhất cho bạn."
+
+[OK ] "dẫn tôi đến nhà vệ sinh"
+      -> intent=guide_me, action=navigate, target=None
+      "Tôi sẽ tìm đường tới nhà vệ sinh phù hợp nhất cho bạn."
+
+[OK ] "dẫn tôi đến nhà vệ sinh sảnh A"
+      -> intent=guide_me, action=navigate, target=toilet_1
+      "Tôi sẽ dẫn bạn đến nhà vệ sinh sảnh A."
+
+[OK ] "tôi đói quá"
+      -> intent=ask_food, action=navigate, target=food_court
+      "Tôi sẽ dẫn bạn đến khu ăn uống."
+
+[OK ] "có quán cà phê nào gần đây không"
+      -> intent=ask_food, action=navigate, target=food_court
+      "Tôi sẽ dẫn bạn đến khu ăn uống."
+
+[OK ] "băng chuyền hành lý chỗ nào"
+      -> intent=ask_baggage, action=navigate, target=baggage
+      "Tôi sẽ dẫn bạn đến băng chuyền hành lý."
+
+[OK ] "quầy thông tin ở đâu vậy bạn"
+      -> intent=ask_info_desk, action=navigate, target=info_desk
+      "Tôi sẽ dẫn bạn đến quầy thông tin."
+
+[OK ] "cây atm ở đâu"
+      -> intent=ask_atm, action=navigate, target=atm
+      "Tôi sẽ dẫn bạn đến cây ATM."
+
+[OK ] "cửa an ninh ở đâu ạ"
+      -> intent=ask_security, action=navigate, target=security
+      "Tôi sẽ dẫn bạn đến cửa an ninh."
+
+[OK ] "dừng lại"
+      -> intent=pause_robot, action=pause, target=None
+      "Tôi đã tạm dừng. Bạn bảo đi tiếp khi sẵn sàng nhé."
+
+[OK ] "chờ tôi một chút"
+      -> intent=pause_robot, action=pause, target=None
+      "Tôi đã tạm dừng. Bạn bảo đi tiếp khi sẵn sàng nhé."
+
+[OK ] "tạm dừng đi bạn"
+      -> intent=pause_robot, action=pause, target=None
+      "Tôi đã tạm dừng. Bạn bảo đi tiếp khi sẵn sàng nhé."
+
+[OK ] "đi tiếp nào"
+      -> intent=resume_robot, action=resume, target=None
+      "Chúng ta tiếp tục di chuyển."
+
+[OK ] "tiếp tục đi"
+      -> intent=resume_robot, action=resume, target=None
+      "Chúng ta tiếp tục di chuyển."
+
+[OK ] "không cần nữa"
+      -> intent=cancel_robot, action=cancel, target=None
+      "Tôi đã hủy chuyến đi hiện tại."
+
+[OK ] "hủy chuyến đi"
+      -> intent=cancel_robot, action=cancel, target=None
+      "Tôi đã hủy chuyến đi hiện tại."
+
+[OK ] "quay về trạm sạc đi"
+      -> intent=go_home, action=navigate, target=home
+      "Tôi sẽ dẫn bạn đến trạm sạc."
+
+[OK ] "đừng dẫn tôi đến cổng A1"
+      -> intent=negated_nav, action=None, target=None
+      "Tôi đã ghi nhận bạn không muốn dẫn đường lúc này."
+
+[OK ] "không dừng lại nhé"
+      -> intent=negated_pause, action=None, target=None
+      "Tôi tiếp tục di chuyển và không dừng lại."
+
+[OK ] "dẫn tôi đến cổng A1 hay A2"
+      -> intent=ambiguous_target, action=None, target=None
+      "Yêu cầu có nhiều điểm đến chưa rõ ràng. Bạn vui lòng chọn một điểm."
+
+[OK ] "dẫn tôi đến"
+      -> intent=missing_destination, action=None, target=None
+      "Tôi chưa xác định được điểm đến. Bạn vui lòng nói rõ điểm bạn muốn đến."
+
+[OK ] "wifi sân bay tên gì"
+      -> intent=ask_wifi, action=None, target=None
+      "Sân bay có Wi-Fi miễn phí tên là Airport-Free-WiFi, kết nối không cần mật khẩu."
+
+[OK ] "sạc điện thoại ở đâu"
+      -> intent=ask_charging, action=None, target=None
+      "Các điểm sạc điện thoại miễn phí được bố trí tại quầy thông tin và gần các cổng chờ A, B."
+
+[OK ] "sân bay mở cửa mấy giờ"
+      -> intent=ask_hours, action=None, target=None
+      "Các dịch vụ hành khách tại nhà ga mở cửa liên tục 24/7."
+
+[OK ] "bạn đang dẫn tôi đi đâu"
+      -> intent=ask_status, action=status, target=None
+      "Tôi đang kiểm tra trạng thái di chuyển."
+
+[OK ] "bây giờ là mấy giờ rồi"
+      -> intent=ask_time, action=None, target=None
+      "Bây giờ là 05 giờ 57 phút."
+
+[OK ] "hôm nay thời tiết thế nào"
+      -> intent=unknown, action=None, target=None
+      "Xin lỗi, tôi chưa hiểu ý bạn. Bạn có thể nhờ tôi dẫn tới cổng ra máy bay, quầy làm thủ tục, nhà vệ sinh, hoặc hỏi thông tin sân bay."
+
+[OK ] "bạn có người yêu chưa"
+      -> intent=unknown, action=None, target=None
+      "Xin lỗi, tôi chưa hiểu ý bạn. Bạn có thể nhờ tôi dẫn tới cổng ra máy bay, quầy làm thủ tục, nhà vệ sinh, hoặc hỏi thông tin sân bay."
+
+[OK ] "abcxyz lảm nhảm"
+      -> intent=unknown, action=None, target=None
+      "Xin lỗi, tôi chưa hiểu ý bạn. Bạn có thể nhờ tôi dẫn tới cổng ra máy bay, quầy làm thủ tục, nhà vệ sinh, hoặc hỏi thông tin sân bay."
+
+=== Kết quả kiểm thử: 61/61 đạt ===
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-7.4.4, pluggy-1.4.0 -- /usr/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/ws/src/airport_robot_voice
+plugins: ament-flake8-0.17.5, launch-testing-3.4.11, ament-lint-0.17.5, ament-xmllint-0.17.5, ament-copyright-0.17.5, launch-testing-ros-0.26.12, ament-pep257-0.17.5, typeguard-4.1.5, colcon-core-0.21.3
+collecting ... collected 122 items
+
+src/airport_robot_voice/test/test_audio.py::TestSpeechNormalization::test_gate_speech_normalization PASSED [  0%]
+src/airport_robot_voice/test/test_audio.py::TestTtsEnginesAndWavFormat::test_tts_default_parameters_piper_and_paplay PASSED [  1%]
+src/airport_robot_voice/test/test_audio.py::TestTtsEnginesAndWavFormat::test_log_mode_synthesis PASSED [  2%]
+src/airport_robot_voice/test/test_audio.py::TestTtsEnginesAndWavFormat::test_espeak_mode_synthesis PASSED [  3%]
+src/airport_robot_voice/test/test_audio.py::TestTtsEnginesAndWavFormat::test_piper_synthesized_wav_format_and_validity PASSED [  4%]
+src/airport_robot_voice/test/test_audio.py::TestTtsEnginesAndWavFormat::test_tts_queue_cancellation_before_playback PASSED [  4%]
+src/airport_robot_voice/test/test_audio.py::TestTtsEnginesAndWavFormat::test_tts_dropped_queue_full PASSED [  5%]
+src/airport_robot_voice/test/test_audio.py::TestTtsEnginesAndWavFormat::test_tts_resume_allows_new_speech_after_pause_cancel PASSED [  6%]
+src/airport_robot_voice/test/test_audio.py::TestSttNodeOfflineProcessing::test_stt_known_speech_wav_and_nlu_intent PASSED [  7%]
+src/airport_robot_voice/test/test_audio.py::TestSttNodeOfflineProcessing::test_stt_silence_wav PASSED [  8%]
+src/airport_robot_voice/test/test_audio.py::TestSttNodeOfflineProcessing::test_stt_missing_model_actual_branch PASSED [  9%]
+src/airport_robot_voice/test/test_audio.py::TestSttNodeOfflineProcessing::test_stt_invalid_wav_channels_and_width_rejected PASSED [  9%]
+src/airport_robot_voice/test/test_audio.py::TestSttNodeOfflineProcessing::test_stt_wake_word_timeout_and_queue_drain PASSED [ 10%]
+src/airport_robot_voice/test/test_audio.py::TestAudioDevices::test_sounddevice_query PASSED [ 11%]
+src/airport_robot_voice/test/test_audio.py::TestTtsPlayerCommandAndPaplay::test_build_player_command_arguments PASSED [ 12%]
+src/airport_robot_voice/test/test_audio.py::TestTtsPlayerCommandAndPaplay::test_tts_piper_invokes_paplay_without_q_flag PASSED [ 13%]
+src/airport_robot_voice/test/test_audio.py::TestFasterWhisperHelpersAndSegmentation::test_numpy_float32_conversion_and_resampling PASSED [ 13%]
+src/airport_robot_voice/test/test_audio.py::TestFasterWhisperHelpersAndSegmentation::test_utterance_segmenter_silence_multiple_and_max_cap PASSED [ 14%]
+src/airport_robot_voice/test/test_audio.py::TestFasterWhisperHelpersAndSegmentation::test_clean_whisper_segments_filters_punctuation_only PASSED [ 15%]
+src/airport_robot_voice/test/test_audio.py::TestFasterWhisperNodeIntegration::test_faster_whisper_silence_wav_and_single_final_transcript PASSED [ 16%]
+src/airport_robot_voice/test/test_audio.py::TestFasterWhisperNodeIntegration::test_faster_whisper_real_venv_worker_offline_wav_and_nlu PASSED [ 17%]
+src/airport_robot_voice/test/test_audio.py::TestFasterWhisperNodeIntegration::test_nlu_accepts_faster_whisper_target_and_cancel_variants PASSED [ 18%]
+src/airport_robot_voice/test/test_audio.py::TestFasterWhisperNodeIntegration::test_stt_faster_whisper_missing_dependency_or_model_graceful PASSED [ 18%]
+src/airport_robot_voice/test/test_audio.py::TestFasterWhisperNodeIntegration::test_mic_capture_inference_thread_isolation_and_clean_shutdown PASSED [ 19%]
+src/airport_robot_voice/test/test_audio.py::TestStandardizedDefaultsAndAntiEcho::test_stt_default_parameters_are_faster_whisper_thinkpad_profile PASSED [ 20%]
+src/airport_robot_voice/test/test_audio.py::TestStandardizedDefaultsAndAntiEcho::test_faster_whisper_error_does_not_fallback_to_vosk PASSED [ 21%]
+src/airport_robot_voice/test/test_audio.py::TestStandardizedDefaultsAndAntiEcho::test_self_listening_cooldown_and_tts_echo_suppression PASSED [ 22%]
+src/airport_robot_voice/test/test_audio.py::TestStandardizedDefaultsAndAntiEcho::test_nlu_all_required_keywords_and_gate_variants PASSED [ 22%]
+src/airport_robot_voice/test/test_nlu.py::TestNluBasicAndGates::test_gate_a3_navigation PASSED [ 23%]
+src/airport_robot_voice/test/test_nlu.py::TestNluBasicAndGates::test_gate_location_triggers_navigation PASSED [ 24%]
+src/airport_robot_voice/test/test_nlu.py::TestNluBasicAndGates::test_spoken_code_variants PASSED [ 25%]
+src/airport_robot_voice/test/test_nlu.py::TestNluBasicAndGates::test_nonexistent_gate_detected PASSED [ 26%]
+src/airport_robot_voice/test/test_nlu.py::TestNluBasicAndGates::test_word_boundary_prevents_partial_match PASSED [ 27%]
+src/airport_robot_voice/test/test_nlu.py::TestNluBasicAndGates::test_alias_a1_does_not_match_a10 PASSED [ 27%]
+src/airport_robot_voice/test/test_nlu.py::TestCategoriesAndPlaces::test_checkin_navigation PASSED [ 28%]
+src/airport_robot_voice/test/test_nlu.py::TestCategoriesAndPlaces::test_toilet_category PASSED [ 29%]
+src/airport_robot_voice/test/test_nlu.py::TestCategoriesAndPlaces::test_specific_toilet PASSED [ 30%]
+src/airport_robot_voice/test/test_nlu.py::TestNegationsAndControls::test_negated_navigation PASSED [ 31%]
+src/airport_robot_voice/test/test_nlu.py::TestNegationsAndControls::test_cancel_phrases PASSED [ 31%]
+src/airport_robot_voice/test/test_nlu.py::TestNegationsAndControls::test_negated_pause_not_triggering_pause PASSED [ 32%]
+src/airport_robot_voice/test/test_nlu.py::TestNegationsAndControls::test_pause_commands PASSED [ 33%]
+src/airport_robot_voice/test/test_nlu.py::TestNegationsAndControls::test_resume_commands PASSED [ 34%]
+src/airport_robot_voice/test/test_nlu.py::TestAmbiguityAndMissing::test_ambiguous_multiple_destinations PASSED [ 35%]
+src/airport_robot_voice/test/test_nlu.py::TestAmbiguityAndMissing::test_missing_destination PASSED [ 36%]
+src/airport_robot_voice/test/test_nlu.py::TestOfflineInformation::test_wifi_query PASSED [ 36%]
+src/airport_robot_voice/test/test_nlu.py::TestOfflineInformation::test_charging_query PASSED [ 37%]
+src/airport_robot_voice/test/test_nlu.py::TestOfflineInformation::test_hours_query PASSED [ 38%]
+src/airport_robot_voice/test/test_nlu.py::TestOfflineInformation::test_greetings_and_thanks PASSED [ 39%]
+src/airport_robot_voice/test/test_nlu.py::TestOfflineInformation::test_status_query PASSED [ 40%]
+src/airport_robot_voice/test/test_nlu.py::TestOfflineInformation::test_out_of_scope PASSED [ 40%]
+src/airport_robot_voice/test/test_nlu.py::TestUnicodeAndNoDiacritics::test_decomposed_unicode PASSED [ 41%]
+src/airport_robot_voice/test/test_nlu.py::TestUnicodeAndNoDiacritics::test_no_diacritics_input PASSED [ 42%]
+src/airport_robot_voice/test/test_nlu.py::TestNluReplaceDestination::test_replace_gate_phrases PASSED [ 43%]
+src/airport_robot_voice/test/test_nlu.py::TestNluReplaceDestination::test_replace_category_phrases PASSED [ 44%]
+src/airport_robot_voice/test/test_nlu.py::TestNluReplaceDestination::test_replace_nonexistent_gate PASSED [ 45%]
+src/airport_robot_voice/test/test_nlu.py::TestNluReplaceDestination::test_replace_missing_destination PASSED [ 45%]
+src/airport_robot_voice/test/test_phase9_escort_integration.py::test_01_standalone_mode PASSED [ 46%]
+src/airport_robot_voice/test/test_phase9_escort_integration.py::test_02_escort_rejection_when_unlocked PASSED [ 47%]
+src/airport_robot_voice/test/test_phase9_escort_integration.py::test_03_escort_rejection_when_stale_heartbeat PASSED [ 48%]
+src/airport_robot_voice/test/test_phase9_escort_integration.py::test_04_escort_rejection_when_observation_stale PASSED [ 49%]
+src/airport_robot_voice/test/test_phase9_escort_integration.py::test_05_escort_valid_lock_and_goal_accepted PASSED [ 50%]
+src/airport_robot_voice/test/test_phase9_escort_integration.py::test_06_escort_lock_lost_while_awaiting_goal_response PASSED [ 50%]
+src/airport_robot_voice/test/test_phase9_escort_integration.py::test_07_escort_abort_wrong_session_ignored PASSED [ 51%]
+src/airport_robot_voice/test/test_phase9_escort_integration.py::test_08_escort_abort_idempotency_and_ack PASSED [ 52%]
+src/airport_robot_voice/test/test_phase9_escort_integration.py::test_09_escort_ack_does_not_replace_terminal_and_terminal_completion PASSED [ 53%]
+src/airport_robot_voice/test/test_phase9_escort_integration.py::test_10_escort_goal_succeeded_terminal PASSED [ 54%]
+src/airport_robot_voice/test/test_phase9_escort_integration.py::test_11_escort_late_start_stale_transient_local PASSED [ 54%]
+src/airport_robot_voice/test/test_phase9_escort_integration.py::test_12_escort_out_of_order_stale_message_rejected PASSED [ 55%]
+src/airport_robot_voice/test/test_phase9_escort_integration.py::test_13_escort_late_terminal_of_old_goal_does_not_affect_new_session PASSED [ 56%]
+src/airport_robot_voice/test/test_places.py::TestPlacesSchemaAndConsistency::test_demo_flag_present PASSED [ 57%]
+src/airport_robot_voice/test/test_places.py::TestPlacesSchemaAndConsistency::test_required_gates_exist PASSED [ 58%]
+src/airport_robot_voice/test/test_places.py::TestPlacesSchemaAndConsistency::test_categories_and_multiple_toilets PASSED [ 59%]
+src/airport_robot_voice/test/test_places.py::TestPlacesSchemaAndConsistency::test_no_duplicate_aliases_across_distinct_places PASSED [ 59%]
+src/airport_robot_voice/test/test_places.py::TestPlacesSchemaAndConsistency::test_offline_services_present PASSED [ 60%]
+src/airport_robot_voice/test/test_places.py::TestIntentsSchema::test_no_flight_query_in_intents PASSED [ 61%]
+src/airport_robot_voice/test/test_places.py::TestIntentsSchema::test_required_action_intents PASSED [ 62%]
+src/airport_robot_voice/test/test_planner_resolution.py::test_planner_chooses_shorter_path_when_first_candidate_is_longer PASSED [ 63%]
+src/airport_robot_voice/test/test_planner_resolution.py::test_planner_chooses_second_candidate_when_first_candidate_is_unreachable PASSED [ 63%]
+src/airport_robot_voice/test/test_planner_resolution.py::test_planner_all_candidates_unreachable PASSED [ 64%]
+src/airport_robot_voice/test/test_planner_resolution.py::test_cancel_during_planner_resolving PASSED [ 65%]
+src/airport_robot_voice/test/test_planner_resolution.py::test_planner_candidate_timeout_and_late_result_discarded PASSED [ 66%]
+src/airport_robot_voice/test/test_planner_resolution.py::test_planner_cancel_and_new_resolution_late_callback PASSED [ 67%]
+src/airport_robot_voice/test/test_planner_resolution.py::test_replace_from_specific_target_to_category PASSED [ 68%]
+src/airport_robot_voice/test/test_planner_resolution.py::test_planner_server_unavailable_reports_unavailability PASSED [ 68%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_pause_before_goal_acceptance PASSED [ 69%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_cancel_before_goal_acceptance PASSED [ 70%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_cancel_rejected_leaves_goal_active_and_navigating PASSED [ 71%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_pause_rejected_leaves_goal_active_and_navigating PASSED [ 72%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_cancel_accepted_waits_for_terminal_result_before_paused_or_idle PASSED [ 72%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_goal_finishes_succeeded_or_aborted_during_cancel PASSED [ 73%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_cancel_received_while_pausing_transitions_to_canceling PASSED [ 74%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_pending_goal_rejected_after_pause_cancel_replace PASSED [ 75%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_replace_waits_for_old_goal_terminal_result_before_sending_new_goal PASSED [ 76%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_pause_and_resume_during_planner_resolving PASSED [ 77%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_discard_old_feedback_and_freshness_status PASSED [ 77%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_request_deduplication PASSED [ 78%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_tts_synchronization_and_cancel_in_announcing PASSED [ 79%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_speech_single_emission_per_event PASSED [ 80%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_acceptance_timeout_and_late_acceptance_revoked PASSED [ 81%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_acceptance_timeout_new_request_late_acceptance_discarded PASSED [ 81%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_late_acceptance_cancel_rejected PASSED [ 82%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_pending_acceptance_never_completes PASSED [ 83%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_timer_isolation_between_operations PASSED [ 84%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_cancel_terminal_timeout_and_late_terminal PASSED [ 85%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_tts_strict_policy_aborts_on_timeout_and_error PASSED [ 86%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_tts_flexible_policy_fallbacks_on_timeout PASSED [ 86%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_end_to_end_voice_text_replace_while_navigating PASSED [ 87%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_end_to_end_voice_text_navigate_phrase_while_navigating PASSED [ 88%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_end_to_end_voice_text_replace_while_paused PASSED [ 89%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_replace_with_invalid_target_preserves_current_mission PASSED [ 90%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_unresolved_attempts_blocks_new_mission_until_cleared PASSED [ 90%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_late_result_does_not_clear_new_goal_unconfirmed_terminal PASSED [ 91%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_status_inquiry_with_unresolved_attempts PASSED [ 92%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_tts_strict_and_actual_ack_statuses PASSED [ 93%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_heartbeat_with_sim_time_and_no_clock PASSED [ 94%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_cancel_during_replace_clears_pending_replace_and_cancels PASSED [ 95%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_cancel_during_category_replace_clears_pending_category PASSED [ 95%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_delayed_cancel_terminal_result_statuses PASSED [ 96%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_unconfirmed_attempts_multi_cancel_and_gate PASSED [ 97%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_cancel_acceptance_rejection_and_multi_attempt_terminal PASSED [ 98%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_old_attempt_reject_callback_same_mission_does_not_affect_current_attempt PASSED [ 99%]
+src/airport_robot_voice/test/test_ros_lifecycle.py::test_confirmed_terminal_attempt_not_reverted_by_late_unknown_or_repeated_cancel PASSED [100%]
+
+============================= 122 passed in 54.16s =============================
+
+=== 2. DEFAULT LAUNCHES, VAD_RMS_THRESHOLD WIRING & WAV COMPARISON ===
+=== 1. Default voice_system.launch.py use_nav:=false ===
+[INFO] [launch]: All log files can be found below /home/thuytran/.ros/log/2026-11-25-05-59-03-765203-thuytran-ThinkPad-21286
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [stt_node-1]: process started with pid [21290]
+[INFO] [intent_node-2]: process started with pid [21291]
+[INFO] [tts_node-3]: process started with pid [21292]
+[tts_node-3] [INFO] [1795586343.991181178] [tts_node]: TTS sẵn sàng (engine=piper, player=paplay, queue_size=30).
+[stt_node-1] [INFO] [1795586343.991783994] [stt_node]: STT chế độ MICRO (backend=faster_whisper, device=9, rate=16000): đang khởi tạo...
+
+[intent_node-2] [INFO] [1795586343.995225412] [intent_node]: Intent node sẵn sàng: 23 intents, 16 places, 1 categories.
+[stt_node-1] [INFO] [1795586346.588275598] [stt_node]: Đã nạp Faster-Whisper (model=small, device=cpu, compute_type=int8, lang=vi, beam=5, offline=True) trong 0.66s.
+
+[stt_node-1] [INFO] [1795586346.588799831] [stt_node]: Đang mở micro ALSA (Faster-Whisper, device=9, rate=16000)...
+
+[stt_node-1] [INFO] [1795586346.595752820] [stt_node]: Micro ALSA đã sẵn sàng (Faster-Whisper, device=9, rate=16000, silence=0.80s, rms_th=0.0050, max_utt=12.0s). Mời bạn nói...
+
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [tts_node-3]: sending signal 'SIGINT' to process[tts_node-3]
+[INFO] [intent_node-2]: sending signal 'SIGINT' to process[intent_node-2]
+[INFO] [stt_node-1]: sending signal 'SIGINT' to process[stt_node-1]
+[INFO] [intent_node-2]: process has finished cleanly [pid 21291]
+[INFO] [tts_node-3]: process has finished cleanly [pid 21292]
+[INFO] [stt_node-1]: process has finished cleanly [pid 21290]
+=== 2. Default voice_assistant.launch.py use_nav:=false + vad_rms_threshold:=0.012 ===
+[INFO] [launch]: All log files can be found below /home/thuytran/.ros/log/2026-11-25-05-59-10-066513-thuytran-ThinkPad-21369
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [stt_node-1]: process started with pid [21372]
+[INFO] [intent_node-2]: process started with pid [21373]
+[INFO] [tts_node-3]: process started with pid [21374]
+[tts_node-3] [INFO] [1795586350.285023067] [tts_node]: TTS sẵn sàng (engine=piper, player=paplay, queue_size=30).
+[stt_node-1] [INFO] [1795586350.286629724] [stt_node]: STT chế độ MICRO (backend=faster_whisper, device=9, rate=16000): đang khởi tạo...
+
+[intent_node-2] [INFO] [1795586350.291002964] [intent_node]: Intent node sẵn sàng: 23 intents, 16 places, 1 categories.
+[stt_node-1] [INFO] [1795586351.233215667] [stt_node]: Đã nạp Faster-Whisper (model=small, device=cpu, compute_type=int8, lang=vi, beam=5, offline=True) trong 0.65s.
+
+[stt_node-1] [INFO] [1795586351.233716009] [stt_node]: Đang mở micro ALSA (Faster-Whisper, device=9, rate=16000)...
+
+[stt_node-1] [INFO] [1795586351.239756437] [stt_node]: Micro ALSA đã sẵn sàng (Faster-Whisper, device=9, rate=16000, silence=0.80s, rms_th=0.0120, max_utt=12.0s). Mời bạn nói...
+
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [tts_node-3]: sending signal 'SIGINT' to process[tts_node-3]
+[INFO] [intent_node-2]: sending signal 'SIGINT' to process[intent_node-2]
+[INFO] [stt_node-1]: sending signal 'SIGINT' to process[stt_node-1]
+[INFO] [intent_node-2]: process has finished cleanly [pid 21373]
+[INFO] [tts_node-3]: process has finished cleanly [pid 21374]
+[INFO] [stt_node-1]: process has finished cleanly [pid 21372]
+=== 3. Default WAV (faster_whisper) ===
+[INFO] [launch]: All log files can be found below /home/thuytran/.ros/log/2026-11-25-05-59-16-374047-thuytran-ThinkPad-21452
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [stt_node-1]: process started with pid [21455]
+[INFO] [intent_node-2]: process started with pid [21456]
+[INFO] [tts_node-3]: process started with pid [21457]
+[tts_node-3] [INFO] [1795586356.592425188] [tts_node]: TTS sẵn sàng (engine=log, player=paplay, queue_size=30).
+[stt_node-1] [INFO] [1795586356.595051957] [stt_node]: STT chế độ WAV (backend=faster_whisper): Đọc file /tmp/robot-mic-time.wav
+
+[intent_node-2] [INFO] [1795586356.599453022] [intent_node]: Intent node sẵn sàng: 23 intents, 16 places, 1 categories.
+[stt_node-1] [INFO] [1795586357.452035599] [stt_node]: Đã nạp Faster-Whisper (model=small, device=cpu, compute_type=int8, lang=vi, beam=5, offline=True) trong 0.68s.
+
+[stt_node-1] [INFO] [1795586358.423855806] [stt_node]: [faster_whisper][wav] endpoint->publish=0.971s (infer=0.970s): "Mấy giờ rồi?"
+
+[stt_node-1] [INFO] [1795586358.424123460] [stt_node]: NGHE ĐƯỢC: "Mấy giờ rồi?"
+
+[stt_node-1] [INFO] [1795586358.424498653] [stt_node]: Đã xử lý xong file WAV (Faster-Whisper).
+
+[intent_node-2] [INFO] [1795586358.430283337] [intent_node]: [req_1795586358424_1] "Mấy giờ rồi?" -> intent=ask_time (score=110.0) action=None target=None cat=None
+[tts_node-3] [INFO] [1795586358.431706794] [tts_node]: [sp_1795586358430] NÓI: "Bây giờ là 05 giờ 59 phút."
+[tts_node-3] [INFO] [1795586358.432036360] [tts_node]: [TTS LOG ONLY] "Bây giờ là 05 giờ 59 phút."
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [tts_node-3]: sending signal 'SIGINT' to process[tts_node-3]
+[INFO] [intent_node-2]: sending signal 'SIGINT' to process[intent_node-2]
+[INFO] [stt_node-1]: sending signal 'SIGINT' to process[stt_node-1]
+[INFO] [tts_node-3]: process has finished cleanly [pid 21457]
+[INFO] [intent_node-2]: process has finished cleanly [pid 21456]
+[INFO] [stt_node-1]: process has finished cleanly [pid 21455]
+=== 4. Explicit Vosk backup WAV ===
+[INFO] [launch]: All log files can be found below /home/thuytran/.ros/log/2026-11-25-05-59-22-643704-thuytran-ThinkPad-21567
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [stt_node-1]: process started with pid [21570]
+[INFO] [intent_node-2]: process started with pid [21571]
+[INFO] [tts_node-3]: process started with pid [21572]
+[tts_node-3] [INFO] [1795586362.850664680] [tts_node]: TTS sẵn sàng (engine=log, player=paplay, queue_size=30).
+[stt_node-1] [INFO] [1795586362.852448799] [stt_node]: STT chế độ WAV (backend=vosk): Đọc file /tmp/robot-mic-time.wav
+
+[intent_node-2] [INFO] [1795586362.855697911] [intent_node]: Intent node sẵn sàng: 23 intents, 16 places, 1 categories.
+[stt_node-1] [INFO] [1795586364.206548759] [stt_node]: NGHE ĐƯỢC: "mười dựng số"
+
+[intent_node-2] [INFO] [1795586364.212595981] [intent_node]: [req_1795586364207_1] "mười dựng số" -> intent=pause_robot (score=43.7) action=pause target=None cat=None
+[tts_node-3] [INFO] [1795586364.214222170] [tts_node]: [sp_1795586364213] NÓI: "Hiện không có chuyến đi nào đang hoạt động."
+[tts_node-3] [INFO] [1795586364.214429383] [tts_node]: [TTS LOG ONLY] "Hiện không có chuyến đi nào đang hoạt động."
+[stt_node-1] [INFO] [1795586364.270401488] [stt_node]: Đã xử lý xong file WAV (Vosk).
+
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [tts_node-3]: sending signal 'SIGINT' to process[tts_node-3]
+[INFO] [intent_node-2]: sending signal 'SIGINT' to process[intent_node-2]
+[INFO] [stt_node-1]: sending signal 'SIGINT' to process[stt_node-1]
+[INFO] [intent_node-2]: process has finished cleanly [pid 21571]
+[INFO] [tts_node-3]: process has finished cleanly [pid 21572]
+[INFO] [stt_node-1]: process has finished cleanly [pid 21570]
+=== 5. Leftover voice processes check ===
+21241 docker exec thirsty_ishizaka bash -c  export ROS_DOMAIN_ID=42 source /opt/ros/jazzy/setup.bash source /home/ws/install/setup.bash  echo "=== 1. Default voice_system.launch.py use_nav:=false ===" timeout -s INT 6s ros2 launch airport_robot_voice voice_system.launch.py use_nav:=false || true  echo "=== 2. Default voice_assistant.launch.py use_nav:=false + vad_rms_threshold:=0.012 ===" timeout -s INT 6s ros2 launch airport_robot_voice voice_assistant.launch.py use_nav:=false vad_rms_threshold:=0.012 || true  echo "=== 3. Default WAV (faster_whisper) ===" timeout -s INT 6s ros2 launch airport_robot_voice voice_system.launch.py mode:=wav wav_file:=/tmp/robot-mic-time.wav tts_engine:=log use_nav:=false || true  echo "=== 4. Explicit Vosk backup WAV ===" timeout -s INT 5s ros2 launch airport_robot_voice voice_system.launch.py mode:=wav stt_backend:=vosk wav_file:=/tmp/robot-mic-time.wav tts_engine:=log use_nav:=false || true  echo "=== 5. Leftover voice processes check ===" pgrep -af "faster_whisper_worker|stt_node|intent_node|tts_node" || echo "CLEAN_ZERO_VOICE_PROCESSES" 
+21264 bash -c  export ROS_DOMAIN_ID=42 source /opt/ros/jazzy/setup.bash source /home/ws/install/setup.bash  echo "=== 1. Default voice_system.launch.py use_nav:=false ===" timeout -s INT 6s ros2 launch airport_robot_voice voice_system.launch.py use_nav:=false || true  echo "=== 2. Default voice_assistant.launch.py use_nav:=false + vad_rms_threshold:=0.012 ===" timeout -s INT 6s ros2 launch airport_robot_voice voice_assistant.launch.py use_nav:=false vad_rms_threshold:=0.012 || true  echo "=== 3. Default WAV (faster_whisper) ===" timeout -s INT 6s ros2 launch airport_robot_voice voice_system.launch.py mode:=wav wav_file:=/tmp/robot-mic-time.wav tts_engine:=log use_nav:=false || true  echo "=== 4. Explicit Vosk backup WAV ===" timeout -s INT 5s ros2 launch airport_robot_voice voice_system.launch.py mode:=wav stt_backend:=vosk wav_file:=/tmp/robot-mic-time.wav tts_engine:=log use_nav:=false || true  echo "=== 5. Leftover voice processes check ===" pgrep -af "faster_whisper_worker|stt_node|intent_node|tts_node" || echo "CLEAN_ZERO_VOICE_PROCESSES"
+
+=== 3. REAL /tmp/robot-*.wav DECODING LATENCY & NLU OUTPUTS ===
+WAV=/tmp/robot-mic-time.wav | endpoint->publish=0.971s..1.017s | text='Mấy giờ rồi?' | intent=ask_time action=None target=None
+WAV=/tmp/robot-a3.wav | endpoint->publish=1.167s | text='Tình đồ ngay thơ mà ép, đúng không? Còn chưa nắm tay chưa?' | intent=unknown action=None target=None
+WAV=/tmp/robot-toilet.wav | endpoint->publish=1.218s | text='Mình còn chung ngóc biết nhiều về nhau, đêm để ta lại ngắm sao.' | intent=unknown action=None target=None
+WAV=/tmp/robot-cancel.wav | endpoint->publish=1.151s | text='Chẳng phải em muốn được anh cái tay Thầm thế vai câu xuất' | intent=unknown action=None target=None
+Explicit Vosk comparison on /tmp/robot-mic-time.wav -> 'mười dựng số' (intent=pause_robot [misrecognized])

@@ -10,7 +10,7 @@ Node namespace: /
 Topic type: geometry_msgs/msg/Twist
 Topic type hash: RIHS01_9c45bf16fe0983d80e3cfe750d6835843d265a9a6c46bd2e609fcddde6fb8d2a
 Endpoint type: PUBLISHER
-GID: 01.0f.cb.20.61.82.59.08.00.00.00.00.00.02.e4.03
+GID: 01.0f.cb.20.fd.f4.f4.e7.00.00.00.00.00.02.e4.03
 QoS profile:
   Reliability: RELIABLE
   History (Depth): UNKNOWN
@@ -27,7 +27,7 @@ Node namespace: /
 Topic type: geometry_msgs/msg/Twist
 Topic type hash: RIHS01_9c45bf16fe0983d80e3cfe750d6835843d265a9a6c46bd2e609fcddde6fb8d2a
 Endpoint type: SUBSCRIPTION
-GID: 01.0f.cb.20.13.83.eb.12.00.00.00.00.00.00.19.04
+GID: 01.0f.cb.20.4c.fa.aa.dc.00.00.00.00.00.00.19.04
 QoS profile:
   Reliability: RELIABLE
   History (Depth): UNKNOWN
@@ -42,7 +42,7 @@ Node namespace: /
 Topic type: geometry_msgs/msg/Twist
 Topic type hash: RIHS01_9c45bf16fe0983d80e3cfe750d6835843d265a9a6c46bd2e609fcddde6fb8d2a
 Endpoint type: SUBSCRIPTION
-GID: 01.0f.cb.20.63.82.ff.6a.00.00.00.00.00.00.14.04
+GID: 01.0f.cb.20.ff.f4.d6.2c.00.00.00.00.00.00.14.04
 QoS profile:
   Reliability: RELIABLE
   History (Depth): UNKNOWN
@@ -62,7 +62,7 @@ Node namespace: /
 Topic type: geometry_msgs/msg/Twist
 Topic type hash: RIHS01_9c45bf16fe0983d80e3cfe750d6835843d265a9a6c46bd2e609fcddde6fb8d2a
 Endpoint type: PUBLISHER
-GID: 01.0f.cb.20.63.82.ff.6a.00.00.00.00.00.00.17.03
+GID: 01.0f.cb.20.ff.f4.d6.2c.00.00.00.00.00.00.17.03
 QoS profile:
   Reliability: RELIABLE
   History (Depth): UNKNOWN
@@ -74,12 +74,12 @@ QoS profile:
 
 Subscription count: 2
 
-Node name: escort_real_verify_node
+Node name: escort_velocity_watchdog
 Node namespace: /
 Topic type: geometry_msgs/msg/Twist
 Topic type hash: RIHS01_9c45bf16fe0983d80e3cfe750d6835843d265a9a6c46bd2e609fcddde6fb8d2a
 Endpoint type: SUBSCRIPTION
-GID: 01.0f.cb.20.13.83.eb.12.00.00.00.00.00.00.1a.04
+GID: 01.0f.cb.20.00.f5.54.43.00.00.00.00.00.00.14.04
 QoS profile:
   Reliability: RELIABLE
   History (Depth): UNKNOWN
@@ -89,12 +89,12 @@ QoS profile:
   Liveliness: AUTOMATIC
   Liveliness lease duration: Infinite
 
-Node name: escort_velocity_watchdog
+Node name: escort_real_verify_node
 Node namespace: /
 Topic type: geometry_msgs/msg/Twist
 Topic type hash: RIHS01_9c45bf16fe0983d80e3cfe750d6835843d265a9a6c46bd2e609fcddde6fb8d2a
 Endpoint type: SUBSCRIPTION
-GID: 01.0f.cb.20.64.82.9f.1f.00.00.00.00.00.00.14.04
+GID: 01.0f.cb.20.4c.fa.aa.dc.00.00.00.00.00.00.1a.04
 QoS profile:
   Reliability: RELIABLE
   History (Depth): UNKNOWN
@@ -114,7 +114,7 @@ Node namespace: /
 Topic type: geometry_msgs/msg/Twist
 Topic type hash: RIHS01_9c45bf16fe0983d80e3cfe750d6835843d265a9a6c46bd2e609fcddde6fb8d2a
 Endpoint type: PUBLISHER
-GID: 01.0f.cb.20.64.82.9f.1f.00.00.00.00.00.00.15.03
+GID: 01.0f.cb.20.00.f5.54.43.00.00.00.00.00.00.15.03
 QoS profile:
   Reliability: RELIABLE
   History (Depth): UNKNOWN
@@ -131,7 +131,7 @@ Node namespace: /
 Topic type: geometry_msgs/msg/Twist
 Topic type hash: RIHS01_9c45bf16fe0983d80e3cfe750d6835843d265a9a6c46bd2e609fcddde6fb8d2a
 Endpoint type: SUBSCRIPTION
-GID: 01.0f.cb.20.13.83.eb.12.00.00.00.00.00.00.1b.04
+GID: 01.0f.cb.20.4c.fa.aa.dc.00.00.00.00.00.00.1b.04
 QoS profile:
   Reliability: RELIABLE
   History (Depth): UNKNOWN
@@ -146,7 +146,7 @@ Node namespace: /
 Topic type: geometry_msgs/msg/Twist
 Topic type hash: RIHS01_9c45bf16fe0983d80e3cfe750d6835843d265a9a6c46bd2e609fcddde6fb8d2a
 Endpoint type: SUBSCRIPTION
-GID: 01.0f.cb.20.61.82.59.08.00.00.00.00.00.02.ea.04
+GID: 01.0f.cb.20.fd.f4.f4.e7.00.00.00.00.00.02.ea.04
 QoS profile:
   Reliability: RELIABLE
   History (Depth): UNKNOWN
@@ -166,7 +166,7 @@ Node namespace: /
 Topic type: geometry_msgs/msg/Twist
 Topic type hash: RIHS01_9c45bf16fe0983d80e3cfe750d6835843d265a9a6c46bd2e609fcddde6fb8d2a
 Endpoint type: PUBLISHER
-GID: 01.0f.cb.20.61.82.59.08.00.00.00.00.00.02.eb.03
+GID: 01.0f.cb.20.fd.f4.f4.e7.00.00.00.00.00.02.eb.03
 QoS profile:
   Reliability: RELIABLE
   History (Depth): UNKNOWN
@@ -178,12 +178,12 @@ QoS profile:
 
 Subscription count: 2
 
-Node name: escort_real_verify_node
+Node name: ros_gz_bridge
 Node namespace: /
 Topic type: geometry_msgs/msg/Twist
 Topic type hash: RIHS01_9c45bf16fe0983d80e3cfe750d6835843d265a9a6c46bd2e609fcddde6fb8d2a
 Endpoint type: SUBSCRIPTION
-GID: 01.0f.cb.20.13.83.eb.12.00.00.00.00.00.00.1c.04
+GID: 01.0f.cb.20.2b.f2.1e.b6.00.00.00.00.00.00.15.04
 QoS profile:
   Reliability: RELIABLE
   History (Depth): UNKNOWN
@@ -193,12 +193,12 @@ QoS profile:
   Liveliness: AUTOMATIC
   Liveliness lease duration: Infinite
 
-Node name: ros_gz_bridge
+Node name: escort_real_verify_node
 Node namespace: /
 Topic type: geometry_msgs/msg/Twist
 Topic type hash: RIHS01_9c45bf16fe0983d80e3cfe750d6835843d265a9a6c46bd2e609fcddde6fb8d2a
 Endpoint type: SUBSCRIPTION
-GID: 01.0f.cb.20.97.81.e8.ad.00.00.00.00.00.00.15.04
+GID: 01.0f.cb.20.4c.fa.aa.dc.00.00.00.00.00.00.1c.04
 QoS profile:
   Reliability: RELIABLE
   History (Depth): UNKNOWN
@@ -218,7 +218,7 @@ Node namespace: /
 Topic type: geometry_msgs/msg/Twist
 Topic type hash: RIHS01_9c45bf16fe0983d80e3cfe750d6835843d265a9a6c46bd2e609fcddde6fb8d2a
 Endpoint type: PUBLISHER
-GID: 01.0f.cb.20.61.82.59.08.00.00.00.00.00.03.4a.03
+GID: 01.0f.cb.20.fd.f4.f4.e7.00.00.00.00.00.03.4a.03
 QoS profile:
   Reliability: RELIABLE
   History (Depth): UNKNOWN

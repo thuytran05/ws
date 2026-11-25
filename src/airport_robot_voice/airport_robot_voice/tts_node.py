@@ -8,6 +8,11 @@ Các engine hỗ trợ:
   - espeak : Offline siêu nhẹ với espeak-ng / espeak.
   - gtts   : Online (dự phòng khi có Internet).
 
+Trình phát hỗ trợ cho piper:
+  - aplay  : Phát ALSA trực tiếp (kèm cờ '-q').
+  - paplay : Phát qua PulseAudio/PIPEWIRE (dùng PULSE_SERVER từ môi trường, không truyền '-q').
+  - ffplay : Phát qua ffmpeg/ffplay.
+
 Publish:
   /voice/speaking (std_msgs/Bool)         -> Báo STT tạm ngưng nghe
   /voice/tts_ack  (std_msgs/String [JSON]) -> Xác nhận đã hoàn tất đọc câu nói kèm status chi tiết
@@ -27,6 +32,7 @@ import threading
 import time
 
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from std_msgs.msg import String, Bool
 
@@ -46,14 +52,31 @@ def normalize_speech_text(text: str) -> str:
     return t
 
 
+def build_player_command(player: str, wav_path: str) -> list:
+    """Tạo đối số dòng lệnh phù hợp cho từng trình phát âm thanh.
+    - aplay  : truyền '-q' để giảm log ALSA.
+    - paplay : truyền trực tiếp wav_path (paplay không nhận cờ '-q').
+    - ffplay : truyền '-nodisp -autoexit -loglevel quiet'.
+    """
+    player_str = (player or '').strip()
+    base = os.path.basename(player_str)
+    if base == 'aplay':
+        return [player_str, '-q', wav_path]
+    if base == 'paplay':
+        return [player_str, wav_path]
+    if base == 'ffplay':
+        return [player_str, '-nodisp', '-autoexit', '-loglevel', 'quiet', wav_path]
+    return [player_str, wav_path]
+
+
 class TtsNode(Node):
     def __init__(self):
         super().__init__('tts_node')
 
-        self.declare_parameter('engine', 'log')               # log | piper | espeak | gtts
+        self.declare_parameter('engine', 'piper')             # piper | paplay/aplay | log | espeak | gtts
         self.declare_parameter('piper_bin', 'piper')
         self.declare_parameter('piper_model', '/opt/piper/vi_VN-vais1000-medium.onnx')
-        self.declare_parameter('player', 'aplay')             # aplay | paplay | ffplay
+        self.declare_parameter('player', 'paplay')            # paplay | aplay | ffplay
         self.declare_parameter('speed', 1.0)
         self.declare_parameter('normalize_codes', True)
         self.declare_parameter('queue_size', 30)
@@ -80,11 +103,25 @@ class TtsNode(Node):
 
         self._worker_thread = threading.Thread(target=self.worker, daemon=True)
         self._worker_thread.start()
-        self.get_logger().info(f'TTS sẵn sàng (engine={self.engine}, queue_size={self.queue_size}).')
+        self.get_logger().info(
+            f'TTS sẵn sàng (engine={self.engine}, player={self.player}, queue_size={self.queue_size}).'
+        )
 
     def destroy_node(self):
         self._running = False
-        super().destroy_node()
+        try:
+            self.q.put_nowait(None)
+        except Exception:
+            pass
+        if hasattr(self, '_worker_thread') and self._worker_thread.is_alive():
+            try:
+                self._worker_thread.join(timeout=1.5)
+            except (Exception, KeyboardInterrupt):
+                pass
+        try:
+            super().destroy_node()
+        except (Exception, KeyboardInterrupt):
+            pass
 
     def on_tts_cancel(self, msg: String):
         data_str = msg.data.strip()
@@ -163,6 +200,9 @@ class TtsNode(Node):
             except queue.Empty:
                 continue
 
+            if item is None:
+                break
+
             raw_text, speech_id, mission_id, request_id, enqueued_at = item
             is_cancelled = False
             if speech_id in self._cancelled_speeches:
@@ -201,20 +241,24 @@ class TtsNode(Node):
                 self.get_logger().error(f'Lỗi ngoại lệ TTS: {e}')
                 res_info['status'] = f'ERROR_{type(e).__name__}'
             finally:
-                self.pub_speaking.publish(Bool(data=False))
-                ack_payload = {
-                    'speech_id': speech_id,
-                    'mission_id': mission_id,
-                    'request_id': request_id,
-                    'text': raw_text,
-                    'spoken_text': spoken_text,
-                    'status': res_info.get('status', 'COMPLETED'),
-                    'engine': self.engine,
-                    'wav_generated': res_info.get('wav_generated', False),
-                    'audio_played': res_info.get('audio_played', False),
-                    'timestamp': time.time()
-                }
-                self.pub_tts_ack.publish(String(data=json.dumps(ack_payload, ensure_ascii=False)))
+                if rclpy.ok():
+                    try:
+                        self.pub_speaking.publish(Bool(data=False))
+                        ack_payload = {
+                            'speech_id': speech_id,
+                            'mission_id': mission_id,
+                            'request_id': request_id,
+                            'text': raw_text,
+                            'spoken_text': spoken_text,
+                            'status': res_info.get('status', 'COMPLETED'),
+                            'engine': self.engine,
+                            'wav_generated': res_info.get('wav_generated', False),
+                            'audio_played': res_info.get('audio_played', False),
+                            'timestamp': time.time()
+                        }
+                        self.pub_tts_ack.publish(String(data=json.dumps(ack_payload, ensure_ascii=False)))
+                    except Exception:
+                        pass
 
     def synthesize(self, text: str) -> dict:
         if self.engine == 'log':
@@ -263,14 +307,25 @@ class TtsNode(Node):
                 wav_ok = True
                 audio_ok = False
 
-                if shutil.which(self.player):
-                    play_p = subprocess.run([self.player, '-q', wav], capture_output=True, timeout=15.0)
+                player_resolved = shutil.which(self.player)
+                if not player_resolved and os.path.isfile(self.player) and os.access(self.player, os.X_OK):
+                    player_resolved = self.player
+
+                if player_resolved:
+                    play_cmd = build_player_command(self.player, wav)
+                    play_p = subprocess.run(play_cmd, capture_output=True, timeout=15.0)
                     if play_p.returncode == 0:
                         audio_ok = True
                         status_str = 'COMPLETED'
                     else:
+                        err_msg = (play_p.stderr or b'').decode('utf-8', errors='replace').strip()
+                        pulse_env = os.environ.get('PULSE_SERVER', '(unset)')
+                        self.get_logger().warn(
+                            f'Lỗi phát âm qua {self.player} (exit={play_p.returncode}, PULSE_SERVER={pulse_env}): {err_msg}'
+                        )
                         status_str = f'WARNING_PLAYBACK_EXIT_{play_p.returncode}'
                 else:
+                    self.get_logger().warn(f'Không tìm thấy trình phát âm thanh "{self.player}".')
                     status_str = 'WARNING_NO_PLAYER'
 
                 return {'status': status_str, 'wav_generated': wav_ok, 'audio_played': audio_ok}
@@ -305,11 +360,18 @@ def main(args=None):
     node = TtsNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        try:
+            node.destroy_node()
+        except (Exception, KeyboardInterrupt):
+            pass
+        try:
+            if rclpy.ok():
+                rclpy.shutdown()
+        except (Exception, KeyboardInterrupt):
+            pass
 
 
 if __name__ == '__main__':
