@@ -135,3 +135,45 @@ def test_perception_source_node_live_webcam_failure_no_crash_no_cmd_vel(monkeypa
     finally:
         if rclpy.ok():
             rclpy.shutdown()
+
+
+def test_live_webcam_adapter_async_no_frame_reuse_and_clean_stop():
+    """Verify async capture thread never reuses old frames, preserves capture stamp, and releases cleanly."""
+    mock_cap = MockVideoCapture(0, open_ok=True, width=640, height=480)
+    # Slow down mock read slightly to simulate ~30Hz capture
+    orig_read = mock_cap.read
+    def timed_read():
+        time.sleep(0.015)
+        return orig_read()
+    mock_cap.read = timed_read
+
+    tick = [1700000200, 0]
+    def mock_clock():
+        tick[1] += 10_000_000
+        return (tick[0], tick[1])
+
+    adapter = LiveWebcamAdapter(
+        camera_index=0,
+        width=640,
+        height=480,
+        fps=30.0,
+        cap_factory=lambda idx: mock_cap,
+        async_capture=True,
+        clock_fn=mock_clock,
+    )
+    try:
+        assert adapter.wait_for_frame(timeout_sec=1.0) is True
+        f1 = adapter.read_frame()
+        assert f1 is not None
+        assert f1.data_quality == DataQuality.RGB_ONLY.value
+        assert f1.depth is None and f1.camera_info is None
+
+        # Immediate second read before next capture MUST return None (never reuse old frame)
+        f_dup = adapter.read_frame()
+        assert f_dup is None
+
+        time.sleep(0.08)
+        assert adapter.measured_fps > 0.0
+    finally:
+        adapter.close()
+        assert mock_cap.released is True

@@ -1,11 +1,11 @@
 ================================================================================
 PHASE 10: T25 STRESS & RELIABILITY TEST (50-ITERATION CYCLE)
 ================================================================================
-Cycle 10/50: PASSED [OK] (Group 4, RSS=1718.5MB)
-Cycle 20/50: PASSED [OK] (Group 4, RSS=1718.5MB)
-Cycle 30/50: PASSED [OK] (Group 4, RSS=1718.5MB)
-Cycle 40/50: PASSED [OK] (Group 4, RSS=1718.5MB)
-Cycle 50/50: PASSED [OK] (Group 4, RSS=1718.5MB)
+Cycle 10/50: PASSED [OK] (Group 4, RSS=1730.5MB)
+Cycle 20/50: PASSED [OK] (Group 4, RSS=1730.5MB)
+Cycle 30/50: PASSED [OK] (Group 4, RSS=1730.5MB)
+Cycle 40/50: PASSED [OK] (Group 4, RSS=1730.5MB)
+Cycle 50/50: PASSED [OK] (Group 4, RSS=1730.5MB)
 --------------------------------------------------------------------------------
 T25 KẾT QUẢ TỔNG HỢP: 50/50 chu kỳ ĐẠT 100% PASS trong 0.00s
   - Số chu kỳ thành công: 50 / 50

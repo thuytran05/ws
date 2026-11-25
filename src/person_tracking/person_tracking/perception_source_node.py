@@ -18,7 +18,7 @@ from cv_bridge import CvBridge
 import numpy as np
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import String
 
@@ -77,8 +77,18 @@ class PerceptionSourceNode(Node):
         # Setup publishers
         sensor_qos = qos_profile_sensor_data
         reliable_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
+        rgb_qos = (
+            QoSProfile(
+                history=HistoryPolicy.KEEP_LAST,
+                depth=2,
+                reliability=ReliabilityPolicy.RELIABLE,
+                durability=DurabilityPolicy.VOLATILE,
+            )
+            if self.source_mode == SourceMode.LIVE_WEBCAM.value
+            else sensor_qos
+        )
 
-        self.rgb_pub = self.create_publisher(Image, str(self.get_parameter('rgb_topic').value), sensor_qos)
+        self.rgb_pub = self.create_publisher(Image, str(self.get_parameter('rgb_topic').value), rgb_qos)
         self.depth_pub = self.create_publisher(Image, str(self.get_parameter('depth_topic').value), sensor_qos)
         self.info_pub = self.create_publisher(CameraInfo, str(self.get_parameter('info_topic').value), sensor_qos)
         self.status_pub = self.create_publisher(String, str(self.get_parameter('status_topic').value), reliable_qos)
@@ -86,8 +96,11 @@ class PerceptionSourceNode(Node):
         # Initialize source
         self._init_source()
 
-        # Timer loop for publishing
-        period = 1.0 / max(1.0, self.fps)
+        # Timer loop for publishing (poll quickly in async live_webcam mode; read_frame returns None if no new frame)
+        if self.source_mode == SourceMode.LIVE_WEBCAM.value:
+            period = 1.0 / max(60.0, self.fps * 2.0)
+        else:
+            period = 1.0 / max(1.0, self.fps)
         self.timer = self.create_timer(period, self._publish_step)
         self.get_logger().info(
             f"PerceptionSourceNode initialized in mode '{self.source_mode}' at {self.fps} FPS."
@@ -120,14 +133,20 @@ class PerceptionSourceNode(Node):
                     height=self.camera_height,
                     fps=self.fps,
                     frame_id=self.frame_id,
+                    async_capture=True,
+                    clock_fn=self._ros_stamp_tuple,
                 )
                 self.get_logger().info(
                     f"LiveWebcamAdapter opened /dev/video{self.camera_index} "
-                    f"({self.webcam_adapter.width}x{self.webcam_adapter.height} @ {self.fps} FPS, RGB_ONLY)."
+                    f"({self.webcam_adapter.width}x{self.webcam_adapter.height} @ target {self.fps} FPS, async=True, RGB_ONLY)."
                 )
             except Exception as exc:
                 self.get_logger().error(f"Failed to open webcam (camera_index={self.camera_index}): {exc}")
                 self.webcam_adapter = None
+
+    def _ros_stamp_tuple(self):
+        msg = self.get_clock().now().to_msg()
+        return (msg.sec, msg.nanosec)
 
     def _publish_step(self):
         if self.is_eof:
@@ -163,26 +182,27 @@ class PerceptionSourceNode(Node):
                 if now_mono - self._last_webcam_err_log_mono >= 2.0:
                     self._last_webcam_err_log_mono = now_mono
                     self.get_logger().warn(f"Webcam device camera_index={self.camera_index} unavailable.")
-                self._publish_status(
-                    eof=False,
-                    quality=DataQuality.RGB_ONLY.value,
-                    reason=f"Webcam camera_index={self.camera_index} unavailable.",
-                )
+                    self._publish_status(
+                        eof=False,
+                        quality=DataQuality.RGB_ONLY.value,
+                        reason=f"Webcam camera_index={self.camera_index} unavailable.",
+                    )
                 return
             obs_frame = self.webcam_adapter.read_frame(current_ros_time=current_time_tuple)
             if obs_frame is None:
+                # No new frame yet from capture thread; report only if camera read failed or froze
                 now_mono = time.monotonic()
-                if now_mono - self._last_webcam_err_log_mono >= 2.0:
+                if self.webcam_adapter.consecutive_failures > 0 and (now_mono - self._last_webcam_err_log_mono) >= 1.0:
                     self._last_webcam_err_log_mono = now_mono
                     self.get_logger().warn(
                         f"Webcam frame read failed (consecutive={self.webcam_adapter.consecutive_failures}): "
                         f"{self.webcam_adapter.last_error}"
                     )
-                self._publish_status(
-                    eof=False,
-                    quality=DataQuality.RGB_ONLY.value,
-                    reason=self.webcam_adapter.last_error or "Webcam frame read failed.",
-                )
+                    self._publish_status(
+                        eof=False,
+                        quality=DataQuality.RGB_ONLY.value,
+                        reason=self.webcam_adapter.last_error or "Webcam frame read failed.",
+                    )
                 return
 
         elif self.source_mode == SourceMode.SYNTHETIC_FIXTURE.value:
@@ -272,6 +292,7 @@ class PerceptionSourceNode(Node):
             "reset_event": reset_event,
             "frame_count": self.frame_count,
             "fps": self.fps,
+            "camera_fps": round(self.webcam_adapter.measured_fps, 2) if self.webcam_adapter is not None else self.fps,
             "eof": eof,
             "data_quality": quality,
             "reason": reason,

@@ -10,9 +10,11 @@ Phase 3 Perception Node:
 - STRICTLY ZERO motion output: Does NOT publish /cmd_vel or call Nav2 actions.
 """
 
+from collections import deque
 import json
 import os
 import sys
+import threading
 import time
 import uuid
 from typing import Optional
@@ -21,7 +23,7 @@ from cv_bridge import CvBridge
 import numpy as np
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import String
 
@@ -58,6 +60,7 @@ class PersonDetectorNode(Node):
         self.declare_parameter('session_state_topic', '/tracking/session_state')
         self.declare_parameter('debug_lock_state_topic', '/tracking/debug_lock_state')
         self.declare_parameter('session_freshness_ttl_sec', 1.0)
+        self.declare_parameter('image_qos_reliability', 'best_effort')
 
         model_path = str(self.get_parameter('model_path').value)
         device = str(self.get_parameter('device').value)
@@ -99,7 +102,13 @@ class PersonDetectorNode(Node):
 
         if self.publish_debug_image:
             debug_topic_name = str(self.get_parameter('debug_image_topic').value)
-            self.debug_pub = self.create_publisher(Image, debug_topic_name, sensor_qos)
+            debug_qos = QoSProfile(
+                history=HistoryPolicy.KEEP_LAST,
+                depth=2,
+                reliability=ReliabilityPolicy.RELIABLE,
+                durability=DurabilityPolicy.VOLATILE,
+            )
+            self.debug_pub = self.create_publisher(Image, debug_topic_name, debug_qos)
         else:
             self.debug_pub = None
 
@@ -111,6 +120,17 @@ class PersonDetectorNode(Node):
         session_topic = str(self.get_parameter('session_state_topic').value)
         debug_lock_topic = str(self.get_parameter('debug_lock_state_topic').value)
         self.session_freshness_ttl_sec = float(self.get_parameter('session_freshness_ttl_sec').value)
+        img_rel = str(self.get_parameter('image_qos_reliability').value).strip().lower()
+        rgb_sub_qos = (
+            QoSProfile(
+                history=HistoryPolicy.KEEP_LAST,
+                depth=2,
+                reliability=ReliabilityPolicy.RELIABLE,
+                durability=DurabilityPolicy.VOLATILE,
+            )
+            if img_rel == 'reliable'
+            else sensor_qos
+        )
 
         transient_qos = QoSProfile(
             depth=1,
@@ -118,7 +138,7 @@ class PersonDetectorNode(Node):
             reliability=ReliabilityPolicy.RELIABLE,
         )
 
-        self.sub_rgb = self.create_subscription(Image, rgb_topic, self._on_rgb, sensor_qos)
+        self.sub_rgb = self.create_subscription(Image, rgb_topic, self._on_rgb, rgb_sub_qos)
         self.sub_depth = self.create_subscription(Image, depth_topic, self._on_depth, sensor_qos)
         self.sub_info = self.create_subscription(CameraInfo, info_topic, self._on_info, sensor_qos)
         self.sub_status = self.create_subscription(String, status_topic, self._on_status, reliable_qos)
@@ -147,7 +167,25 @@ class PersonDetectorNode(Node):
         self.last_session_state_mono_time: float = 0.0
         self.latest_debug_lock_state: Optional[dict] = None
         self.last_debug_lock_mono_time: float = 0.0
-        self._frame_timestamps_mono = []
+        self._cam_fps_from_status: Optional[float] = None
+        self._rgb_times = deque(maxlen=30)
+        self._obs_times = deque(maxlen=30)
+        self._dbg_times = deque(maxlen=30)
+
+        # Async single-slot debug worker (decouples debug rendering/publish from observation path)
+        self._debug_lock = threading.Lock()
+        self._debug_event = threading.Event()
+        self._debug_stop_event = threading.Event()
+        self._debug_slot = None
+        self._debug_dropped_frames = 0
+        self._debug_thread: Optional[threading.Thread] = None
+        if self.publish_debug_image and self.debug_pub is not None:
+            self._debug_thread = threading.Thread(
+                target=self._debug_worker_loop,
+                name="debug_viz_worker",
+                daemon=True,
+            )
+            self._debug_thread.start()
 
         # Periodic drain timer (10 Hz / 100ms) to ensure pending frames expire even if input stops
         self.drain_timer = self.create_timer(0.10, self._drain_pending_frames)
@@ -182,6 +220,13 @@ class PersonDetectorNode(Node):
                 self.last_loop_count = loop_count
 
             self.latest_status = status_data
+            if 'camera_fps' in status_data and status_data['camera_fps']:
+                try:
+                    cfps = float(status_data['camera_fps'])
+                    if cfps > 0:
+                        self._cam_fps_from_status = cfps
+                except Exception:
+                    pass
 
             stamp_dict = status_data.get('stamp', {})
             sec = stamp_dict.get('sec', 0)
@@ -336,6 +381,8 @@ class PersonDetectorNode(Node):
             self.get_logger().warn(f"Dropped stale frame: {obs_frame.error_reason}")
             return
 
+        self._rgb_times.append(time.monotonic())
+
         # Run multi-person detection and tracking
         try:
             multi_obs = self.tracker.process_frame(obs_frame)
@@ -344,12 +391,13 @@ class PersonDetectorNode(Node):
             self.get_logger().error(f"Error running tracker inference: {exc}")
             return
 
-        # Publish observation payload
+        # Publish observation payload immediately (critical path)
         self._publish_observation(multi_obs)
+        self._obs_times.append(time.monotonic())
 
-        # Publish debug overlay if enabled
+        # Enqueue into 1-slot debug buffer (non-blocking)
         if self.publish_debug_image and self.debug_pub is not None:
-            self._publish_debug_image(rgb_np, multi_obs, msg.header)
+            self._enqueue_debug_image(rgb_np, multi_obs, msg.header)
 
     def _publish_observation(self, obs: MultiPersonObservation):
         candidates_list = [
@@ -363,6 +411,8 @@ class PersonDetectorNode(Node):
                 "depth_valid": p.depth_valid,
                 "center_offset_x_norm": p.center_offset_x_norm,
                 "near_edge": p.near_edge,
+                "near_horizontal_edge": getattr(p, 'near_horizontal_edge', p.near_edge),
+                "bbox_clipped": getattr(p, 'bbox_clipped', False),
                 "keypoints": p.keypoints,
                 "bearing_optical_rad": getattr(p, 'bearing_optical_rad', None),
                 "bearing_base_rad": getattr(p, 'bearing_base_rad', None),
@@ -416,20 +466,27 @@ class PersonDetectorNode(Node):
         except Exception:
             pass
 
-    def _build_debug_context(self) -> DebugOverlayContext:
+    @staticmethod
+    def _compute_rolling_fps(times_deque: deque) -> Optional[float]:
+        if len(times_deque) < 2:
+            return None
+        dt = times_deque[-1] - times_deque[0]
+        if dt <= 0.05:
+            return None
+        return (len(times_deque) - 1) / dt
+
+    def _build_debug_context(self, inference_ms: float = 0.0) -> DebugOverlayContext:
         now_mono = time.monotonic()
-        self._frame_timestamps_mono.append(now_mono)
-        if len(self._frame_timestamps_mono) > 30:
-            self._frame_timestamps_mono.pop(0)
-        fps_est = None
-        if len(self._frame_timestamps_mono) >= 2:
-            dt = self._frame_timestamps_mono[-1] - self._frame_timestamps_mono[0]
-            if dt > 0.05:
-                fps_est = (len(self._frame_timestamps_mono) - 1) / dt
+        cam_fps = self._cam_fps_from_status or self._compute_rolling_fps(self._rgb_times)
+        obs_fps = self._compute_rolling_fps(self._obs_times)
+        dbg_fps = self._compute_rolling_fps(self._dbg_times)
 
         ctx = DebugOverlayContext(
             edge_margin_ratio=self.tracker.edge_margin_ratio,
-            fps_override=fps_est,
+            camera_fps=cam_fps,
+            observation_fps=obs_fps,
+            debug_fps=dbg_fps,
+            inference_ms=inference_ms,
         )
 
         # Prefer debug_lock_state if fresh, else fall back to session_state
@@ -474,15 +531,47 @@ class PersonDetectorNode(Node):
 
         return ctx
 
-    def _publish_debug_image(self, bgr_img: np.ndarray, obs: MultiPersonObservation, header):
+    def _enqueue_debug_image(self, bgr_img: np.ndarray, obs: MultiPersonObservation, header):
+        """Place latest frame + matching observation into 1-slot buffer (never blocks _on_rgb)."""
+        ctx = self._build_debug_context(inference_ms=obs.processing_time_ms)
+        with self._debug_lock:
+            if self._debug_slot is not None:
+                self._debug_dropped_frames += 1
+            self._debug_slot = (bgr_img, obs, header, ctx)
+            self._debug_event.set()
+
+    def _debug_worker_loop(self):
+        """Dedicated background worker rendering & publishing latest debug image."""
+        while not self._debug_stop_event.is_set():
+            if not self._debug_event.wait(timeout=0.2):
+                continue
+            with self._debug_lock:
+                slot = self._debug_slot
+                self._debug_slot = None
+                self._debug_event.clear()
+            if slot is None:
+                continue
+            bgr_img, obs, header, ctx = slot
+            self._publish_debug_image(bgr_img, obs, header, ctx=ctx)
+
+    def _publish_debug_image(self, bgr_img: np.ndarray, obs: MultiPersonObservation, header, ctx: Optional[DebugOverlayContext] = None):
         try:
-            ctx = self._build_debug_context()
+            if ctx is None:
+                ctx = self._build_debug_context(inference_ms=obs.processing_time_ms)
             debug_img = self.tracker.draw_debug_overlay(bgr_img, obs, context=ctx)
             debug_msg = self.bridge.cv2_to_imgmsg(debug_img, encoding='bgr8')
             debug_msg.header = header
             self.debug_pub.publish(debug_msg)
+            self._dbg_times.append(time.monotonic())
         except Exception as exc:
             self.get_logger().warn(f"Error publishing debug image: {exc}")
+
+    def destroy_node(self):
+        self._debug_stop_event.set()
+        self._debug_event.set()
+        if self._debug_thread is not None and self._debug_thread.is_alive():
+            self._debug_thread.join(timeout=2.0)
+        super().destroy_node()
 
 
 def main(args=None):

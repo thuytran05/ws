@@ -610,6 +610,22 @@
        * Benchmark Before/After Overlay (640x480 synthetic): CUDA:0 `154.7 FPS -> 130.9 FPS` (chi phí vẽ overlay P50 `1.13 ms`); CPU `30.8 FPS -> 29.4 FPS` (P50 overlay `1.61 ms`), lưu tại [.agent/person_tracking/evidence/phase_11_webcam_viz/benchmark_before_after_overlay.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11_webcam_viz/benchmark_before_after_overlay.log).
        * 5 ảnh minh chứng mẫu (`debug_idle.png`, `debug_hand_raising.png`, `debug_locked.png`, `debug_near_edge.png`, `debug_rgb_only.png`) lưu tại `.agent/person_tracking/evidence/phase_11_webcam_viz/`.
        * Lưu ý: Phần kiểm thử trực tiếp với người thật đứng trước webcam (giơ tay khóa ID, hạ tay, di chuyển sang mép) đang ở trạng thái **HARDWARE/USER_VALIDATION_PENDING** chờ người dùng thực hiện; nâng cấp này phục vụ kiểm thử trực quan và **không phải nghiệm thu phần cứng Gate 11**.
+  9. **Tối Ưu Pipeline Webcam & Sửa Logic `near_edge` (Từ Commit `85ae793`, Không phải nghiệm thu Gate 11):**
+     - **Phân tích nguyên nhân bằng đo đạc 30s steady-state trên `/dev/video0` (`ROS_DOMAIN_ID=43`):**
+       * Camera `/dev/video0` đạt tối đa **15.11 FPS** phần cứng (YUYV và MJPG đều 15.11 FPS, mean interval `66.1 ms`).
+       * `rgb_raw` và `debug_image` trước đây dùng `qos_profile_sensor_data` (`BEST_EFFORT`) qua UDP với `net.core.rmem_max = 212992` (208 KB), trong khi mỗi ảnh 640x480x3 là 921 KB $\implies$ tràn socket UDP làm rớt mảnh gói (`rgb_raw` 10.30–11.46 FPS; `debug_image` 4.10 FPS, max gap `1709.1 ms`, tỷ lệ ghép 36.9%). Đồng thời `cap.read()` block đồng bộ 66 ms trong ROS timer và `DebugVisualizer` chạy đồng bộ trong `_on_rgb`.
+       * `near_edge` trước đây kiểm tra cả `y1/y2` (mép trên/dưới) và `x1/x2` bất kể tâm người đang nằm giữa (`center_offset_x_norm ~ 0`), khiến người ngồi gần hoặc người cao bị tô màu cam `[NEAR_EDGE]`.
+     - **Giải pháp đã triển khai:**
+       * Tách capture khỏi ROS timer bằng thread nền + bộ đệm 1-slot latest-frame trong `LiveWebcamAdapter` (`async_capture=True`, đo `measured_fps` thật, không dùng lại frame cũ, không gán stamp mới cho frame cũ).
+       * Dùng `RELIABLE, KEEP_LAST(depth=2)` cho `/camera/color/image_raw` (mode `live_webcam`) và `/tracking/debug_image` (tương thích cả subscriber `RELIABLE` và `BEST_EFFORT`).
+       * Tách luồng render/publish `/tracking/debug_image` sang worker nền 1-slot trong `PersonDetectorNode` (không chặn `/tracking/observation`).
+       * Phân biệt rõ `CAM`, `OBS`, `DBG`, `INF` trên banner bằng rolling window thật.
+       * Tách `bbox_clipped` (chạm biên 8% X/Y) khỏi `near_horizontal_edge` / `near_edge` (`|offset| > 0.70` hoặc lệch $\ge 0.35$ về phía biên ngang đang chạm), giữ nguyên FSM `OUT_OF_FOV` / `EDGE_OCCLUSION_SUSPECTED` và các ngưỡng `VelocityGuard`.
+     - **Kết quả đo 30s steady-state (`ROS_DOMAIN_ID=43`, có `/dev/video0`, debug ON):**
+       * `rgb_raw`: `10.30 FPS -> 15.11 FPS` (`max gap: 500.0 ms -> 96.3 ms`, `gaps>250ms: 7 -> 0`, `453/453 = 100%`).
+       * `observation`: `9.75 FPS -> 15.11 FPS` (`max gap: 608.3 ms -> 94.3 ms`, `gaps>250ms: 10 -> 0`, `453/453 = 100.0%`).
+       * `debug_image`: `4.10 FPS -> 15.12 FPS` (`max gap: 1709.1 ms -> 102.4 ms`, `gaps>250ms: 39 -> 0`, `452/453 = 99.8%`).
+       * Bằng chứng lưu tại `.agent/person_tracking/evidence/phase_11_webcam_opt/`.
 
 - **Bằng chứng kỹ thuật Phase 11:**
   - Cẩm nang vận hành chi tiết: [.agent/person_tracking/PHASE11_PREPARATION_GUIDE.md](file:///home/thuytran/ws/src/.agent/person_tracking/PHASE11_PREPARATION_GUIDE.md).

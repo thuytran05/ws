@@ -51,7 +51,9 @@ class PersonDetection:
     torso_depth_m: Optional[float] = None
     depth_valid: bool = False  # True ONLY if alignment proven (VALID_RGBD) and depth valid
     center_offset_x_norm: float = 0.0  # -1.0 (far left) to 1.0 (far right)
-    near_edge: bool = False  # True if bbox touches outer margin
+    near_edge: bool = False  # True if passenger has horizontal edge risk (OUT_OF_FOV risk)
+    near_horizontal_edge: bool = False  # Explicit alias for horizontal edge risk
+    bbox_clipped: bool = False  # True if bbox touches outer 8% margin on X or Y
     bearing_optical_rad: Optional[float] = None
     bearing_base_rad: Optional[float] = None
     position_base: Optional[List[float]] = None
@@ -178,11 +180,8 @@ class MultiPersonTracker:
                 kp_list = cand.keypoints
                 box_cx = (x1 + x2) / 2.0
                 center_offset_norm = float(np.clip((box_cx - (w / 2.0)) / (w / 2.0), -1.0, 1.0))
-                near_edge = (
-                    x1 < self.edge_margin_ratio * w or
-                    x2 > (1.0 - self.edge_margin_ratio) * w or
-                    y1 < self.edge_margin_ratio * h or
-                    y2 > (1.0 - self.edge_margin_ratio) * h
+                near_edge, near_horiz, bbox_clipped = self._evaluate_edge_flags(
+                    x1, y1, x2, y2, w, h, center_offset_norm
                 )
                 torso_depth_m, depth_valid = self._measure_torso_depth(
                     obs_frame, box, kp_list, h, w
@@ -215,6 +214,8 @@ class MultiPersonTracker:
                     depth_valid=depth_valid,
                     center_offset_x_norm=center_offset_norm,
                     near_edge=near_edge,
+                    near_horizontal_edge=near_horiz,
+                    bbox_clipped=bbox_clipped,
                     bearing_optical_rad=geom.optical_bearing_rad,
                     bearing_base_rad=geom.base_bearing_rad,
                     position_base=geom.position_base,
@@ -267,12 +268,9 @@ class MultiPersonTracker:
                         box_cx = (x1 + x2) / 2.0
                         center_offset_norm = float(np.clip((box_cx - (w / 2.0)) / (w / 2.0), -1.0, 1.0))
 
-                        # Edge proximity check
-                        near_edge = (
-                            x1 < self.edge_margin_ratio * w or
-                            x2 > (1.0 - self.edge_margin_ratio) * w or
-                            y1 < self.edge_margin_ratio * h or
-                            y2 > (1.0 - self.edge_margin_ratio) * h
+                        # Edge proximity check (horizontal risk decoupled from bbox clipping)
+                        near_edge, near_horiz, bbox_clipped = self._evaluate_edge_flags(
+                            x1, y1, x2, y2, w, h, center_offset_norm
                         )
 
                         # Measure torso depth if depth image is available
@@ -304,6 +302,8 @@ class MultiPersonTracker:
                             depth_valid=depth_valid,
                             center_offset_x_norm=center_offset_norm,
                             near_edge=near_edge,
+                            near_horizontal_edge=near_horiz,
+                            bbox_clipped=bbox_clipped,
                             bearing_optical_rad=geom.optical_bearing_rad,
                             bearing_base_rad=geom.base_bearing_rad,
                             position_base=geom.position_base,
@@ -399,6 +399,35 @@ class MultiPersonTracker:
         # Only valid for nearest passenger selection if alignment is field-proven!
         depth_valid = alignment_proven
         return median_d, depth_valid
+
+    def _evaluate_edge_flags(
+        self,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        w: int,
+        h: int,
+        center_offset_norm: float,
+        horizontal_offset_threshold: float = 0.70,
+    ) -> Tuple[bool, bool, bool]:
+        """Separate bbox clipping from horizontal edge risk.
+
+        Returns (near_edge, near_horizontal_edge, bbox_clipped).
+        - bbox_clipped: bbox touches outer edge_margin_ratio (8%) on X or Y.
+        - near_horizontal_edge / near_edge: passenger is laterally near left/right edge
+          (|offset| > 0.70, or shifted >= 0.35 toward the touched horizontal margin).
+          Never triggers solely from top/bottom clipping or a wide centered bbox.
+        """
+        mx = self.edge_margin_ratio * w
+        my = self.edge_margin_ratio * h
+        bbox_clipped = (x1 < mx or x2 > (w - mx) or y1 < my or y2 > (h - my))
+        near_horizontal_edge = (
+            abs(center_offset_norm) > horizontal_offset_threshold
+            or (center_offset_norm < -0.35 and x1 < mx)
+            or (center_offset_norm > 0.35 and x2 > (w - mx))
+        )
+        return near_horizontal_edge, near_horizontal_edge, bbox_clipped
 
     def _flag_ambiguities(self, persons: List[PersonDetection]):
         """Check pairwise bbox IoU to detect crossing / occlusion ambiguities."""

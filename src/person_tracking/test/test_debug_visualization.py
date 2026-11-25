@@ -251,3 +251,88 @@ def test_fsm_color_states_hand_raise_lock_reset_stale_and_session_isolation():
     obs_amb = _make_obs([cand_amb], source_session_id="sess-A")
     img_amb = viz.render(blank, obs_amb, DebugOverlayContext(fsm_available=True, fsm_state="IDLE"))
     assert _has_color_in_region(img_amb, (248, 118, 255, 200), COLOR_ALERT)
+
+
+def test_near_edge_geometry_cases_f3_and_fsm_safety():
+    """Verify Section F.3 cases 1-8: decouple bbox clipping from horizontal edge risk."""
+    from person_tracking.multi_person_tracker import MultiPersonTracker
+    from person_tracking.passenger_lock_manager import PassengerLockManager, TrackingState
+
+    tracker = MultiPersonTracker.__new__(MultiPersonTracker)
+    tracker.edge_margin_ratio = 0.08
+    w, h = 640, 480
+    viz = DebugVisualizer()
+    blank = np.zeros((h, w, 3), dtype=np.uint8)
+    ctx_locked = DebugOverlayContext(
+        fsm_available=True,
+        fsm_state="LOCKED_WAIT_DESTINATION",
+        locked=True,
+        locked_track_id=3,
+        locked_source_session_id="sess-1",
+        obs_fresh=True,
+        camera_fps=15.1,
+        observation_fps=15.0,
+        debug_fps=14.9,
+        inference_ms=6.5,
+    )
+
+    # Case 1: Close to webcam, wide bbox touching left/right margins, centered (offset=0.0)
+    ne1, nhe1, clip1 = tracker._evaluate_edge_flags(30, 50, 610, 470, w, h, 0.0)
+    assert ne1 is False and nhe1 is False and clip1 is True
+    c1 = PersonDetection([30, 50, 610, 470], 0.95, _make_full_17_keypoints(320, 240), track_id=3, is_confirmed=True, near_edge=ne1, near_horizontal_edge=nhe1, bbox_clipped=clip1, center_offset_x_norm=0.0)
+    img1 = viz.render(blank, _make_obs([c1], source_session_id="sess-1"), ctx_locked)
+    assert _has_color_in_region(img1, (28, 48, 36, 150), COLOR_LOCKED)
+    assert not _has_color_in_region(img1, (28, 48, 36, 150), COLOR_NEAR_EDGE)
+
+    # Case 2: Far away, small centered bbox
+    ne2, nhe2, clip2 = tracker._evaluate_edge_flags(270, 150, 370, 450, w, h, 0.0)
+    assert ne2 is False and nhe2 is False and clip2 is True  # y2=450 > 441.6
+
+    # Case 3: Tall person touching top/bottom, centered
+    ne3, nhe3, clip3 = tracker._evaluate_edge_flags(240, 10, 400, 475, w, h, 0.0)
+    assert ne3 is False and nhe3 is False and clip3 is True
+
+    # Case 4: Shifted left & near left edge -> near_edge=True & Orange
+    ne4, nhe4, clip4 = tracker._evaluate_edge_flags(15, 130, 155, 390, w, h, -0.73)
+    assert ne4 is True and nhe4 is True and clip4 is True
+    c4 = PersonDetection([15, 130, 155, 390], 0.92, _make_full_17_keypoints(85, 240), track_id=3, is_confirmed=True, near_edge=ne4, near_horizontal_edge=nhe4, bbox_clipped=clip4, center_offset_x_norm=-0.73)
+    img4 = viz.render(blank, _make_obs([c4], source_session_id="sess-1"), ctx_locked)
+    assert _has_color_in_region(img4, (13, 128, 22, 200), COLOR_NEAR_EDGE)
+
+    # Case 5: Shifted right & near right edge -> near_edge=True
+    ne5, nhe5, clip5 = tracker._evaluate_edge_flags(485, 130, 625, 390, w, h, 0.73)
+    assert ne5 is True and nhe5 is True and clip5 is True
+
+    # Case 6 & 7: FSM OUT_OF_FOV vs return from edge
+    mgr = PassengerLockManager()
+    mgr.state = TrackingState.NAVIGATING
+    mgr.locked = True
+    mgr.session_id = "s1"
+    mgr.locked_track_id = 3
+    mgr.locked_source_session_id = "src1"
+    mgr.current_source_session_id = "src1"
+    mgr.last_locked_passenger_seen_mono_time = 1.0
+    # Return to center clears last_locked_passenger_near_edge
+    mgr.process_observation({
+        "stamp": {"sec": 1, "nanosec": 0},
+        "source_session_id": "src1",
+        "candidates": [{"track_id": 3, "is_confirmed": True, "is_ambiguous": False, "near_edge": False, "confidence": 0.9, "depth_valid": True, "torso_depth_m": 1.5}],
+        "lost_track_ids": [],
+    }, current_time_sec=1.0)
+    assert mgr.last_locked_passenger_near_edge is False
+    # Move to true horizontal edge -> sets last_locked_passenger_near_edge, then lost -> ABORTING OUT_OF_FOV
+    mgr.process_observation({
+        "stamp": {"sec": 1, "nanosec": 100_000_000},
+        "source_session_id": "src1",
+        "candidates": [{"track_id": 3, "is_confirmed": True, "is_ambiguous": False, "near_edge": True, "confidence": 0.9, "depth_valid": True, "torso_depth_m": 1.5}],
+        "lost_track_ids": [],
+    }, current_time_sec=1.1)
+    assert mgr.last_locked_passenger_near_edge is True
+    snap = mgr.process_observation({
+        "stamp": {"sec": 1, "nanosec": 200_000_000},
+        "source_session_id": "src1",
+        "candidates": [],
+        "lost_track_ids": [3],
+    }, current_time_sec=1.2)
+    assert snap.state == TrackingState.ABORTING.value
+    assert snap.reason_code == "OUT_OF_FOV"

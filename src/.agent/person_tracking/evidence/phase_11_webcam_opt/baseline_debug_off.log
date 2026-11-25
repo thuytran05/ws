@@ -1,0 +1,10 @@
+=== BASELINE_DEBUG_OFF (publish_debug=false, sub_debug=false, window=30.0s) ===
+source_status: count=453, FPS=15.11, gap_ms(P50=67.4, P95=68.7, P99=71.1, max=93.9), gaps>250ms=0
+rgb_raw      : count=343, FPS=11.46, gap_ms(P50=67.8, P95=195.0, P99=335.9, max=727.7), gaps>250ms=11
+observation  : count=335, FPS=11.18, gap_ms(P50=67.6, P95=189.6, P99=431.4, max=601.4), gaps>250ms=12
+debug_image  : count=0 (insufficient)
+obs_proc_ms: P50=15.56, P95=17.85, max=18.84
+stamp_match: rgb=343, obs=309/343 (90.1%), dbg=0/343 (0.0%)
+PID 279310 (perception_source): mean_CPU=10.3%, max_CPU=11.5%, RAM=170.6MB
+PID 279311 (person_detector): mean_CPU=22.3%, max_CPU=26.6%, RAM=1627.5MB
+PID 279312 (tracking_manager): mean_CPU=2.0%, max_CPU=2.5%, RAM=67.0MB

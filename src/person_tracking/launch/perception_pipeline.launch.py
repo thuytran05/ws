@@ -73,6 +73,11 @@ def generate_launch_description():
             default_value='true',
             description='Whether to publish debug visualization image'
         ),
+        DeclareLaunchArgument(
+            'image_qos_reliability',
+            default_value='best_effort',
+            description="Subscriber QoS for RGB image: 'best_effort' (Astra/bag) or 'reliable' (webcam)"
+        ),
         # 1. Perception Source Node
         Node(
             package='person_tracking',
@@ -115,6 +120,7 @@ def generate_launch_description():
                 'debug_image_topic': '/tracking/debug_image',
                 'session_state_topic': '/tracking/session_state',
                 'debug_lock_state_topic': '/tracking/debug_lock_state',
+                'image_qos_reliability': LaunchConfiguration('image_qos_reliability'),
             }],
         ),
     ])

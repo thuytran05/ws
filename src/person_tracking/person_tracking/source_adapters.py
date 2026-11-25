@@ -7,9 +7,11 @@ Supports:
 - Bag replay topic normalization and clock decoupling.
 """
 
+from collections import deque
 from dataclasses import dataclass
 from enum import Enum
 import math
+import threading
 import time
 from typing import Optional, Tuple, Dict, Any, List
 
@@ -196,7 +198,11 @@ class VideoReplayAdapter:
 
 
 class LiveWebcamAdapter:
-    """Reads live RGB frames from a local webcam via OpenCV VideoCapture (strictly RGB_ONLY)."""
+    """Reads live RGB frames from a local webcam via OpenCV VideoCapture (strictly RGB_ONLY).
+
+    Supports optional non-blocking background capture thread with a single-slot latest-frame
+    buffer so ROS timer callbacks never block on VideoCapture.read().
+    """
 
     def __init__(
         self,
@@ -206,6 +212,8 @@ class LiveWebcamAdapter:
         fps: float = 30.0,
         frame_id: str = "camera_color_optical_frame",
         cap_factory=None,
+        async_capture: bool = False,
+        clock_fn=None,
     ):
         self.camera_index = int(camera_index)
         self.requested_width = int(width)
@@ -213,6 +221,8 @@ class LiveWebcamAdapter:
         self.fps = float(fps) if (fps and fps > 0) else 30.0
         self.frame_id = frame_id
         self._cap_factory = cap_factory or cv2.VideoCapture
+        self._async_capture = bool(async_capture)
+        self._clock_fn = clock_fn
 
         self.cap = self._cap_factory(self.camera_index)
         if self.cap is None or not self.cap.isOpened():
@@ -241,9 +251,115 @@ class LiveWebcamAdapter:
         self.consecutive_failures = 0
         self.total_failures = 0
         self.last_error = ""
+        self.dropped_stale_captures = 0
+
+        self._capture_times = deque(maxlen=30)
+        self.measured_fps = 0.0
+        self.last_capture_monotonic = 0.0
+
+        # Async latest-frame single-slot buffer
+        self._lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._new_frame_event = threading.Event()
+        self._latest_seq = 0
+        self._last_consumed_seq = 0
+        self._latest_bgr: Optional[np.ndarray] = None
+        self._latest_capture_mono: float = 0.0
+        self._latest_stamp: Tuple[int, int] = (0, 0)
+        self._capture_thread: Optional[threading.Thread] = None
+
+        if self._async_capture:
+            self._capture_thread = threading.Thread(
+                target=self._capture_loop,
+                name=f"webcam_cap_{self.camera_index}",
+                daemon=True,
+            )
+            self._capture_thread.start()
+
+    def _get_stamp(self) -> Tuple[int, int]:
+        if self._clock_fn is not None:
+            return self._clock_fn()
+        now_wall = time.time()
+        s = int(now_wall)
+        ns = int((now_wall - s) * 1e9)
+        return s, ns
+
+    def _record_capture_fps(self, now_mono: float) -> None:
+        self._capture_times.append(now_mono)
+        self.last_capture_monotonic = now_mono
+        if len(self._capture_times) >= 2:
+            dt = self._capture_times[-1] - self._capture_times[0]
+            if dt > 0.05:
+                self.measured_fps = (len(self._capture_times) - 1) / dt
+
+    def _capture_loop(self):
+        while not self._stop_event.is_set():
+            cap = self.cap
+            if cap is None or not cap.isOpened():
+                with self._lock:
+                    self.consecutive_failures += 1
+                    self.total_failures += 1
+                    self.last_error = "Webcam device is not open."
+                self._stop_event.wait(0.05)
+                continue
+
+            ret, bgr = cap.read()
+            now_mono = time.monotonic()
+            if not ret or bgr is None or bgr.size == 0:
+                with self._lock:
+                    self.consecutive_failures += 1
+                    self.total_failures += 1
+                    self.last_error = "Failed to read frame from webcam."
+                self._stop_event.wait(0.01)
+                continue
+
+            stamp = self._get_stamp()
+            with self._lock:
+                self.consecutive_failures = 0
+                self.last_error = ""
+                self.frame_count += 1
+                self._record_capture_fps(now_mono)
+                if self._latest_bgr is not None and self._latest_seq > self._last_consumed_seq:
+                    self.dropped_stale_captures += 1
+                self._latest_seq += 1
+                self._latest_bgr = bgr
+                self._latest_capture_mono = now_mono
+                self._latest_stamp = stamp
+                self._new_frame_event.set()
 
     def read_frame(self, current_ros_time: Optional[Tuple[int, int]] = None) -> Optional[ObservationFrame]:
-        """Read next RGB frame from webcam. Never synthesizes depth or calibrated CameraInfo."""
+        """Read next unread RGB frame from webcam.
+
+        In async mode: returns the latest unread frame with its original capture timestamp,
+        or None if no new frame has arrived since the last call (never reuses/re-stamps old frames).
+        Never synthesizes depth or calibrated CameraInfo.
+        """
+        if self._async_capture:
+            with self._lock:
+                if self._latest_bgr is None or self._latest_seq <= self._last_consumed_seq:
+                    return None
+                bgr = self._latest_bgr
+                self._latest_bgr = None
+                self._last_consumed_seq = self._latest_seq
+                now_mono = self._latest_capture_mono
+                stamp_sec, stamp_nanosec = self._latest_stamp
+                self._new_frame_event.clear()
+
+            return ObservationFrame(
+                rgb=bgr,
+                depth=None,
+                depth_raw=None,
+                camera_info=None,
+                stamp_sec=stamp_sec,
+                stamp_nanosec=stamp_nanosec,
+                receive_monotonic=now_mono,
+                frame_id=self.frame_id,
+                source_mode=SourceMode.LIVE_WEBCAM.value,
+                data_quality=DataQuality.RGB_ONLY.value,
+                error_reason="Live webcam RGB-only mode; depth and calibrated CameraInfo absent.",
+            )
+
+        # Synchronous path
         if self.cap is None or not self.cap.isOpened():
             self.consecutive_failures += 1
             self.total_failures += 1
@@ -257,17 +373,16 @@ class LiveWebcamAdapter:
             self.last_error = "Failed to read frame from webcam."
             return None
 
+        now_mono = time.monotonic()
         self.consecutive_failures = 0
         self.last_error = ""
         self.frame_count += 1
-        now_mono = time.monotonic()
+        self._record_capture_fps(now_mono)
 
         if current_ros_time is not None:
             stamp_sec, stamp_nanosec = current_ros_time
         else:
-            now_wall = time.time()
-            stamp_sec = int(now_wall)
-            stamp_nanosec = int((now_wall - stamp_sec) * 1e9)
+            stamp_sec, stamp_nanosec = self._get_stamp()
 
         return ObservationFrame(
             rgb=bgr,
@@ -283,8 +398,19 @@ class LiveWebcamAdapter:
             error_reason="Live webcam RGB-only mode; depth and calibrated CameraInfo absent.",
         )
 
+    def wait_for_frame(self, timeout_sec: float = 0.1) -> bool:
+        """Wait briefly for a new async frame to become available."""
+        if not self._async_capture:
+            return True
+        return self._new_frame_event.wait(timeout=timeout_sec)
+
     def close(self):
-        """Release webcam VideoCapture cleanly."""
+        """Stop capture thread (if running) and release webcam VideoCapture cleanly."""
+        self._stop_event.set()
+        self._new_frame_event.set()
+        if self._capture_thread is not None and self._capture_thread.is_alive():
+            self._capture_thread.join(timeout=2.0)
+        self._capture_thread = None
         if self.cap is not None:
             try:
                 if self.cap.isOpened():

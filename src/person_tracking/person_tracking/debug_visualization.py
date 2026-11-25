@@ -94,6 +94,10 @@ class DebugOverlayContext:
     deadband_offset: float = 0.08
     near_edge_offset_threshold: float = 0.70
     fps_override: Optional[float] = None
+    camera_fps: Optional[float] = None
+    observation_fps: Optional[float] = None
+    debug_fps: Optional[float] = None
+    inference_ms: Optional[float] = None
 
 
 def is_valid_keypoint(
@@ -241,9 +245,15 @@ def _draw_status_banner(
     """Draw compact translucent system status banner at top-left and legend at bottom-left."""
     h, w = canvas.shape[:2]
 
-    fps_val = ctx.fps_override if ctx.fps_override is not None else (
-        1000.0 / max(1.0, float(getattr(observation, "processing_time_ms", 33.3)))
-    )
+    inf_ms = ctx.inference_ms if ctx.inference_ms is not None else float(getattr(observation, "processing_time_ms", 0.0))
+    cam_fps_val = ctx.camera_fps if ctx.camera_fps is not None else ctx.fps_override
+    obs_fps_val = ctx.observation_fps if ctx.observation_fps is not None else ctx.fps_override
+    dbg_fps_val = ctx.debug_fps if ctx.debug_fps is not None else ctx.fps_override
+
+    cam_str = f"{cam_fps_val:.1f}" if cam_fps_val is not None else "N/A"
+    obs_str = f"{obs_fps_val:.1f}" if obs_fps_val is not None else "N/A"
+    dbg_str = f"{dbg_fps_val:.1f}" if dbg_fps_val is not None else "N/A"
+
     source_str = str(getattr(observation, "source_mode", "unknown")).upper()
     device_str = str(getattr(observation, "device", "cpu")).upper()
     if ":" in device_str:
@@ -285,13 +295,14 @@ def _draw_status_banner(
 
     lines = [
         ("PERSON TRACKING", (255, 255, 255), 0.45, 2),
-        (f"Source: {source_str}", (210, 210, 210), 0.38, 1),
-        (f"Device: {device_str} | FPS: {fps_val:.1f}", (210, 210, 210), 0.38, 1),
-        (f"Persons: {persons_count}", (210, 210, 210), 0.38, 1),
-        (f"State: {state_str}", state_color, 0.38, 1),
-        (f"Locked ID: {locked_id_str}", state_color if (ctx.locked and not ctx.fsm_stale) else (190, 190, 190), 0.38, 1),
-        (f"Observation: {obs_fresh_str}", (120, 240, 120) if obs_fresh_str == "FRESH" else (180, 180, 180), 0.38, 1),
-        (f"Depth: {depth_str}", (120, 240, 120) if depth_str == "VALID RGB-D" else (160, 210, 255), 0.38, 1),
+        (f"Source: {source_str} ({device_str})", (210, 210, 210), 0.37, 1),
+        (f"CAM: {cam_str} FPS | INF: {inf_ms:.1f} ms", (210, 230, 255), 0.37, 1),
+        (f"OBS: {obs_str} FPS | DBG: {dbg_str} FPS", (210, 230, 255), 0.37, 1),
+        (f"Persons: {persons_count}", (210, 210, 210), 0.37, 1),
+        (f"State: {state_str}", state_color, 0.37, 1),
+        (f"Locked ID: {locked_id_str}", state_color if (ctx.locked and not ctx.fsm_stale) else (190, 190, 190), 0.37, 1),
+        (f"Observation: {obs_fresh_str}", (120, 240, 120) if obs_fresh_str == "FRESH" else (180, 180, 180), 0.37, 1),
+        (f"Depth: {depth_str}", (120, 240, 120) if depth_str == "VALID RGB-D" else (160, 210, 255), 0.37, 1),
     ]
 
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -389,7 +400,8 @@ class DebugVisualizer:
             track_id = getattr(person, "track_id", None)
             is_confirmed = bool(getattr(person, "is_confirmed", False))
             is_ambiguous = bool(getattr(person, "is_ambiguous", False))
-            near_edge = bool(getattr(person, "near_edge", False))
+            near_edge = bool(getattr(person, "near_horizontal_edge", False) or getattr(person, "near_edge", False))
+            bbox_clipped = bool(getattr(person, "bbox_clipped", False))
             conf = float(getattr(person, "confidence", 0.0))
             offset_x = float(getattr(person, "center_offset_x_norm", 0.0))
 
@@ -440,6 +452,9 @@ class DebugVisualizer:
                 color = COLOR_NORMAL
             else:
                 color = COLOR_UNCONFIRMED
+
+            if bbox_clipped and not near_edge:
+                tags.append("CLIP")
 
             # Draw bounding box
             thickness = 3 if is_locked_person else 2

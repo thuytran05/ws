@@ -186,7 +186,8 @@ ros2 launch person_tracking perception_pipeline.launch.py \
   camera_height:=480 \
   fps:=30.0 \
   device:=cuda:0 \
-  publish_debug_image:=true
+  publish_debug_image:=true \
+  image_qos_reliability:=reliable
 ```
 
 ### 5.3. Chạy Webcam Chỉ Pipeline Nhận Diện (CPU)
@@ -198,7 +199,8 @@ ros2 launch person_tracking perception_pipeline.launch.py \
   camera_height:=480 \
   fps:=30.0 \
   device:=cpu \
-  publish_debug_image:=true
+  publish_debug_image:=true \
+  image_qos_reliability:=reliable
 ```
 
 ### 5.4. Chạy Tích Hợp Webcam + Detector + Tracking Manager (1 Lệnh)

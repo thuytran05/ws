@@ -299,3 +299,15 @@
      - Giảm tốc mép ảnh: $|e_x| > 0.70 \implies$ giảm 50% tốc độ tiến ($v_x = 0.5 v_x$).
      - Zero Nav2 Invariance: Lệnh Nav2 bằng 0 thì xuất 0 (tuyệt đối không tự quay khi Nav2 đứng yên).
      - Xung đột hướng quay: Nếu lệnh quay Nav2 đối nghịch với việc giữ khách trong ảnh ở mép, ưu tiên dừng chờ.
+
+---
+
+## 6. Giao Diện Chẩn Đoán & Trường Mở Rộng Quan Sát (Debug-Only & Backward-Compatible)
+
+- **Topic `/tracking/debug_lock_state` (`std_msgs/msg/String`, JSON, `RELIABLE` depth=10):**
+  * Chủ quản: `escort_tracking_manager`. Chỉ dùng cho `DebugVisualizer` trong `person_detector_node`; **không** thay đổi hợp đồng `/tracking/session_state` hay `/tracking/safety_request` với Voice.
+  * Chứa `state`, `locked`, `locked_track_id`, `locked_source_session_id`, `gesture_hold_time_sec`, và `gesture_candidates` (`source_session_id`, `track_id`, `accumulated_hold_sec`).
+- **Trường mở rộng tương thích ngược trong `/tracking/observation` (`candidates[i]`):**
+  * `near_edge` (bool): Phản ánh nguy cơ lệch ngang ra khỏi mép trái/phải (`near_horizontal_edge`). Không bật chỉ vì bounding box rộng ở giữa ảnh hoặc chạm mép trên/dưới.
+  * `near_horizontal_edge` (bool): Bí danh tường minh của `near_edge`.
+  * `bbox_clipped` (bool): Chỉ báo chất lượng quan sát khi bbox chạm vùng biên 8% trên trục X hoặc Y.

@@ -179,3 +179,7 @@ Danh sách 26 ca kiểm thử trọng tâm phân loại rõ ràng:
     - Benchmark Before/After Overlay: [.agent/person_tracking/evidence/phase_11_webcam_viz/benchmark_before_after_overlay.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11_webcam_viz/benchmark_before_after_overlay.log).
     - 5 ảnh minh chứng mẫu trong `.agent/person_tracking/evidence/phase_11_webcam_viz/`.
   * Kiểm thử tương tác người thật trước webcam laptop duy trì trạng thái **HARDWARE/USER_VALIDATION_PENDING** và tuyệt đối không dùng kết quả webcam RGB để nghiệm thu Astra RGB-D hoặc robot thật.
+- **Tối ưu Pipeline Webcam & Sửa Logic `near_edge` (Từ Commit `85ae793`):**
+  * Đo steady-state 30s trên `/dev/video0` (`ROS_DOMAIN_ID=43`, debug ON): `rgb_raw` `15.11 FPS`, `observation` `15.11 FPS` (`100.0%`), `debug_image` `15.12 FPS` (`99.8%`, `0 gaps > 250ms`, `max gap = 102.4 ms`).
+  * Bổ sung unit/regression test cho async capture (`test_live_webcam_adapter_async_no_frame_reuse_and_clean_stop`) và 8 kịch bản hình học `near_edge` F.3 (`test_near_edge_geometry_cases_f3_and_fsm_safety`), giữ nguyên toàn bộ test FSM/VelocityGuard/Watchdog cũ.
+  * Log bằng chứng lưu tại `.agent/person_tracking/evidence/phase_11_webcam_opt/`.
