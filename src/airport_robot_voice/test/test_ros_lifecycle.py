@@ -624,12 +624,26 @@ def test_speech_single_emission_per_event(ros_context):
         pause_speeches = [s for s in harness.spoken_messages if 'tạm dừng' in s]
         assert len(pause_speeches) == 1
 
+        # Xác nhận goal gửi lần đầu có z == 0.0 và orientation hợp lệ
+        assert len(harness.server.received_goals) == 1
+        first_pose = harness.server.received_goals[0].pose.pose
+        assert first_pose.position.z == pytest.approx(0.0, abs=1e-6)
+
         # 3. Resume
         harness.spoken_messages.clear()
         harness.nav_node.handle_resume_request('req_sp_res')
         harness.wait_state(MissionState.NAVIGATING, timeout=3.0)
         resume_speeches = [s for s in harness.spoken_messages if 'tiếp tục di chuyển' in s]
         assert len(resume_speeches) == 1
+        assert len(harness.server.received_goals) == 2
+        resumed_pose = harness.server.received_goals[1].pose.pose
+        assert resumed_pose.position.x == pytest.approx(first_pose.position.x, abs=1e-6)
+        assert resumed_pose.position.y == pytest.approx(first_pose.position.y, abs=1e-6)
+        assert resumed_pose.position.z == pytest.approx(0.0, abs=1e-6)
+        assert resumed_pose.orientation.x == pytest.approx(first_pose.orientation.x, abs=1e-6)
+        assert resumed_pose.orientation.y == pytest.approx(first_pose.orientation.y, abs=1e-6)
+        assert resumed_pose.orientation.z == pytest.approx(first_pose.orientation.z, abs=1e-6)
+        assert resumed_pose.orientation.w == pytest.approx(first_pose.orientation.w, abs=1e-6)
 
         # 4. Cancel
         harness.spoken_messages.clear()

@@ -1036,38 +1036,44 @@ ros2 launch airport_robot_voice voice_system.launch.py \
 # bash src/airport_robot_voice/scripts/run_evidence_verification.sh
 ```
 
-##### Kiểm thử lại riêng lỗi Nhà vệ sinh + Mic thật + RViz (`toilet_1` vs `toilet_2`, không nhảy điểm khi phát TTS):
+##### Kiểm thử riêng lỗi Nhà vệ sinh + Mic thật + RViz riêng (`voice_navigation.rviz`):
 ```bash
-# Terminal 1 (Gazebo đặt robot ở cánh trái gần toilet_1 để kiểm chứng ca toilet_1 < toilet_2):
+# Terminal 1 (Gazebo đặt robot tại (-1.0, 1.3) để kiểm chứng toilet_1 < toilet_2):
 export LINOROBOT2_BASE=mecanum ROS_DOMAIN_ID=0
 source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
 ros2 launch linorobot2_gazebo gazebo.launch.py world_name:=turtlebot3_world spawn_x:=-1.0 spawn_y:=1.3 spawn_yaw:=1.57
 
-# Terminal 2 (Nav2 + RViz khớp pose (-1.0, 1.3)):
+# Terminal 2 (Nav2 thuần — tắt RViz mặc định của linorobot2 để dùng RViz riêng của voice):
 export ROS_DOMAIN_ID=0
 source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
 ros2 launch linorobot2_navigation navigation.launch.py sim:=true \
-  map:=/home/ws/src/linorobot2/linorobot2_navigation/maps/turtlebot3_world.yaml rviz:=true \
+  map:=/home/ws/src/linorobot2/linorobot2_navigation/maps/turtlebot3_world.yaml rviz:=false \
   initial_pose_x:=-1.0 initial_pose_y:=1.3 initial_pose_yaw:=1.57
 
-# Terminal 3 (Voice thật: Faster-Whisper + Mic 9 + Piper + paplay):
+# Terminal 3 (Voice thật: Faster-Whisper + Mic 9 + Piper + paplay + RViz riêng voice_navigation.rviz):
 export ROS_DOMAIN_ID=0
 export PULSE_SERVER=unix:/home/ws/.voice-audio/native
 export TZ=Asia/Ho_Chi_Minh
 source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
 ros2 launch airport_robot_voice voice_system.launch.py \
-  use_nav:=true use_sim_time:=true \
+  use_nav:=true use_sim_time:=true launch_rviz:=true \
   places_file:=/home/ws/src/airport_robot_voice/config/places_sim.json
 
-# Terminal 4 (Tùy chọn theo dõi state & tọa độ đã chốt trên topic):
+# Hoặc mở RViz riêng ở terminal khác (khi không truyền launch_rviz:=true):
+# ROS_DOMAIN_ID=0 ros2 run rviz2 rviz2 -d /home/ws/install/airport_robot_voice/share/airport_robot_voice/rviz/voice_navigation.rviz --ros-args -p use_sim_time:=true
+
+# Terminal 4 (Tùy chọn theo dõi state & tọa độ đã chốt / vô hiệu hóa khi IDLE):
 export ROS_DOMAIN_ID=0
 source /opt/ros/jazzy/setup.bash && source /home/ws/install/setup.bash
-ros2 topic echo /voice/confirmed_goal
-# (Hoặc xem state: ros2 topic echo /voice/nav_state --qos-durability transient_local)
+ros2 topic echo /voice/nav_state --qos-durability transient_local
+# Hoặc: ros2 topic echo /voice/confirmed_goal --qos-durability transient_local
 ```
-*Quan sát trên RViz khi nói `"Nhà vệ sinh ở đâu?"` hoặc `"Dẫn tôi đến nhà vệ sinh"`*:
-- Ngay khi chọn xong ứng viên ngắn nhất (`toilet_1` ở `(-1.0, 1.8)`), **trong suốt lúc loa Piper đang đọc** *"Tôi sẽ dẫn bạn đến nhà vệ sinh sảnh A..."*, cả đường `/plan` lẫn ghim xanh `/waypoints` (`ĐÃ CHỐT: nhà vệ sinh sảnh A (toilet_1)`) đã khóa cố định tại `(-1.0, 1.8)`, **không** giữ `toilet_2` rồi mới nhảy sang `toilet_1` sau khi TTS đọc xong.
-- Nếu muốn xem thêm đường thử của cả hai ứng viên với màu riêng trên RViz mà không đụng `/plan`: nhấn nút **Add -> By topic** trên RViz và thêm `/voice/confirmed_path` (`Path`) hoặc `/voice/planner_debug_markers` (`MarkerArray`, hiển thị `[CHỌN]` màu xanh và `[THỬ]` màu cam).
+*Quan sát trên RViz (`voice_navigation.rviz`) khi nói `"Nhà vệ sinh ở đâu?"` hoặc `"Dẫn tôi đến nhà vệ sinh"`*:
+- **Tách quyền sở hữu topic**:
+  - `Voice Confirmed Goal` (`/voice/confirmed_goal_marker`, `TransientLocal`) & `Voice Confirmed Path` (`/voice/confirmed_path`, `TransientLocal`, màu xanh ngọc, dày `0.12`): khóa cố định điểm đến (`toilet_1` ở `(-1.0, 1.8)`) và đường dự kiến ngay trước khi TTS phát câu trả lời, giữ nguyên `z == 0.0` và orientation gốc khi gửi `NavigateToPose` (kể cả qua `PAUSE -> RESUME`).
+  - `Nav2 Active Plan` (`/plan`, màu xanh dương, dày `0.06`): chỉ do Nav2 sở hữu và cập nhật đường chạy thực tế; `nav_command_node` **không** ghi đè hay xóa `/plan` hoặc `/waypoints`.
+  - `Voice Planner Debug` (`/voice/planner_debug_markers`, `[CHỌN]` / `[THỬ]`): phục vụ debug, mặc định `Enabled: false` trong `voice_navigation.rviz`.
+  - Khi kết thúc (`SUCCEEDED`/`ABORTED`), bị từ chối hoặc hủy về `IDLE`: marker/path tự động xóa (`DELETEALL`, path rỗng), `/voice/confirmed_goal` phát sentinel `frame_id=''`, và `/voice/nav_state` đặt `confirmed_goal_valid=false`, `confirmed_goal_pose=null` kể cả cho subscriber kết nối muộn.
 
 
 ### 11.5 Test Voice + `person_tracking` + Nav2 trong Gazebo (Escort Mode)

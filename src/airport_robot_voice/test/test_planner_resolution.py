@@ -23,7 +23,7 @@ from rclpy.action import ActionServer, GoalResponse, CancelResponse
 from nav2_msgs.action import ComputePathToPose, NavigateToPose
 from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped
-from visualization_msgs.msg import MarkerArray
+from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import String
 
 from airport_robot_voice.nav_command_node import NavCommandNode, MissionState
@@ -424,12 +424,12 @@ def test_planner_server_unavailable_reports_unavailability(ros_context):
 
 def test_rviz_confirmed_plan_and_markers_match_winning_toilet_before_tts(ros_context):
     """
-    Test 9 (Regression): Khi toilet_1 (ứng viên 1) ngắn hơn toilet_2 (ứng viên 2),
-    planner_server có thể đã publish /plan sang toilet_2 ở lượt đánh giá cuối.
-    Hệ thống PHẢI khóa toilet_1 trước khi phát TTS, đồng bộ lại /plan, /voice/confirmed_path,
-    /voice/confirmed_goal, /waypoints và /voice/planner_debug_markers đúng về toilet_1
-    ngay trong lúc ANNOUNCING, và gửi đúng pose toilet_1 tới NavigateToPose sau TTS ACK
-    mà KHÔNG chọn lại lần thứ hai.
+    Test 9 (Regression): Tách quyền sở hữu topic hiển thị RViz & không làm biến đổi pose gốc.
+    - Nav2 sở hữu /plan (nav_command_node KHÔNG publish hay xóa /plan hay /waypoints).
+    - /voice/confirmed_goal_marker, /voice/confirmed_path, /voice/confirmed_goal, và
+      /voice/nav_state (confirmed_goal_valid=True, z=0.0) khóa đúng toilet_1 trước khi phát TTS.
+    - Marker CYLINDER z==0.15, ARROW z==0.18, KHÔNG làm lệch self._current_target_pose.pose.position.z == 0.0.
+    - NavigateToPose nhận đúng x, y, z == 0.0 và quaternion orientation của toilet_1 sau TTS ACK.
     """
     from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 
@@ -438,39 +438,44 @@ def test_rviz_confirmed_plan_and_markers_match_winning_toilet_before_tts(ros_con
     nav_node.planner_client = rclpy.action.ActionClient(nav_node, ComputePathToPose, 'test_p9_planner')
     nav_node.nav_client = rclpy.action.ActionClient(nav_node, NavigateToPose, 'test_p9_nav')
 
-    toilet_1_x = round(nav_node.places['toilet_1']['x'], 2)
-    toilet_2_x = round(nav_node.places['toilet_2']['x'], 2)
+    toilet_1 = nav_node.places['toilet_1']
+    toilet_2 = nav_node.places['toilet_2']
+    toilet_1_x = round(toilet_1['x'], 2)
+    toilet_2_x = round(toilet_2['x'], 2)
     mock_server.path_lengths[toilet_1_x] = 4.2
     mock_server.path_lengths[toilet_2_x] = 9.8
 
-    # Giả lập planner_server publish mỗi đường thử ra /plan như Nav2 thật
+    # Giả lập planner_server publish đường thử ra /plan như Nav2 thật
     orig_exec = mock_server._execute_planner
     plan_pub = mock_server.create_publisher(Path, '/plan', 10)
     def exec_with_plan_pub(gh):
         res = orig_exec(gh)
         if res.error_code == 0 and res.path.poses:
-            # Gán tọa độ cuối khớp candidate để dễ kiểm chứng điểm đích trên /plan
             res.path.poses[-1].pose.position.x = float(gh.request.goal.pose.position.x)
             res.path.poses[-1].pose.position.y = float(gh.request.goal.pose.position.y)
             plan_pub.publish(res.path)
         return res
     mock_server._planner_server.register_execute_callback(exec_with_plan_pub)
 
-    # Observer đọc các topic hiển thị và /voice/say
+    # Observer đọc các topic hiển thị, /voice/nav_state và /voice/say
     obs = rclpy.create_node('test_p9_rviz_observer')
     qos_tl = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE)
     seen_plan = []
     seen_confirmed_goal = []
     seen_confirmed_path = []
+    seen_confirmed_markers = []
     seen_waypoints = []
     seen_debug_markers = []
+    seen_nav_states = []
     seen_says = []
 
     obs.create_subscription(Path, '/plan', lambda m: seen_plan.append(m), 10)
     obs.create_subscription(PoseStamped, '/voice/confirmed_goal', lambda m: seen_confirmed_goal.append(m), qos_tl)
     obs.create_subscription(Path, '/voice/confirmed_path', lambda m: seen_confirmed_path.append(m), qos_tl)
+    obs.create_subscription(MarkerArray, '/voice/confirmed_goal_marker', lambda m: seen_confirmed_markers.append(m), qos_tl)
     obs.create_subscription(MarkerArray, '/waypoints', lambda m: seen_waypoints.append(m), 10)
     obs.create_subscription(MarkerArray, '/voice/planner_debug_markers', lambda m: seen_debug_markers.append(m), qos_tl)
+    obs.create_subscription(String, '/voice/nav_state', lambda m: seen_nav_states.append(json.loads(m.data)), qos_tl)
     obs.create_subscription(String, '/voice/say', lambda m: seen_says.append(json.loads(m.data)), 10)
 
     def spin_all(n=5, timeout=0.03):
@@ -481,6 +486,10 @@ def test_rviz_confirmed_plan_and_markers_match_winning_toilet_before_tts(ros_con
 
     spin_all(8)
 
+    # nav_command_node không tạo publisher trên /plan hay /waypoints
+    assert nav_node.count_publishers('/plan') == 1  # Chỉ có plan_pub của mock_server
+    assert nav_node.count_publishers('/waypoints') == 0
+
     nav_node.on_intent(String(data=json.dumps({
         'action': 'navigate', 'category': 'toilet', 'request_id': 'req_p9_toilet'
     })))
@@ -490,28 +499,49 @@ def test_rviz_confirmed_plan_and_markers_match_winning_toilet_before_tts(ros_con
         if nav_node.state == MissionState.ANNOUNCING:
             break
 
-    # Quay thêm vài vòng để obs nhận đủ các bản tin /plan và Marker mới nhất qua DDS
     spin_all(8, timeout=0.03)
 
     assert nav_node.state == MissionState.ANNOUNCING
     assert nav_node._current_target_key == 'toilet_1'
     assert len(mock_server.nav_received_goals) == 0  # Chưa gửi goal trước khi TTS xong
 
-    # Trong lúc đang phát TTS (ANNOUNCING), RViz đã khóa đúng về toilet_1
+    # /plan vẫn là của mock planner (toilet_2 ở lượt thử cuối), nav_command_node KHÔNG ghi đè /plan hay /waypoints
     assert len(seen_plan) >= 1
-    assert round(seen_plan[-1].poses[-1].pose.position.x, 2) == toilet_1_x
+    assert round(seen_plan[-1].poses[-1].pose.position.x, 2) == toilet_2_x
+    assert len(seen_waypoints) == 0
+
+    # Các topic sở hữu bởi voice khóa chặt về toilet_1 trước TTS
     assert len(seen_confirmed_goal) >= 1
-    assert round(seen_confirmed_goal[-1].pose.position.x, 2) == toilet_1_x
+    cg = seen_confirmed_goal[-1]
+    assert cg.header.frame_id == 'map'
+    assert round(cg.pose.position.x, 2) == toilet_1_x
+    assert round(cg.pose.position.y, 2) == round(toilet_1['y'], 2)
+    assert cg.pose.position.z == pytest.approx(0.0, abs=1e-6)
+
     assert len(seen_confirmed_path) >= 1
     assert round(seen_confirmed_path[-1].poses[-1].pose.position.x, 2) == toilet_1_x
-    assert len(seen_waypoints) >= 1
-    assert round(seen_waypoints[-1].markers[0].pose.position.x, 2) == toilet_1_x
+
+    # Marker CYLINDER z=0.15, ARROW z=0.18, nhưng pose gốc trong nav_node & confirmed_goal vẫn giữ z=0.0
+    add_markers = [m for ma in seen_confirmed_markers for m in ma.markers if m.action == Marker.ADD]
+    assert len(add_markers) >= 3
+    pin = [m for m in seen_confirmed_markers[-1].markers if m.type == Marker.CYLINDER][0]
+    arrow = [m for m in seen_confirmed_markers[-1].markers if m.type == Marker.ARROW][0]
+    assert pin.pose.position.z == pytest.approx(0.15, abs=1e-6)
+    assert arrow.pose.position.z == pytest.approx(0.18, abs=1e-6)
+    assert nav_node._current_target_pose.pose.position.z == pytest.approx(0.0, abs=1e-6)
+
+    # /voice/nav_state xác nhận confirmed_goal_valid=True với z=0.0
+    latest_state = seen_nav_states[-1]
+    assert latest_state['confirmed_goal_valid'] is True
+    assert latest_state['current_target_id'] == 'toilet_1'
+    assert latest_state['confirmed_goal_pose']['z'] == pytest.approx(0.0, abs=1e-6)
+
     assert len(seen_debug_markers) >= 1
     labels = [m.text for m in seen_debug_markers[-1].markers if m.text]
     assert any('[CHỌN] toilet_1' in t for t in labels)
     assert any('[THỬ] toilet_2' in t for t in labels)
 
-    # Kết thúc TTS -> gửi đúng pose toilet_1 tới NavigateToPose, không chạy planner lần 2
+    # Kết thúc TTS -> gửi đúng pose toilet_1 (z == 0.0 + quaternion gốc) tới NavigateToPose
     planner_calls_before_ack = len(mock_server.planner_received_goals)
     sid = seen_says[-1]['speech_id']
     mid = seen_says[-1]['mission_id']
@@ -528,8 +558,16 @@ def test_rviz_confirmed_plan_and_markers_match_winning_toilet_before_tts(ros_con
     assert len(mock_server.planner_received_goals) == planner_calls_before_ack
     assert len(mock_server.nav_received_goals) == 1
     dispatched_goal = mock_server.nav_received_goals[0]
-    assert round(dispatched_goal.pose.pose.position.x, 2) == toilet_1_x
-    assert round(dispatched_goal.pose.pose.position.y, 2) == round(nav_node.places['toilet_1']['y'], 2)
+    yaw = float(toilet_1.get('yaw', 0.0))
+    expected_qz = math.sin(yaw / 2.0)
+    expected_qw = math.cos(yaw / 2.0)
+    assert dispatched_goal.pose.pose.position.x == pytest.approx(float(toilet_1['x']), abs=1e-5)
+    assert dispatched_goal.pose.pose.position.y == pytest.approx(float(toilet_1['y']), abs=1e-5)
+    assert dispatched_goal.pose.pose.position.z == pytest.approx(0.0, abs=1e-6)
+    assert dispatched_goal.pose.pose.orientation.x == pytest.approx(0.0, abs=1e-6)
+    assert dispatched_goal.pose.pose.orientation.y == pytest.approx(0.0, abs=1e-6)
+    assert dispatched_goal.pose.pose.orientation.z == pytest.approx(expected_qz, abs=1e-6)
+    assert dispatched_goal.pose.pose.orientation.w == pytest.approx(expected_qw, abs=1e-6)
 
     obs.destroy_node()
     nav_node.destroy_node()
@@ -650,5 +688,125 @@ def test_pause_resume_and_cancel_during_toilet_resolving_and_announcing(ros_cont
     assert nav_node.state == MissionState.IDLE
     assert len(mock_server.nav_received_goals) == 0
 
+    nav_node.destroy_node()
+    mock_server.destroy_node()
+
+
+def test_late_joining_subscriber_sees_cleared_visuals_and_invalid_state_after_terminal_idle(ros_context):
+    """
+    Test 12 (Regression): Sau khi hủy chuyến hoặc kết thúc hành trình (IDLE),
+    mọi marker/path phải được xóa, /voice/confirmed_goal bị vô hiệu hóa (frame_id rỗng),
+    /voice/nav_state báo confirmed_goal_valid=False, và một subscriber kết nối MUỘN
+    sau khi về IDLE không bao giờ nhận nhầm mục tiêu cũ là đang hiệu lực.
+    """
+    import threading
+    from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
+
+    mock_server = MockPlannerAndNavServer('test_p12_planner', 'test_p12_nav')
+    hold_nav = threading.Event()
+
+    def hold_exec_nav(gh):
+        mock_server.nav_received_goals.append(gh.request)
+        # Chờ cancel hoặc release tối đa 3s
+        for _ in range(60):
+            if gh.is_cancel_requested:
+                gh.canceled()
+                return NavigateToPose.Result()
+            if hold_nav.is_set():
+                break
+            time.sleep(0.05)
+        gh.succeed()
+        return NavigateToPose.Result()
+
+    mock_server._nav_server.register_execute_callback(hold_exec_nav)
+
+    nav_node = NavCommandNode()
+    nav_node.planner_client = rclpy.action.ActionClient(nav_node, ComputePathToPose, 'test_p12_planner')
+    nav_node.nav_client = rclpy.action.ActionClient(nav_node, NavigateToPose, 'test_p12_nav')
+
+    toilet_1_x = round(nav_node.places['toilet_1']['x'], 2)
+    toilet_2_x = round(nav_node.places['toilet_2']['x'], 2)
+    mock_server.path_lengths[toilet_1_x] = 3.5
+    mock_server.path_lengths[toilet_2_x] = 9.0
+
+    # Gán /voice/confirmed_goal_path lúc đang chạy để chắc chắn lúc đầu có dữ liệu
+    speeches = []
+    orig_say = nav_node.say
+    def rec_say(text, speech_id=None, mission_id=None):
+        sid = orig_say(text, speech_id, mission_id)
+        speeches.append((text, sid, mission_id))
+        return sid
+    nav_node.say = rec_say
+
+    spin_both(nav_node, mock_server, 8)
+    nav_node.on_intent(String(data=json.dumps({
+        'action': 'navigate', 'category': 'toilet', 'request_id': 'req_p12_1'
+    })))
+
+    for _ in range(40):
+        spin_both(nav_node, mock_server, 1, timeout=0.03)
+        if nav_node.state == MissionState.ANNOUNCING:
+            break
+    assert nav_node.state == MissionState.ANNOUNCING
+
+    _, sid, mid = speeches[-1]
+    nav_node.on_tts_ack(String(data=json.dumps({
+        'speech_id': sid, 'mission_id': mid, 'status': 'COMPLETED',
+        'engine': 'piper', 'audio_played': True
+    })))
+    for _ in range(40):
+        spin_both(nav_node, mock_server, 1, timeout=0.03)
+        if nav_node.state == MissionState.NAVIGATING:
+            break
+    assert nav_node.state == MissionState.NAVIGATING
+
+    # Hủy khi đang NAVIGATING -> về IDLE
+    nav_node.handle_cancel_request('req_p12_cancel')
+    for _ in range(50):
+        spin_both(nav_node, mock_server, 1, timeout=0.03)
+        if nav_node.state == MissionState.IDLE:
+            break
+    assert nav_node.state == MissionState.IDLE
+    spin_both(nav_node, mock_server, 5, timeout=0.03)
+
+    # Tạo subscriber kết nối MUỘN sau khi hệ thống đã về IDLE
+    late_obs = rclpy.create_node('test_p12_late_subscriber')
+    qos_tl = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE)
+    late_state = []
+    late_goal = []
+    late_markers = []
+    late_path = []
+    late_debug = []
+
+    late_obs.create_subscription(String, '/voice/nav_state', lambda m: late_state.append(json.loads(m.data)), qos_tl)
+    late_obs.create_subscription(PoseStamped, '/voice/confirmed_goal', lambda m: late_goal.append(m), qos_tl)
+    late_obs.create_subscription(MarkerArray, '/voice/confirmed_goal_marker', lambda m: late_markers.append(m), qos_tl)
+    late_obs.create_subscription(Path, '/voice/confirmed_path', lambda m: late_path.append(m), qos_tl)
+    late_obs.create_subscription(MarkerArray, '/voice/planner_debug_markers', lambda m: late_debug.append(m), qos_tl)
+
+    for _ in range(25):
+        rclpy.spin_once(nav_node, timeout_sec=0.03)
+        rclpy.spin_once(late_obs, timeout_sec=0.03)
+        if late_state and late_goal and late_markers and late_path and late_debug:
+            break
+
+    assert len(late_state) >= 1
+    assert late_state[-1]['mission_state'] == MissionState.IDLE
+    assert late_state[-1]['confirmed_goal_valid'] is False
+    assert late_state[-1]['confirmed_goal_pose'] is None
+
+    assert len(late_goal) >= 1
+    assert late_goal[-1].header.frame_id == ''
+
+    assert len(late_markers) >= 1
+    assert all(m.action in (Marker.DELETE, Marker.DELETEALL) for m in late_markers[-1].markers)
+
+    assert len(late_path) >= 1
+    assert len(late_path[-1].poses) == 0
+
+    assert len(late_debug) >= 1
+    assert all(m.action in (Marker.DELETE, Marker.DELETEALL) for m in late_debug[-1].markers)
+
+    late_obs.destroy_node()
     nav_node.destroy_node()
     mock_server.destroy_node()

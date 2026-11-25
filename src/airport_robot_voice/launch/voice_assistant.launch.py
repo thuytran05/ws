@@ -14,6 +14,7 @@ def generate_launch_description():
 
     default_intents = os.path.join(cfg, 'intents.json')
     default_places = os.path.join(cfg, 'places.json')
+    default_rviz_config = os.path.join(pkg, 'rviz', 'voice_navigation.rviz')
 
     # Launch Configurations — STT
     mode = LaunchConfiguration('mode')
@@ -50,6 +51,8 @@ def generate_launch_description():
     use_nav = LaunchConfiguration('use_nav')
     launch_stt = LaunchConfiguration('launch_stt')
     enable_escort = LaunchConfiguration('enable_escort')
+    launch_rviz = LaunchConfiguration('launch_rviz')
+    rviz_config = LaunchConfiguration('rviz_config')
 
     return LaunchDescription([
         DeclareLaunchArgument('mode', default_value='mic',
@@ -114,6 +117,10 @@ def generate_launch_description():
                               description='Có khởi chạy stt_node trong launch này hay không (đặt false nếu chạy riêng cho keyboard)'),
         DeclareLaunchArgument('enable_escort', default_value='false',
                               description='Bật chế độ tích hợp Escort Tracking (Phase 9)'),
+        DeclareLaunchArgument('launch_rviz', default_value='false',
+                              description='Bật RViz với cấu hình riêng của voice (voice_navigation.rviz)'),
+        DeclareLaunchArgument('rviz_config', default_value=default_rviz_config,
+                              description='Đường dẫn file cấu hình .rviz cho voice navigation'),
 
         # STT Node (Chỉ chạy khi launch_stt == true)
         Node(
@@ -189,5 +196,16 @@ def generate_launch_description():
                 'use_sim_time': ParameterValue(use_sim_time, value_type=bool),
             }],
             condition=IfCondition(use_nav)
+        ),
+
+        # RViz2 riêng của Voice (Chỉ chạy khi launch_rviz == true)
+        Node(
+            package='rviz2',
+            executable='rviz2',
+            name='rviz2',
+            output='screen',
+            arguments=['-d', rviz_config],
+            parameters=[{'use_sim_time': ParameterValue(use_sim_time, value_type=bool)}],
+            condition=IfCondition(launch_rviz)
         ),
     ])
