@@ -113,6 +113,35 @@ def spin_both(node1, node2, count=5, timeout=0.03):
         rclpy.spin_once(node2, timeout_sec=timeout)
 
 
+def spin_nodes(*nodes, count=5, timeout=0.03):
+    for _ in range(count):
+        for n in nodes:
+            rclpy.spin_once(n, timeout_sec=timeout)
+
+
+def ack_tts(nav_node, speech_id=None, mission_id=None):
+    sid = speech_id if speech_id is not None else nav_node._pending_speech_id
+    mid = mission_id if mission_id is not None else nav_node._current_mission_id
+    nav_node.on_tts_ack(String(data=json.dumps({
+        'speech_id': sid, 'mission_id': mid, 'status': 'COMPLETED',
+        'engine': 'piper', 'audio_played': True
+    })))
+
+
+def create_rviz_observer(name: str):
+    from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
+    obs = rclpy.create_node(name)
+    qos_tl = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE)
+    data = {'cp': [], 'cm': [], 'cg': [], 'ns': [], 'dm': [], 'says': []}
+    obs.create_subscription(Path, '/voice/confirmed_path', lambda m: data['cp'].append(m), qos_tl)
+    obs.create_subscription(MarkerArray, '/voice/confirmed_goal_marker', lambda m: data['cm'].append(m), qos_tl)
+    obs.create_subscription(PoseStamped, '/voice/confirmed_goal', lambda m: data['cg'].append(m), qos_tl)
+    obs.create_subscription(String, '/voice/nav_state', lambda m: data['ns'].append(json.loads(m.data)), qos_tl)
+    obs.create_subscription(MarkerArray, '/voice/planner_debug_markers', lambda m: data['dm'].append(m), qos_tl)
+    obs.create_subscription(String, '/voice/say', lambda m: data['says'].append(json.loads(m.data)), 10)
+    return obs, data
+
+
 def test_planner_chooses_shorter_path_when_first_candidate_is_longer(ros_context):
     """
     Test 1: toilet_1 (ứng viên đầu tiên) có đường đi dài (25.0m),
@@ -770,42 +799,19 @@ def test_late_joining_subscriber_sees_cleared_visuals_and_invalid_state_after_te
     spin_both(nav_node, mock_server, 5, timeout=0.03)
 
     # Tạo subscriber kết nối MUỘN sau khi hệ thống đã về IDLE
-    late_obs = rclpy.create_node('test_p12_late_subscriber')
-    qos_tl = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE)
-    late_state = []
-    late_goal = []
-    late_markers = []
-    late_path = []
-    late_debug = []
-
-    late_obs.create_subscription(String, '/voice/nav_state', lambda m: late_state.append(json.loads(m.data)), qos_tl)
-    late_obs.create_subscription(PoseStamped, '/voice/confirmed_goal', lambda m: late_goal.append(m), qos_tl)
-    late_obs.create_subscription(MarkerArray, '/voice/confirmed_goal_marker', lambda m: late_markers.append(m), qos_tl)
-    late_obs.create_subscription(Path, '/voice/confirmed_path', lambda m: late_path.append(m), qos_tl)
-    late_obs.create_subscription(MarkerArray, '/voice/planner_debug_markers', lambda m: late_debug.append(m), qos_tl)
-
+    late_obs, late_data = create_rviz_observer('test_p12_late_subscriber')
     for _ in range(25):
-        rclpy.spin_once(nav_node, timeout_sec=0.03)
-        rclpy.spin_once(late_obs, timeout_sec=0.03)
-        if late_state and late_goal and late_markers and late_path and late_debug:
+        spin_nodes(nav_node, late_obs, count=1)
+        if all(late_data[k] for k in ('ns', 'cg', 'cm', 'cp', 'dm')):
             break
 
-    assert len(late_state) >= 1
-    assert late_state[-1]['mission_state'] == MissionState.IDLE
-    assert late_state[-1]['confirmed_goal_valid'] is False
-    assert late_state[-1]['confirmed_goal_pose'] is None
-
-    assert len(late_goal) >= 1
-    assert late_goal[-1].header.frame_id == ''
-
-    assert len(late_markers) >= 1
-    assert all(m.action in (Marker.DELETE, Marker.DELETEALL) for m in late_markers[-1].markers)
-
-    assert len(late_path) >= 1
-    assert len(late_path[-1].poses) == 0
-
-    assert len(late_debug) >= 1
-    assert all(m.action in (Marker.DELETE, Marker.DELETEALL) for m in late_debug[-1].markers)
+    assert late_data['ns'][-1]['mission_state'] == MissionState.IDLE
+    assert late_data['ns'][-1]['confirmed_goal_valid'] is False
+    assert late_data['ns'][-1]['confirmed_goal_pose'] is None
+    assert late_data['cg'][-1].header.frame_id == ''
+    assert all(m.action in (Marker.DELETE, Marker.DELETEALL) for m in late_data['cm'][-1].markers)
+    assert len(late_data['cp'][-1].poses) == 0
+    assert all(m.action in (Marker.DELETE, Marker.DELETEALL) for m in late_data['dm'][-1].markers)
 
     late_obs.destroy_node()
     nav_node.destroy_node()

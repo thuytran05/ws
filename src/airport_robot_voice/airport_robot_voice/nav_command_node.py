@@ -454,6 +454,13 @@ class NavCommandNode(Node):
         invalid_goal.header.frame_id = ''
         self.pub_confirmed_goal.publish(invalid_goal)
 
+    def _clear_target_and_visuals(self, clear_debug: bool = True):
+        """Xóa marker/path trên RViz và reset thông tin đích hiện tại."""
+        self._clear_destination_visuals(clear_debug=clear_debug)
+        self._current_target_key = None
+        self._current_target_name = None
+        self._current_target_pose = None
+
     def destroy_node(self):
         if hasattr(self, '_heartbeat_timer') and self._heartbeat_timer:
             try:
@@ -574,11 +581,7 @@ class NavCommandNode(Node):
                 self._pending_speech_id = None
                 if self.tts_policy == 'strict':
                     self.say('Hệ thống âm thanh bận, không thể phát thông báo.')
-                    self._clear_destination_visuals(clear_debug=True)
-                    self._current_target_key = None
-                    self._current_target_name = None
-                    self._current_target_pose = None
-                    self._confirmed_path = None
+                    self._clear_target_and_visuals(clear_debug=True)
                     self.state = MissionState.IDLE
                     self.publish_state()
                     self.publish_feedback('FAILED', 'TTS_DROPPED_QUEUE_FULL', 'Hàng đợi âm thanh đầy')
@@ -599,11 +602,7 @@ class NavCommandNode(Node):
                 self._stop_tts_timeout_timer(ack_speech_id)
                 self._pending_speech_id = None
                 if self.tts_policy == 'strict':
-                    self._clear_destination_visuals(clear_debug=True)
-                    self._current_target_key = None
-                    self._current_target_name = None
-                    self._current_target_pose = None
-                    self._confirmed_path = None
+                    self._clear_target_and_visuals(clear_debug=True)
                     self.state = MissionState.IDLE
                     self.publish_state()
                     self.publish_feedback('FAILED', f'TTS_{status}', f'Lỗi hoặc không phát được âm thanh trong chế độ strict (status={status})')
@@ -654,11 +653,7 @@ class NavCommandNode(Node):
         if self.tts_policy == 'strict':
             self.get_logger().error(f"Timeout ({self.tts_ack_timeout}s) chờ tts_ack cho [{expected_speech_id}] ở chế độ strict. Hủy gửi goal!")
             self._pending_speech_id = None
-            self._clear_destination_visuals(clear_debug=True)
-            self._current_target_key = None
-            self._current_target_name = None
-            self._current_target_pose = None
-            self._confirmed_path = None
+            self._clear_target_and_visuals(clear_debug=True)
             self.state = MissionState.IDLE
             self.publish_state()
             self.publish_feedback('FAILED', 'TTS_TIMEOUT_STRICT_ABORT', 'Không nhận được xác nhận âm thanh trong chế độ strict')
@@ -1278,10 +1273,7 @@ class NavCommandNode(Node):
 
         candidates = self.get_valid_candidates(category)
         if not candidates:
-            self._clear_destination_visuals(clear_debug=True)
-            self._current_target_key = None
-            self._current_target_name = None
-            self._current_target_pose = None
+            self._clear_target_and_visuals(clear_debug=True)
             self.say('Không tìm thấy địa điểm nào phù hợp trong danh mục.')
             self.state = MissionState.IDLE
             self._resolving_active = False
@@ -1292,10 +1284,7 @@ class NavCommandNode(Node):
         # Kiểm tra planner action server (với timeout ngắn)
         if not self.planner_client.wait_for_server(timeout_sec=0.2):
             self.get_logger().warn('Bộ điều phối đường (planner) chưa sẵn sàng. Không thể chọn điểm tối ưu cho danh mục.')
-            self._clear_destination_visuals(clear_debug=True)
-            self._current_target_key = None
-            self._current_target_name = None
-            self._current_target_pose = None
+            self._clear_target_and_visuals(clear_debug=True)
             self._resolving_active = False
             self.state = MissionState.IDLE
             self.publish_state()
@@ -1344,10 +1333,7 @@ class NavCommandNode(Node):
                 self.start_specific_mission(best_key, eval_data['req_id'], confirmed_path=best_path)
             else:
                 self.get_logger().error(f"[{res_id}] Tất cả các ứng viên đều không tìm được đường đi khả dụng.")
-                self._clear_destination_visuals(clear_debug=True)
-                self._current_target_key = None
-                self._current_target_name = None
-                self._current_target_pose = None
+                self._clear_target_and_visuals(clear_debug=True)
                 self.say('Hệ thống không tìm thấy đường đi tới các điểm yêu cầu.')
                 self.state = MissionState.IDLE
                 self.publish_state()
@@ -1560,12 +1546,8 @@ class NavCommandNode(Node):
                 if speech:
                     self.say(speech)
                 self.publish_feedback('REJECTED', f'ESCORT_{reason}', speech)
-                self._clear_destination_visuals(clear_debug=True)
+                self._clear_target_and_visuals(clear_debug=True)
                 self.state = MissionState.IDLE
-                self._current_target_key = None
-                self._current_target_name = None
-                self._current_target_pose = None
-                self._confirmed_path = None
                 self._pending_replace_target = None
                 self._pending_replace_category = None
                 self.publish_state()
@@ -1587,11 +1569,7 @@ class NavCommandNode(Node):
             target_desc = self._current_target_name or self._current_target_key or 'đã chọn'
             self.get_logger().error(f'Điểm đến đã chốt ({target_desc}) không còn hợp lệ hoặc không khả dụng trước khi gửi goal Nav2!')
             speech = f'Địa điểm {target_desc} hiện không còn khả dụng để dẫn đường.'
-            self._clear_destination_visuals(clear_debug=True)
-            self._current_target_key = None
-            self._current_target_name = None
-            self._current_target_pose = None
-            self._confirmed_path = None
+            self._clear_target_and_visuals(clear_debug=True)
             self.say(speech)
             self.publish_feedback('FAILED', 'TARGET_BECAME_UNAVAILABLE', speech)
             self.state = MissionState.IDLE
@@ -1703,11 +1681,7 @@ class NavCommandNode(Node):
                 self._transition_to_cancelled()
                 return
 
-            self._clear_destination_visuals(clear_debug=True)
-            self._current_target_key = None
-            self._current_target_name = None
-            self._current_target_pose = None
-            self._confirmed_path = None
+            self._clear_target_and_visuals(clear_debug=True)
             self.say('Tôi không thể di chuyển tới đó lúc này.')
             self.state = MissionState.IDLE
             self.publish_state()
@@ -1872,24 +1846,16 @@ class NavCommandNode(Node):
                 speech = f'Chúng ta đã tới {self._current_target_name} trước khi lệnh hủy có hiệu lực. Chúc bạn chuyến đi vui vẻ!'
                 self.say(speech)
                 self.publish_feedback('SUCCEEDED', 'ARRIVED_BEFORE_CANCEL', speech)
-                self._clear_destination_visuals(clear_debug=True)
+                self._clear_target_and_visuals(clear_debug=True)
                 self.state = MissionState.IDLE
-                self._current_target_key = None
-                self._current_target_name = None
-                self._current_target_pose = None
-                self._confirmed_path = None
                 self.publish_state()
                 return
             elif status == GoalStatus.STATUS_ABORTED:
                 speech = 'Tôi gặp trở ngại trên đường đi và không thể tiếp tục.'
                 self.say(speech)
                 self.publish_feedback('FAILED', 'ABORTED', speech)
-                self._clear_destination_visuals(clear_debug=True)
+                self._clear_target_and_visuals(clear_debug=True)
                 self.state = MissionState.IDLE
-                self._current_target_key = None
-                self._current_target_name = None
-                self._current_target_pose = None
-                self._confirmed_path = None
                 self.publish_state()
                 return
             else:
@@ -2050,24 +2016,16 @@ class NavCommandNode(Node):
                 speech = f'Chúng ta đã tới {self._current_target_name} trước khi lệnh hủy có hiệu lực. Chúc bạn chuyến đi vui vẻ!'
                 self.say(speech)
                 self.publish_feedback('SUCCEEDED', 'ARRIVED_BEFORE_CANCEL', speech)
-                self._clear_destination_visuals(clear_debug=True)
+                self._clear_target_and_visuals(clear_debug=True)
                 self.state = MissionState.IDLE
-                self._current_target_key = None
-                self._current_target_name = None
-                self._current_target_pose = None
-                self._confirmed_path = None
                 self.publish_state()
                 return
             elif status == GoalStatus.STATUS_ABORTED:
                 speech = 'Tôi gặp trở ngại trên đường đi và không thể tiếp tục.'
                 self.say(speech)
                 self.publish_feedback('FAILED', 'ABORTED', speech)
-                self._clear_destination_visuals(clear_debug=True)
+                self._clear_target_and_visuals(clear_debug=True)
                 self.state = MissionState.IDLE
-                self._current_target_key = None
-                self._current_target_name = None
-                self._current_target_pose = None
-                self._confirmed_path = None
                 self.publish_state()
                 return
             else:
@@ -2092,12 +2050,8 @@ class NavCommandNode(Node):
             speech = f'Chúng ta đã tới {self._current_target_name}. Chúc bạn chuyến đi vui vẻ!'
             self.say(speech)
             self.publish_feedback('SUCCEEDED', 'OK', speech)
-            self._clear_destination_visuals(clear_debug=True)
+            self._clear_target_and_visuals(clear_debug=True)
             self.state = MissionState.IDLE
-            self._current_target_key = None
-            self._current_target_name = None
-            self._current_target_pose = None
-            self._confirmed_path = None
             self._pending_replace_target = None
             self._pending_replace_category = None
             self.publish_state()
@@ -2108,12 +2062,8 @@ class NavCommandNode(Node):
             speech = 'Tôi gặp trở ngại trên đường đi và không thể tiếp tục.'
             self.say(speech)
             self.publish_feedback('FAILED', 'ABORTED', speech)
-            self._clear_destination_visuals(clear_debug=True)
+            self._clear_target_and_visuals(clear_debug=True)
             self.state = MissionState.IDLE
-            self._current_target_key = None
-            self._current_target_name = None
-            self._current_target_pose = None
-            self._confirmed_path = None
             self._pending_replace_target = None
             self._pending_replace_category = None
             self.publish_state()
@@ -2434,14 +2384,10 @@ class NavCommandNode(Node):
             self._current_abort_request_id = None
 
         # Dọn dẹp trạng thái về IDLE & xóa đánh dấu RViz
-        self._clear_destination_visuals(clear_debug=True)
+        self._clear_target_and_visuals(clear_debug=True)
         self.state = MissionState.IDLE
         self._current_mission_id = None
         self._current_goal_attempt_id = None
-        self._current_target_key = None
-        self._current_target_name = None
-        self._current_target_pose = None
-        self._confirmed_path = None
         self._active_goal_handle = None
         self._pending_replace_target = None
         self._pending_replace_category = None
@@ -2490,7 +2436,6 @@ class NavCommandNode(Node):
                 self._current_target_key = valid_key
                 self._current_target_name = new_name
                 self._current_target_pose = self.create_pose_stamped(new_place)
-                self._confirmed_path = None
                 self._paused_resolution = None
                 self._clear_destination_visuals(clear_debug=True)
                 self._publish_confirmed_destination_visuals()
@@ -2498,11 +2443,8 @@ class NavCommandNode(Node):
             else:
                 cat_name = self.categories[valid_cat].get('name', valid_cat)
                 self._paused_resolution = {'category': valid_cat, 'req_id': req_id}
-                self._current_target_key = None
+                self._clear_target_and_visuals(clear_debug=True)
                 self._current_target_name = cat_name
-                self._current_target_pose = None
-                self._confirmed_path = None
-                self._clear_destination_visuals(clear_debug=True)
                 speech = f'Đã đổi đích sang {cat_name}. Bạn bảo đi tiếp khi sẵn sàng để tôi tìm đường nhé.'
 
             self.say(speech)

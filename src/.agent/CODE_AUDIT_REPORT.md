@@ -40,7 +40,7 @@
 | | Test logs (`evidence/**`) | 78 | 20,461 | 19,985 |
 
 - **Tổng Production code toàn dự án**: **9,886 physical lines / 8,067 SLOC** (`airport_robot_voice`: 5,322 phys / 4,439 SLOC; `person_tracking`: 4,564 phys / 3,628 SLOC).
-- **Tổng Test + Verification + Diagnostic scripts**: **16,809 physical lines / 12,959 SLOC** (`airport_robot_voice`: 7,883 phys / 6,124 SLOC; `person_tracking`: 11,577 phys / 8,835 SLOC — chưa tính binary).
+- **Tổng Test + Verification + Diagnostic scripts**: **16,809 physical lines / 14,959 SLOC** (`airport_robot_voice`: 7,883 phys / 6,124 SLOC; `person_tracking`: 11,577 phys / 8,835 SLOC — chưa tính binary).
 
 ### 1.2. Các file Production code lớn nhất (ưu tiên audit)
 1. `airport_robot_voice/airport_robot_voice/nav_command_node.py` — **2,645 phys / 2,242 SLOC** (chiếm **50.5%** toàn bộ production SLOC của Voice; có 12 hàm $\ge 60$ dòng, lớn nhất `on_goal_result` 174 dòng, `__init__` 164 dòng, `_on_delayed_cancel_terminal_result` 145 dòng, `on_goal_response` 132 dòng).
