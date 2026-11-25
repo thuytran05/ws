@@ -322,7 +322,7 @@ class NavCommandNode(Node):
             label.color.r = 0.05
             label.color.g = 0.65
             label.color.b = 0.15
-            label.color.a = 1.0
+            label.color.a = 0.0
             target_id = self._current_target_key or ''
             target_name = self._current_target_name or target_id
             label.text = f'ĐÃ CHỐT: {target_name} ({target_id})'

@@ -98,9 +98,9 @@ controller_server:
       vy_max: 0.0
       wz_max: 1.2
 
-      ax_max: 0.5
-      ax_min: -0.8
-      az_max: 2.0
+      ax_max: 2.5
+      ax_min: -2.5
+      az_max: 3.2
 
       temperature: 0.3
       gamma: 0.015
@@ -195,7 +195,7 @@ local_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 8.0
-        inflation_radius: 0.4
+        inflation_radius: 0.3
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
         enabled: True
@@ -252,7 +252,7 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 8.0
-        inflation_radius: 0.4
+        inflation_radius: 0.3
       always_send_full_costmap: True
 
 map_saver:
