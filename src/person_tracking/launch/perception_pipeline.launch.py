@@ -1,4 +1,10 @@
-"""Launch full perception pipeline (Source -> Detector/Tracker) for Phase 3.
+"""Launch full perception pipeline (Source -> Detector/Tracker).
+
+Supports source_mode:
+- 'synthetic_fixture'
+- 'video_replay'
+- 'live_astra'
+- 'live_webcam'
 
 DOES NOT start robot base controller, Nav2, or velocity follower.
 """
@@ -20,7 +26,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'source_mode',
             default_value='synthetic_fixture',
-            description="Source mode: 'video_replay', 'synthetic_fixture', or 'live_astra'"
+            description="Source mode: 'video_replay', 'synthetic_fixture', 'live_astra', or 'live_webcam'"
         ),
         DeclareLaunchArgument(
             'video_path',
@@ -31,6 +37,21 @@ def generate_launch_description():
             'synthetic_case',
             default_value='person_valid_rgbd',
             description="Synthetic case: 'person_valid_rgbd', 'empty_scene', 'corrupted_depth'"
+        ),
+        DeclareLaunchArgument(
+            'camera_index',
+            default_value='0',
+            description='OpenCV webcam device index (/dev/videoN) for live_webcam mode'
+        ),
+        DeclareLaunchArgument(
+            'camera_width',
+            default_value='640',
+            description='Requested webcam frame width in pixels'
+        ),
+        DeclareLaunchArgument(
+            'camera_height',
+            default_value='480',
+            description='Requested webcam frame height in pixels'
         ),
         DeclareLaunchArgument(
             'fps',
@@ -63,6 +84,9 @@ def generate_launch_description():
                 'source_mode': LaunchConfiguration('source_mode'),
                 'video_path': LaunchConfiguration('video_path'),
                 'synthetic_case': LaunchConfiguration('synthetic_case'),
+                'camera_index': LaunchConfiguration('camera_index'),
+                'camera_width': LaunchConfiguration('camera_width'),
+                'camera_height': LaunchConfiguration('camera_height'),
                 'fps': LaunchConfiguration('fps'),
                 'loop': True,
                 'retime_stamps': True,
@@ -89,6 +113,8 @@ def generate_launch_description():
                 'status_topic': '/tracking/source_status',
                 'observation_topic': '/tracking/observation',
                 'debug_image_topic': '/tracking/debug_image',
+                'session_state_topic': '/tracking/session_state',
+                'debug_lock_state_topic': '/tracking/debug_lock_state',
             }],
         ),
     ])

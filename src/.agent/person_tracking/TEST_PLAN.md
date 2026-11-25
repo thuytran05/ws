@@ -172,3 +172,10 @@ Danh sách 26 ca kiểm thử trọng tâm phân loại rõ ràng:
   * **Phần mềm (Software Readiness):** 100% ĐẠT yêu cầu bàn giao thông luồng, quản lý phiên, launch overlay độc lập và ngắt an toàn.
   * **Phần cứng (Hardware Acceptance Pending):** Bắt buộc người dùng có mặt tại hiện trường để cắm thiết bị, kiểm tra stream Astra, dán mốc đo cự ly, xác nhận watchdog đế xe, chạy video thật ca T06 và đo vận tốc vật lý độc lập.
 - **Điều kiện Gate 11:** Chỉ chuyển sang **DONE / HARDWARE_VALIDATED** khi có đầy đủ log nghiệm thu đo đạc thật trên camera Orbbec Astra Pro và robot Mecanum vật lý theo bộ tiêu chí C-01 đến C-10.
+- **Nâng cấp Kiểm thử Trực quan Webcam & Debug Visualization (Software & Visual Debug Only — Không phải Nghiệm thu Gate 11):**
+  * Chế độ `live_webcam` (`LiveWebcamAdapter`, `webcam_debug.launch.py`) và module `debug_visualization.py` (skeleton COCO 17 điểm, quy ước màu FSM, tiến trình giơ tay từ `PassengerLockManager`, vùng điều khiển ngang, banner trạng thái) đã được kiểm chứng:
+    - Pytest: **140/140 PASS** (`test_debug_visualization.py`, `test_live_webcam_adapter.py` + 131 test hồi quy), log: [.agent/person_tracking/evidence/phase_11_webcam_viz/pytest_regression.txt](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11_webcam_viz/pytest_regression.txt).
+    - Smoke test `webcam_debug.launch.py` với `/dev/video0` (`ROS_DOMAIN_ID=43`, `RGB_ONLY`, `cmd_vel_pubs=0`): [.agent/person_tracking/evidence/phase_11_webcam_viz/webcam_debug_runtime.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11_webcam_viz/webcam_debug_runtime.log).
+    - Benchmark Before/After Overlay: [.agent/person_tracking/evidence/phase_11_webcam_viz/benchmark_before_after_overlay.log](file:///home/thuytran/ws/src/.agent/person_tracking/evidence/phase_11_webcam_viz/benchmark_before_after_overlay.log).
+    - 5 ảnh minh chứng mẫu trong `.agent/person_tracking/evidence/phase_11_webcam_viz/`.
+  * Kiểm thử tương tác người thật trước webcam laptop duy trì trạng thái **HARDWARE/USER_VALIDATION_PENDING** và tuyệt đối không dùng kết quả webcam RGB để nghiệm thu Astra RGB-D hoặc robot thật.

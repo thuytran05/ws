@@ -1,0 +1,17 @@
+PHASE 11 WEBCAM & DEBUG VISUALIZATION BENCHMARK (BEFORE vs AFTER OVERLAY)
+Date: 2026-11-25 15:04:23
+Scope: Synthetic 640x480 frames; separates YOLO+ByteTrack inference from DebugVisualizer overlay.
+Note: Offline benchmark does not represent real physical webcam USB/driver FPS.
+================================================================================
+Device: CUDA:0 (50 frames, 640x480)
+  [BEFORE Overlay - Inference Only]  FPS: 154.7 | P50: 6.44 ms | P95: 6.92 ms
+  [Overlay Render Overhead Only]     P50: 1.13 ms | P95: 1.46 ms
+  [AFTER Overlay - End-to-End]       FPS: 130.9 | P50: 7.58 ms | P95: 8.27 ms
+  Process CPU: 102.1% | RAM RSS: 1598.8 MB | CUDA Allocated VRAM: 57.7 MB
+--------------------------------------------------------------------------------
+Device: CPU (50 frames, 640x480)
+  [BEFORE Overlay - Inference Only]  FPS: 30.8 | P50: 32.58 ms | P95: 34.28 ms
+  [Overlay Render Overhead Only]     P50: 1.61 ms | P95: 1.77 ms
+  [AFTER Overlay - End-to-End]       FPS: 29.4 | P50: 34.24 ms | P95: 36.06 ms
+  Process CPU: 799.8% | RAM RSS: 1648.2 MB | CUDA Allocated VRAM: 0.0 MB
+--------------------------------------------------------------------------------

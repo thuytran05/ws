@@ -1,0 +1,4 @@
+rgb_count=43, debug_img_count=5, obs_count=8, session_count=30, debug_lock_count=37, cmd_vel_pubs=0
+last_debug_shape=(640, 480, 'bgr8')
+obs.source_mode=live_webcam, obs.data_quality=RGB_ONLY
+session.state=IDLE, session.locked=False

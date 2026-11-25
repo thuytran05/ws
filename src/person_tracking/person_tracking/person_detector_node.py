@@ -21,7 +21,7 @@ from cv_bridge import CvBridge
 import numpy as np
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import String
 
@@ -30,8 +30,9 @@ _venv_site = '/home/ws/.venv_yolo/lib/python3.12/site-packages'
 if os.path.isdir(_venv_site) and _venv_site not in sys.path:
     sys.path.insert(0, _venv_site)
 
+from person_tracking.debug_visualization import DebugOverlayContext
 from person_tracking.multi_person_tracker import MultiPersonTracker, MultiPersonObservation
-from person_tracking.source_adapters import LiveAstraAdapter, TopicSynchronizer
+from person_tracking.source_adapters import DataQuality, LiveAstraAdapter, SourceMode, TopicSynchronizer
 
 
 class PersonDetectorNode(Node):
@@ -54,6 +55,9 @@ class PersonDetectorNode(Node):
         self.declare_parameter('status_topic', '/tracking/source_status')
         self.declare_parameter('observation_topic', '/tracking/observation')
         self.declare_parameter('debug_image_topic', '/tracking/debug_image')
+        self.declare_parameter('session_state_topic', '/tracking/session_state')
+        self.declare_parameter('debug_lock_state_topic', '/tracking/debug_lock_state')
+        self.declare_parameter('session_freshness_ttl_sec', 1.0)
 
         model_path = str(self.get_parameter('model_path').value)
         device = str(self.get_parameter('device').value)
@@ -104,11 +108,26 @@ class PersonDetectorNode(Node):
         depth_topic = str(self.get_parameter('depth_topic').value)
         info_topic = str(self.get_parameter('info_topic').value)
         status_topic = str(self.get_parameter('status_topic').value)
+        session_topic = str(self.get_parameter('session_state_topic').value)
+        debug_lock_topic = str(self.get_parameter('debug_lock_state_topic').value)
+        self.session_freshness_ttl_sec = float(self.get_parameter('session_freshness_ttl_sec').value)
+
+        transient_qos = QoSProfile(
+            depth=1,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=ReliabilityPolicy.RELIABLE,
+        )
 
         self.sub_rgb = self.create_subscription(Image, rgb_topic, self._on_rgb, sensor_qos)
         self.sub_depth = self.create_subscription(Image, depth_topic, self._on_depth, sensor_qos)
         self.sub_info = self.create_subscription(CameraInfo, info_topic, self._on_info, sensor_qos)
         self.sub_status = self.create_subscription(String, status_topic, self._on_status, reliable_qos)
+        self.sub_session_state = self.create_subscription(
+            String, session_topic, self._on_session_state, transient_qos
+        )
+        self.sub_debug_lock = self.create_subscription(
+            String, debug_lock_topic, self._on_debug_lock_state, reliable_qos
+        )
 
         self.last_frame_count = 0
         self.processed_frames = 0
@@ -122,6 +141,13 @@ class PersonDetectorNode(Node):
         self.last_frame_timestamp = -1.0
         self.pending_rgb_frames = []
         self.max_pending_age_sec = 0.30
+
+        # Read-only telemetry for debug visualization (never alters tracking/lock decisions)
+        self.latest_session_state: Optional[dict] = None
+        self.last_session_state_mono_time: float = 0.0
+        self.latest_debug_lock_state: Optional[dict] = None
+        self.last_debug_lock_mono_time: float = 0.0
+        self._frame_timestamps_mono = []
 
         # Periodic drain timer (10 Hz / 100ms) to ensure pending frames expire even if input stops
         self.drain_timer = self.create_timer(0.10, self._drain_pending_frames)
@@ -298,6 +324,14 @@ class PersonDetectorNode(Node):
         if self.current_session_id:
             obs_frame.source_session_id = self.current_session_id
 
+        if status_data and obs_frame.data_quality != DataQuality.STALE.value:
+            reported_mode = str(status_data.get('source_mode', ''))
+            if reported_mode:
+                obs_frame.source_mode = reported_mode
+            if reported_mode == SourceMode.LIVE_WEBCAM.value and obs_frame.depth is None:
+                obs_frame.data_quality = DataQuality.RGB_ONLY.value
+                obs_frame.error_reason = "Live webcam RGB-only mode; depth and calibrated CameraInfo absent."
+
         if obs_frame.data_quality == 'STALE':
             self.get_logger().warn(f"Dropped stale frame: {obs_frame.error_reason}")
             return
@@ -362,9 +396,88 @@ class PersonDetectorNode(Node):
         msg = String(data=json.dumps(payload))
         self.obs_pub.publish(msg)
 
+    def _on_session_state(self, msg: String):
+        """Cache latest TrackingManager session_state for debug overlay (read-only)."""
+        try:
+            data = json.loads(msg.data)
+            if isinstance(data, dict):
+                self.latest_session_state = data
+                self.last_session_state_mono_time = time.monotonic()
+        except Exception:
+            pass
+
+    def _on_debug_lock_state(self, msg: String):
+        """Cache latest TrackingManager gesture hold telemetry for debug overlay (read-only)."""
+        try:
+            data = json.loads(msg.data)
+            if isinstance(data, dict):
+                self.latest_debug_lock_state = data
+                self.last_debug_lock_mono_time = time.monotonic()
+        except Exception:
+            pass
+
+    def _build_debug_context(self) -> DebugOverlayContext:
+        now_mono = time.monotonic()
+        self._frame_timestamps_mono.append(now_mono)
+        if len(self._frame_timestamps_mono) > 30:
+            self._frame_timestamps_mono.pop(0)
+        fps_est = None
+        if len(self._frame_timestamps_mono) >= 2:
+            dt = self._frame_timestamps_mono[-1] - self._frame_timestamps_mono[0]
+            if dt > 0.05:
+                fps_est = (len(self._frame_timestamps_mono) - 1) / dt
+
+        ctx = DebugOverlayContext(
+            edge_margin_ratio=self.tracker.edge_margin_ratio,
+            fps_override=fps_est,
+        )
+
+        # Prefer debug_lock_state if fresh, else fall back to session_state
+        sess_fresh = (
+            self.latest_session_state is not None
+            and (now_mono - self.last_session_state_mono_time) <= self.session_freshness_ttl_sec
+        )
+        dbg_fresh = (
+            self.latest_debug_lock_state is not None
+            and (now_mono - self.last_debug_lock_mono_time) <= self.session_freshness_ttl_sec
+        )
+
+        if self.latest_session_state is None and self.latest_debug_lock_state is None:
+            ctx.fsm_available = False
+            ctx.fsm_stale = False
+            return ctx
+
+        ctx.fsm_available = True
+        if not sess_fresh and not dbg_fresh:
+            ctx.fsm_stale = True
+            return ctx
+
+        state_src = self.latest_debug_lock_state if dbg_fresh else self.latest_session_state
+        ctx.fsm_stale = False
+        ctx.fsm_state = str(state_src.get("state", "IDLE"))
+        ctx.locked = bool(state_src.get("locked", False))
+        ctx.locked_track_id = state_src.get("locked_track_id") if dbg_fresh else state_src.get("person_track_id")
+        ctx.locked_source_session_id = str(
+            state_src.get("locked_source_session_id", state_src.get("source_session_id", "")) or ""
+        )
+        ctx.reason_code = str(state_src.get("reason_code", ""))
+        ctx.obs_fresh = state_src.get("obs_fresh")
+
+        if dbg_fresh and self.latest_debug_lock_state is not None:
+            ctx.gesture_hold_time_sec = float(self.latest_debug_lock_state.get("gesture_hold_time_sec", 1.5))
+            for item in self.latest_debug_lock_state.get("gesture_candidates", []):
+                tid = item.get("track_id")
+                sid = str(item.get("source_session_id", "") or "")
+                hold = float(item.get("accumulated_hold_sec", 0.0))
+                if tid is not None:
+                    ctx.gesture_progress[(sid, int(tid))] = hold
+
+        return ctx
+
     def _publish_debug_image(self, bgr_img: np.ndarray, obs: MultiPersonObservation, header):
         try:
-            debug_img = self.tracker.draw_debug_overlay(bgr_img, obs)
+            ctx = self._build_debug_context()
+            debug_img = self.tracker.draw_debug_overlay(bgr_img, obs, context=ctx)
             debug_msg = self.bridge.cv2_to_imgmsg(debug_img, encoding='bgr8')
             debug_msg.header = header
             self.debug_pub.publish(debug_msg)

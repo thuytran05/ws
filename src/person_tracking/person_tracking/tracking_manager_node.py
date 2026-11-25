@@ -40,6 +40,7 @@ class TrackingManagerNode(Node):
 
         self.declare_parameter('observation_topic', '/tracking/observation')
         self.declare_parameter('session_state_topic', '/tracking/session_state')
+        self.declare_parameter('debug_lock_state_topic', '/tracking/debug_lock_state')
         self.declare_parameter('safety_request_topic', '/tracking/safety_request')
         self.declare_parameter('nav_status_topic', '/voice/nav_status')
         self.declare_parameter('nav_state_topic', '/voice/nav_state')
@@ -54,6 +55,7 @@ class TrackingManagerNode(Node):
 
         obs_topic = str(self.get_parameter('observation_topic').value)
         session_topic = str(self.get_parameter('session_state_topic').value)
+        debug_lock_topic = str(self.get_parameter('debug_lock_state_topic').value)
         safety_topic = str(self.get_parameter('safety_request_topic').value)
         nav_status_topic = str(self.get_parameter('nav_status_topic').value)
         nav_state_topic = str(self.get_parameter('nav_state_topic').value)
@@ -84,6 +86,7 @@ class TrackingManagerNode(Node):
 
         # Publishers
         self.state_pub = self.create_publisher(String, session_topic, transient_qos)
+        self.debug_state_pub = self.create_publisher(String, debug_lock_topic, reliable_qos)
         self.safety_pub = self.create_publisher(String, safety_topic, reliable_qos)
 
         # Subscribers
@@ -138,6 +141,8 @@ class TrackingManagerNode(Node):
                 f"Session state transition: {prev_state} -> {snapshot.state} (locked={snapshot.locked}, person_track_id={snapshot.person_track_id})"
             )
             self._publish_session_state(snapshot)
+        else:
+            self._publish_debug_lock_state(snapshot)
 
     def _on_voice_status(self, msg: String):
         try:
@@ -410,6 +415,34 @@ class TrackingManagerNode(Node):
         payload = self.manager.to_json_dict(snapshot)
         msg = String(data=json.dumps(payload))
         self.state_pub.publish(msg)
+        self._publish_debug_lock_state(snapshot)
+
+    def _publish_debug_lock_state(self, snapshot: SessionStateSnapshot):
+        """Publish debug-only lock & gesture hold progress telemetry for visualization."""
+        now = self.get_clock().now().to_msg()
+        gesture_candidates = [
+            {
+                "source_session_id": key[0],
+                "track_id": key[1],
+                "accumulated_hold_sec": round(float(g_state.accumulated_hold_sec), 3),
+            }
+            for key, g_state in self.manager.gesture_state.items()
+        ]
+        debug_payload = {
+            "schema_version": "1.0",
+            "stamp": {"sec": now.sec, "nanosec": now.nanosec},
+            "state": snapshot.state,
+            "locked": snapshot.locked,
+            "session_id": snapshot.session_id,
+            "locked_track_id": snapshot.person_track_id,
+            "locked_source_session_id": snapshot.source_session_id,
+            "source_session_id": self.manager.current_source_session_id,
+            "obs_fresh": snapshot.obs_fresh,
+            "reason_code": snapshot.reason_code,
+            "gesture_hold_time_sec": self.manager.gesture_hold_time_sec,
+            "gesture_candidates": gesture_candidates,
+        }
+        self.debug_state_pub.publish(String(data=json.dumps(debug_payload)))
 
 
 def main(args=None):

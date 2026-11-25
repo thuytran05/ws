@@ -161,3 +161,120 @@ pytest src/person_tracking/test/test_velocity_guard_safety.py -v --timeout=20
 ```bash
 ros2 launch person_tracking escort.launch.py use_sim_time:=true
 ```
+
+---
+
+## 5. Kiểm Thử Trực Quan Bằng Webcam Laptop & Debug Visualization (`live_webcam`)
+
+> [!NOTE]
+> Chế độ `live_webcam` hoạt động ở chế độ **RGB_ONLY** (`depth_valid=false`, `depth_proven=false`, không tạo depth giả và không phát `/cmd_vel`). Chỉ dùng để kiểm thử nhận diện người, skeleton COCO 17 điểm, giơ tay 1.5s, khóa ID và FSM trực quan — **không thay thế** cho nghiệm thu camera Astra RGB-D hoặc robot thật tại Gate 11.
+
+### 5.1. Source Workspace ROS 2 Jazzy (Bắt buộc cho mọi Terminal mới)
+```bash
+cd /home/ws
+source /opt/ros/jazzy/setup.bash
+source /home/ws/install_tracking/setup.bash
+export ROS_DOMAIN_ID=43
+```
+
+### 5.2. Chạy Webcam Chỉ Pipeline Nhận Diện (GPU `cuda:0`)
+```bash
+ros2 launch person_tracking perception_pipeline.launch.py \
+  source_mode:=live_webcam \
+  camera_index:=0 \
+  camera_width:=640 \
+  camera_height:=480 \
+  fps:=30.0 \
+  device:=cuda:0 \
+  publish_debug_image:=true
+```
+
+### 5.3. Chạy Webcam Chỉ Pipeline Nhận Diện (CPU)
+```bash
+ros2 launch person_tracking perception_pipeline.launch.py \
+  source_mode:=live_webcam \
+  camera_index:=0 \
+  camera_width:=640 \
+  camera_height:=480 \
+  fps:=30.0 \
+  device:=cpu \
+  publish_debug_image:=true
+```
+
+### 5.4. Chạy Tích Hợp Webcam + Detector + Tracking Manager (1 Lệnh)
+Khởi chạy đồng thời Webcam Source, Person Detector (YOLO Pose + ByteTrack + DebugVisualizer) và Tracking Manager FSM (không chạy Nav2/Guard/Watchdog/Voice/Base):
+```bash
+ros2 launch person_tracking webcam_debug.launch.py \
+  camera_index:=0 \
+  camera_width:=640 \
+  camera_height:=480 \
+  fps:=30.0 \
+  device:=cuda:0 \
+  publish_debug_image:=true \
+  view_debug:=false
+```
+*(Truyền `view_debug:=true` nếu muốn tự động mở luôn `rqt_image_view`.)*
+
+### 5.5. Xem Hình Ảnh `/tracking/debug_image` Bằng `rqt_image_view`
+```bash
+export ROS_DOMAIN_ID=43
+source /opt/ros/jazzy/setup.bash
+ros2 run rqt_image_view rqt_image_view /tracking/debug_image
+```
+
+### 5.6. Phương Án Thay Thế Bằng RViz2 (Nếu Không Có `rqt_image_view`)
+```bash
+export ROS_DOMAIN_ID=43
+source /opt/ros/jazzy/setup.bash
+rviz2
+```
+Trong giao diện RViz2: chọn **Add** $\to$ **By topic** $\to$ `/tracking/debug_image` $\to$ **Image** (hoặc **Add** $\to$ **Image** rồi đặt Topic = `/tracking/debug_image`, Reliability Policy = `Best Effort`).
+
+### 5.7. Theo Dõi `/tracking/session_state` (Định Dạng JSON Bằng Python, Không Cần `jq`)
+```bash
+export ROS_DOMAIN_ID=43
+source /opt/ros/jazzy/setup.bash
+ros2 topic echo /tracking/session_state --field data | python3 -c "
+import sys, json
+for line in sys.stdin:
+    line = line.strip()
+    if line:
+        try:
+            print(json.dumps(json.loads(line), indent=2, ensure_ascii=False), flush=True)
+        except Exception:
+            print(line, flush=True)
+"
+```
+
+### 5.8. Đo FPS Đầu Vào và Đầu Ra
+```bash
+# Terminal A: Đo FPS ảnh gốc từ webcam
+export ROS_DOMAIN_ID=43 && source /opt/ros/jazzy/setup.bash
+ros2 topic hz /camera/color/image_raw
+
+# Terminal B: Đo FPS ảnh debug overlay
+export ROS_DOMAIN_ID=43 && source /opt/ros/jazzy/setup.bash
+ros2 topic hz /tracking/debug_image
+
+# Terminal C: Đo FPS bản tin observation
+export ROS_DOMAIN_ID=43 && source /opt/ros/jazzy/setup.bash
+ros2 topic hz /tracking/observation
+```
+
+### 5.9. Kiểm Tra Node Graph và Xác Nhận Không Có Publisher `/cmd_vel`
+```bash
+export ROS_DOMAIN_ID=43
+source /opt/ros/jazzy/setup.bash
+ros2 node list
+ros2 topic info -v /tracking/debug_image
+ros2 topic info -v /tracking/session_state
+ros2 topic info -v /cmd_vel
+```
+*(Kỳ vọng: `/cmd_vel` có `Publisher count: 0`.)*
+
+### 5.10. Dừng Hệ Thống Sạch Sẽ
+- Tại terminal đang chạy `ros2 launch`, nhấn **`Ctrl+C`** (SIGINT) một lần và chờ các node đóng `VideoCapture` và thoát hoàn toàn.
+- Kiểm tra không còn process treo của phiên kiểm thử:
+  ```bash
+  ps aux | grep -E "perception_source|person_detector|tracking_manager" | grep -v grep
+  ```

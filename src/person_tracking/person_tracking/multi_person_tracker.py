@@ -31,6 +31,7 @@ except ImportError as exc:
     torch = None
 
 from person_tracking.source_adapters import ObservationFrame, compute_mad, DataQuality
+from person_tracking.debug_visualization import DebugOverlayContext, DebugVisualizer
 from person_tracking.rear_camera_geometry import (
     RearCameraGeometry,
     CameraIntrinsics,
@@ -143,6 +144,7 @@ class MultiPersonTracker:
         self.mount_tf: Optional[CameraMountTransform] = (
             CameraMountTransform.create_synthetic_rear_mount() if use_synthetic_mount else None
         )
+        self.visualizer = DebugVisualizer()
 
     def reset(self):
         """Reset tracker state on source switch, video loop, or stream reset."""
@@ -425,75 +427,9 @@ class MultiPersonTracker:
         self,
         image: np.ndarray,
         observation: MultiPersonObservation,
+        context: Optional[DebugOverlayContext] = None,
     ) -> np.ndarray:
-        """Render bounding boxes, keypoints, IDs, depth, and status onto image."""
-        overlay = image.copy()
-        h, w = overlay.shape[:2]
-
-        # Draw edge safety margin lines
-        margin_x = int(self.edge_margin_ratio * w)
-        margin_y = int(self.edge_margin_ratio * h)
-        cv2.rectangle(
-            overlay,
-            (margin_x, margin_y),
-            (w - margin_x, h - margin_y),
-            (100, 100, 100),
-            1,
-            cv2.LINE_AA,
-        )
-
-        for person in observation.persons:
-            x1, y1, x2, y2 = [int(v) for v in person.bbox]
-
-            # Box color: Green for confirmed, Yellow for unconfirmed, Orange for ambiguous
-            if person.is_ambiguous:
-                color = (0, 165, 255)  # Orange
-                status_str = "AMBIGUOUS"
-            elif person.is_confirmed:
-                color = (0, 255, 0)  # Green
-                status_str = f"ID: {person.track_id}"
-            else:
-                color = (0, 255, 255)  # Yellow
-                status_str = "UNCONFIRMED"
-
-            cv2.rectangle(overlay, (x1, y1), (x2, y2), color, 2)
-
-            # Keypoints rendering
-            for kp in person.keypoints:
-                kx, ky, kconf = kp
-                if kconf > 0.4:
-                    cv2.circle(overlay, (int(kx), int(ky)), 3, (255, 0, 0), -1)
-
-            # Label text
-            d_str = f"{person.torso_depth_m:.2f}m" if person.depth_valid else "no-depth"
-            label = f"{status_str} | {d_str} | {person.confidence:.2f}"
-            cv2.putText(
-                overlay,
-                label,
-                (x1, max(20, y1 - 8)),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                color,
-                1,
-                cv2.LINE_AA,
-            )
-
-        # Header Info Banner
-        fps = 1000.0 / max(1.0, observation.processing_time_ms)
-        header = (
-            f"[{observation.source_mode.upper()}] Dev: {observation.device.upper()} | "
-            f"FPS: {fps:.1f} ({observation.processing_time_ms:.1f}ms) | "
-            f"Tracks: {len(observation.active_track_ids)} active, {len(observation.lost_track_ids)} lost"
-        )
-        cv2.putText(
-            overlay,
-            header,
-            (10, 25),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            (0, 255, 0),
-            2,
-            cv2.LINE_AA,
-        )
-
-        return overlay
+        """Render bounding boxes, COCO 17 skeleton, IDs, depth, zones, and status banner."""
+        if context is None:
+            context = DebugOverlayContext(edge_margin_ratio=self.edge_margin_ratio)
+        return self.visualizer.render(image, observation, context=context)

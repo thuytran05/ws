@@ -20,6 +20,7 @@ from sensor_msgs.msg import CameraInfo
 
 class SourceMode(str, Enum):
     LIVE_ASTRA = "live_astra"
+    LIVE_WEBCAM = "live_webcam"
     VIDEO_REPLAY = "video_replay"
     BAG_REPLAY = "bag_replay"
     SYNTHETIC_FIXTURE = "synthetic_fixture"
@@ -192,6 +193,105 @@ class VideoReplayAdapter:
     def close(self):
         if self.cap and self.cap.isOpened():
             self.cap.release()
+
+
+class LiveWebcamAdapter:
+    """Reads live RGB frames from a local webcam via OpenCV VideoCapture (strictly RGB_ONLY)."""
+
+    def __init__(
+        self,
+        camera_index: int = 0,
+        width: int = 640,
+        height: int = 480,
+        fps: float = 30.0,
+        frame_id: str = "camera_color_optical_frame",
+        cap_factory=None,
+    ):
+        self.camera_index = int(camera_index)
+        self.requested_width = int(width)
+        self.requested_height = int(height)
+        self.fps = float(fps) if (fps and fps > 0) else 30.0
+        self.frame_id = frame_id
+        self._cap_factory = cap_factory or cv2.VideoCapture
+
+        self.cap = self._cap_factory(self.camera_index)
+        if self.cap is None or not self.cap.isOpened():
+            if self.cap is not None:
+                try:
+                    self.cap.release()
+                except Exception:
+                    pass
+                self.cap = None
+            raise RuntimeError(f"Cannot open webcam device camera_index={self.camera_index}")
+
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(self.requested_width))
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(self.requested_height))
+        self.cap.set(cv2.CAP_PROP_FPS, float(self.fps))
+        try:
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        except Exception:
+            pass
+
+        actual_w = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_h = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.width = actual_w if actual_w > 0 else self.requested_width
+        self.height = actual_h if actual_h > 0 else self.requested_height
+
+        self.frame_count = 0
+        self.consecutive_failures = 0
+        self.total_failures = 0
+        self.last_error = ""
+
+    def read_frame(self, current_ros_time: Optional[Tuple[int, int]] = None) -> Optional[ObservationFrame]:
+        """Read next RGB frame from webcam. Never synthesizes depth or calibrated CameraInfo."""
+        if self.cap is None or not self.cap.isOpened():
+            self.consecutive_failures += 1
+            self.total_failures += 1
+            self.last_error = "Webcam device is not open."
+            return None
+
+        ret, bgr = self.cap.read()
+        if not ret or bgr is None or bgr.size == 0:
+            self.consecutive_failures += 1
+            self.total_failures += 1
+            self.last_error = "Failed to read frame from webcam."
+            return None
+
+        self.consecutive_failures = 0
+        self.last_error = ""
+        self.frame_count += 1
+        now_mono = time.monotonic()
+
+        if current_ros_time is not None:
+            stamp_sec, stamp_nanosec = current_ros_time
+        else:
+            now_wall = time.time()
+            stamp_sec = int(now_wall)
+            stamp_nanosec = int((now_wall - stamp_sec) * 1e9)
+
+        return ObservationFrame(
+            rgb=bgr,
+            depth=None,
+            depth_raw=None,
+            camera_info=None,
+            stamp_sec=stamp_sec,
+            stamp_nanosec=stamp_nanosec,
+            receive_monotonic=now_mono,
+            frame_id=self.frame_id,
+            source_mode=SourceMode.LIVE_WEBCAM.value,
+            data_quality=DataQuality.RGB_ONLY.value,
+            error_reason="Live webcam RGB-only mode; depth and calibrated CameraInfo absent.",
+        )
+
+    def close(self):
+        """Release webcam VideoCapture cleanly."""
+        if self.cap is not None:
+            try:
+                if self.cap.isOpened():
+                    self.cap.release()
+            except Exception:
+                pass
+            self.cap = None
 
 
 class SyntheticFixtureGenerator:

@@ -27,6 +27,7 @@ from person_tracking.source_adapters import (
     DataQuality,
     ObservationFrame,
     VideoReplayAdapter,
+    LiveWebcamAdapter,
     SyntheticFixtureGenerator,
 )
 
@@ -41,6 +42,9 @@ class PerceptionSourceNode(Node):
         self.declare_parameter('source_mode', SourceMode.SYNTHETIC_FIXTURE.value)
         self.declare_parameter('video_path', '')
         self.declare_parameter('synthetic_case', 'person_valid_rgbd')
+        self.declare_parameter('camera_index', 0)
+        self.declare_parameter('camera_width', 640)
+        self.declare_parameter('camera_height', 480)
         self.declare_parameter('fps', 15.0)
         self.declare_parameter('loop', True)
         self.declare_parameter('retime_stamps', True)
@@ -53,6 +57,9 @@ class PerceptionSourceNode(Node):
         self.source_mode = str(self.get_parameter('source_mode').value)
         self.video_path = str(self.get_parameter('video_path').value)
         self.synthetic_case = str(self.get_parameter('synthetic_case').value)
+        self.camera_index = int(self.get_parameter('camera_index').value)
+        self.camera_width = int(self.get_parameter('camera_width').value)
+        self.camera_height = int(self.get_parameter('camera_height').value)
         self.fps = float(self.get_parameter('fps').value)
         self.loop = bool(self.get_parameter('loop').value)
         self.retime_stamps = bool(self.get_parameter('retime_stamps').value)
@@ -62,6 +69,8 @@ class PerceptionSourceNode(Node):
         self.frame_count = 0
         self.is_eof = False
         self.video_adapter = None
+        self.webcam_adapter = None
+        self._last_webcam_err_log_mono = 0.0
         self.source_session_id = str(uuid.uuid4())
         self.loop_count = 0
 
@@ -103,6 +112,23 @@ class PerceptionSourceNode(Node):
                     self.get_logger().error(f"Failed to load video: {exc}. Falling back to synthetic.")
                     self.source_mode = SourceMode.SYNTHETIC_FIXTURE.value
 
+        elif self.source_mode == SourceMode.LIVE_WEBCAM.value:
+            try:
+                self.webcam_adapter = LiveWebcamAdapter(
+                    camera_index=self.camera_index,
+                    width=self.camera_width,
+                    height=self.camera_height,
+                    fps=self.fps,
+                    frame_id=self.frame_id,
+                )
+                self.get_logger().info(
+                    f"LiveWebcamAdapter opened /dev/video{self.camera_index} "
+                    f"({self.webcam_adapter.width}x{self.webcam_adapter.height} @ {self.fps} FPS, RGB_ONLY)."
+                )
+            except Exception as exc:
+                self.get_logger().error(f"Failed to open webcam (camera_index={self.camera_index}): {exc}")
+                self.webcam_adapter = None
+
     def _publish_step(self):
         if self.is_eof:
             return
@@ -130,6 +156,34 @@ class PerceptionSourceNode(Node):
                 self.get_logger().info(
                     f"Video replay looped (loop_count={self.loop_count}, new session_id={self.source_session_id})."
                 )
+
+        elif self.source_mode == SourceMode.LIVE_WEBCAM.value:
+            if self.webcam_adapter is None:
+                now_mono = time.monotonic()
+                if now_mono - self._last_webcam_err_log_mono >= 2.0:
+                    self._last_webcam_err_log_mono = now_mono
+                    self.get_logger().warn(f"Webcam device camera_index={self.camera_index} unavailable.")
+                self._publish_status(
+                    eof=False,
+                    quality=DataQuality.RGB_ONLY.value,
+                    reason=f"Webcam camera_index={self.camera_index} unavailable.",
+                )
+                return
+            obs_frame = self.webcam_adapter.read_frame(current_ros_time=current_time_tuple)
+            if obs_frame is None:
+                now_mono = time.monotonic()
+                if now_mono - self._last_webcam_err_log_mono >= 2.0:
+                    self._last_webcam_err_log_mono = now_mono
+                    self.get_logger().warn(
+                        f"Webcam frame read failed (consecutive={self.webcam_adapter.consecutive_failures}): "
+                        f"{self.webcam_adapter.last_error}"
+                    )
+                self._publish_status(
+                    eof=False,
+                    quality=DataQuality.RGB_ONLY.value,
+                    reason=self.webcam_adapter.last_error or "Webcam frame read failed.",
+                )
+                return
 
         elif self.source_mode == SourceMode.SYNTHETIC_FIXTURE.value:
             obs_frame = self._generate_synthetic_frame(current_time_tuple)
@@ -230,6 +284,8 @@ class PerceptionSourceNode(Node):
     def destroy_node(self):
         if self.video_adapter is not None:
             self.video_adapter.close()
+        if self.webcam_adapter is not None:
+            self.webcam_adapter.close()
         super().destroy_node()
 
 
