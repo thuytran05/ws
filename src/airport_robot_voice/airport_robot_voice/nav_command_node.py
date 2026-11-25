@@ -421,6 +421,15 @@ class NavCommandNode(Node):
 
         self.pub_confirmed_path.publish(confirmed_path)
 
+    def _clear_preview_path(self):
+        """Xóa đường preview (/voice/confirmed_path) khi bắt đầu điều hướng chính thức hoặc dọn dẹp."""
+        self._confirmed_path = None
+        empty_path = Path()
+        empty_path.header.frame_id = self.frame_id
+        empty_path.header.stamp = self.get_clock().now().to_msg()
+        empty_path.poses = []
+        self.pub_confirmed_path.publish(empty_path)
+
     def _clear_destination_visuals(self, clear_debug: bool = True):
         now_msg = self.get_clock().now().to_msg()
         if self.publish_rviz_markers:
@@ -437,11 +446,7 @@ class NavCommandNode(Node):
                 dma.markers = [dm]
                 self.pub_planner_debug_markers.publish(dma)
 
-        empty_path = Path()
-        empty_path.header.frame_id = self.frame_id
-        empty_path.header.stamp = now_msg
-        empty_path.poses = []
-        self.pub_confirmed_path.publish(empty_path)
+        self._clear_preview_path()
 
         # Vô hiệu hóa bản tin TransientLocal trên /voice/confirmed_goal (frame_id rỗng)
         # kết hợp cùng confirmed_goal_valid=False trong /voice/nav_state khi IDLE.
@@ -1273,6 +1278,10 @@ class NavCommandNode(Node):
 
         candidates = self.get_valid_candidates(category)
         if not candidates:
+            self._clear_destination_visuals(clear_debug=True)
+            self._current_target_key = None
+            self._current_target_name = None
+            self._current_target_pose = None
             self.say('Không tìm thấy địa điểm nào phù hợp trong danh mục.')
             self.state = MissionState.IDLE
             self._resolving_active = False
@@ -1283,6 +1292,10 @@ class NavCommandNode(Node):
         # Kiểm tra planner action server (với timeout ngắn)
         if not self.planner_client.wait_for_server(timeout_sec=0.2):
             self.get_logger().warn('Bộ điều phối đường (planner) chưa sẵn sàng. Không thể chọn điểm tối ưu cho danh mục.')
+            self._clear_destination_visuals(clear_debug=True)
+            self._current_target_key = None
+            self._current_target_name = None
+            self._current_target_pose = None
             self._resolving_active = False
             self.state = MissionState.IDLE
             self.publish_state()
@@ -1331,6 +1344,10 @@ class NavCommandNode(Node):
                 self.start_specific_mission(best_key, eval_data['req_id'], confirmed_path=best_path)
             else:
                 self.get_logger().error(f"[{res_id}] Tất cả các ứng viên đều không tìm được đường đi khả dụng.")
+                self._clear_destination_visuals(clear_debug=True)
+                self._current_target_key = None
+                self._current_target_name = None
+                self._current_target_pose = None
                 self.say('Hệ thống không tìm thấy đường đi tới các điểm yêu cầu.')
                 self.state = MissionState.IDLE
                 self.publish_state()
@@ -1746,6 +1763,7 @@ class NavCommandNode(Node):
 
         self._active_goal_handle = goal_handle
         self.get_logger().info(f'[{attempt_id}] Goal được Nav2 chấp nhận (uuid={rec.nav2_uuid}). Bắt đầu di chuyển.')
+        self._clear_preview_path()
         self.state = MissionState.NAVIGATING
         self.publish_state()
         self.publish_feedback('STARTED', 'GOAL_ACCEPTED')

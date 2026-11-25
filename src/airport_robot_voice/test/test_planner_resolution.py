@@ -810,3 +810,398 @@ def test_late_joining_subscriber_sees_cleared_visuals_and_invalid_state_after_te
     late_obs.destroy_node()
     nav_node.destroy_node()
     mock_server.destroy_node()
+
+
+def test_preview_path_cleared_when_navigating_starts_and_uniform_for_direct_target(ros_context):
+    """
+    Test 13 (Regression):
+    - Với nhà vệ sinh: /voice/confirmed_path được xóa rỗng ngay khi NavigateToPose được chấp nhận (NAVIGATING)
+      để không tồn tại đường preview xanh lá song song với /plan của Nav2.
+    - Với điểm đến trực tiếp (gate_a3): /voice/confirmed_path luôn rỗng, marker giữ đúng gate_a3,
+      và reset sạch sẽ khi SUCCEEDED.
+    """
+    import threading
+    from rclpy.executors import MultiThreadedExecutor
+    from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
+
+    mock_server = MockPlannerAndNavServer('test_p13_planner', 'test_p13_nav')
+    release_nav = threading.Event()
+    srv_exec = MultiThreadedExecutor(num_threads=4)
+    srv_exec.add_node(mock_server)
+    srv_stop = threading.Event()
+    srv_thread = threading.Thread(target=lambda: [srv_exec.spin_once(timeout_sec=0.05) for _ in iter(lambda: not srv_stop.is_set(), False)], daemon=True)
+    srv_thread.start()
+
+    def hold_exec_nav(gh):
+        mock_server.nav_received_goals.append(gh.request)
+        for _ in range(100):
+            if gh.is_cancel_requested:
+                gh.canceled()
+                return NavigateToPose.Result()
+            if release_nav.is_set():
+                break
+            time.sleep(0.02)
+        gh.succeed()
+        return NavigateToPose.Result()
+
+    mock_server._nav_server.register_execute_callback(hold_exec_nav)
+
+    nav_node = NavCommandNode()
+    nav_node.planner_client = rclpy.action.ActionClient(nav_node, ComputePathToPose, 'test_p13_planner')
+    nav_node.nav_client = rclpy.action.ActionClient(nav_node, NavigateToPose, 'test_p13_nav')
+
+    toilet_1_x = round(nav_node.places['toilet_1']['x'], 2)
+    toilet_2_x = round(nav_node.places['toilet_2']['x'], 2)
+    mock_server.path_lengths[toilet_1_x] = 3.2
+    mock_server.path_lengths[toilet_2_x] = 8.4
+
+    obs = rclpy.create_node('test_p13_obs')
+    qos_tl = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE)
+    seen_cp, seen_cm, seen_cg, seen_ns, seen_says = [], [], [], [], []
+    obs.create_subscription(Path, '/voice/confirmed_path', lambda m: seen_cp.append(m), qos_tl)
+    obs.create_subscription(MarkerArray, '/voice/confirmed_goal_marker', lambda m: seen_cm.append(m), qos_tl)
+    obs.create_subscription(PoseStamped, '/voice/confirmed_goal', lambda m: seen_cg.append(m), qos_tl)
+    obs.create_subscription(String, '/voice/nav_state', lambda m: seen_ns.append(json.loads(m.data)), qos_tl)
+    obs.create_subscription(String, '/voice/say', lambda m: seen_says.append(json.loads(m.data)), 10)
+
+    def spin_all(n=5, timeout=0.03):
+        for _ in range(n):
+            rclpy.spin_once(nav_node, timeout_sec=timeout)
+            rclpy.spin_once(obs, timeout_sec=timeout)
+
+    spin_all(8)
+
+    # 1) Yêu cầu nhà vệ sinh
+    nav_node.on_intent(String(data=json.dumps({
+        'action': 'navigate', 'category': 'toilet', 'request_id': 'req_p13_toilet'
+    })))
+    for _ in range(40):
+        spin_all(1)
+        if nav_node.state == MissionState.ANNOUNCING:
+            break
+    spin_all(5)
+    assert nav_node.state == MissionState.ANNOUNCING
+
+    sid = nav_node._pending_speech_id
+    mid = nav_node._current_mission_id
+    nav_node.on_tts_ack(String(data=json.dumps({
+        'speech_id': sid, 'mission_id': mid, 'status': 'COMPLETED', 'engine': 'piper', 'audio_played': True
+    })))
+    for _ in range(40):
+        spin_all(1)
+        if nav_node.state == MissionState.NAVIGATING:
+            break
+    spin_all(5)
+    assert nav_node.state == MissionState.NAVIGATING
+
+    # Khi đang NAVIGATING: /voice/confirmed_path đã được xóa rỗng, chỉ còn marker đích toilet_1
+    assert len(seen_cp[-1].poses) == 0
+    assert any(m.action == Marker.ADD for m in seen_cm[-1].markers)
+    assert round(seen_cg[-1].pose.position.x, 2) == toilet_1_x
+
+    # Kết thúc SUCCEEDED -> reset toàn bộ
+    release_nav.set()
+    for _ in range(40):
+        spin_all(1)
+        if nav_node.state == MissionState.IDLE:
+            break
+    spin_all(5)
+    assert nav_node.state == MissionState.IDLE
+    assert seen_ns[-1]['confirmed_goal_valid'] is False
+    assert seen_cg[-1].header.frame_id == ''
+    assert len(seen_cp[-1].poses) == 0
+    assert all(m.action in (Marker.DELETE, Marker.DELETEALL) for m in seen_cm[-1].markers)
+
+    # 2) Yêu cầu điểm đến trực tiếp gate_a3
+    release_nav.clear()
+    seen_cp.clear()
+    nav_node.on_intent(String(data=json.dumps({
+        'action': 'navigate', 'target_id': 'gate_a3', 'request_id': 'req_p13_a3'
+    })))
+    for _ in range(30):
+        spin_all(1)
+        if nav_node.state == MissionState.ANNOUNCING:
+            break
+    spin_all(5)
+    assert nav_node.state == MissionState.ANNOUNCING
+    assert all(len(p.poses) == 0 for p in seen_cp)
+    assert round(seen_cg[-1].pose.position.x, 2) == round(nav_node.places['gate_a3']['x'], 2)
+
+    sid = nav_node._pending_speech_id
+    mid = nav_node._current_mission_id
+    nav_node.on_tts_ack(String(data=json.dumps({
+        'speech_id': sid, 'mission_id': mid, 'status': 'COMPLETED', 'engine': 'piper', 'audio_played': True
+    })))
+    for _ in range(40):
+        spin_all(1)
+        if nav_node.state == MissionState.NAVIGATING:
+            break
+    spin_all(5)
+    assert nav_node.state == MissionState.NAVIGATING
+    assert len(seen_cp[-1].poses) == 0
+
+    release_nav.set()
+    for _ in range(40):
+        spin_all(1)
+        if nav_node.state == MissionState.IDLE:
+            break
+    spin_all(5)
+    assert nav_node.state == MissionState.IDLE
+    assert seen_ns[-1]['confirmed_goal_valid'] is False
+    assert seen_cg[-1].header.frame_id == ''
+
+    srv_stop.set()
+    srv_thread.join(timeout=2.0)
+    srv_exec.shutdown()
+    obs.destroy_node()
+    nav_node.destroy_node()
+    mock_server.destroy_node()
+
+
+def test_toilet_to_gate_a3_and_gate_a3_to_toilet_transitions(ros_context):
+    """
+    Test 14 (Regression): Chuyển đổi trực tiếp trong khi đang di chuyển:
+    - Nhà vệ sinh -> cổng A3
+    - Cổng A3 -> nhà vệ sinh
+    Xác nhận mỗi thời điểm chỉ có một NavigateToPose goal đang hoạt động, preview path được dọn sạch.
+    """
+    import threading
+    from rclpy.executors import MultiThreadedExecutor
+    from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
+
+    mock_server = MockPlannerAndNavServer('test_p14_planner', 'test_p14_nav')
+    active_goals = {'count': 0}
+    srv_exec = MultiThreadedExecutor(num_threads=4)
+    srv_exec.add_node(mock_server)
+    srv_stop = threading.Event()
+    srv_thread = threading.Thread(target=lambda: [srv_exec.spin_once(timeout_sec=0.05) for _ in iter(lambda: not srv_stop.is_set(), False)], daemon=True)
+    srv_thread.start()
+
+    def exec_nav_track(gh):
+        mock_server.nav_received_goals.append(gh.request)
+        active_goals['count'] += 1
+        try:
+            for _ in range(150):
+                if gh.is_cancel_requested:
+                    gh.canceled()
+                    return NavigateToPose.Result()
+                time.sleep(0.02)
+            gh.succeed()
+            return NavigateToPose.Result()
+        finally:
+            active_goals['count'] -= 1
+
+    mock_server._nav_server.register_execute_callback(exec_nav_track)
+
+    nav_node = NavCommandNode()
+    nav_node.planner_client = rclpy.action.ActionClient(nav_node, ComputePathToPose, 'test_p14_planner')
+    nav_node.nav_client = rclpy.action.ActionClient(nav_node, NavigateToPose, 'test_p14_nav')
+
+    toilet_1_x = round(nav_node.places['toilet_1']['x'], 2)
+    toilet_2_x = round(nav_node.places['toilet_2']['x'], 2)
+    gate_a3_x = round(nav_node.places['gate_a3']['x'], 2)
+    mock_server.path_lengths[toilet_1_x] = 3.0
+    mock_server.path_lengths[toilet_2_x] = 9.0
+
+    obs = rclpy.create_node('test_p14_obs')
+    qos_tl = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE)
+    seen_cp, seen_cg, seen_says = [], [], []
+    obs.create_subscription(Path, '/voice/confirmed_path', lambda m: seen_cp.append(m), qos_tl)
+    obs.create_subscription(PoseStamped, '/voice/confirmed_goal', lambda m: seen_cg.append(m), qos_tl)
+    obs.create_subscription(String, '/voice/say', lambda m: seen_says.append(json.loads(m.data)), 10)
+
+    def spin_all(n=5, timeout=0.03):
+        for _ in range(n):
+            rclpy.spin_once(nav_node, timeout_sec=timeout)
+            rclpy.spin_once(obs, timeout_sec=timeout)
+
+    def ack_latest_tts():
+        spin_all(3)
+        sid = nav_node._pending_speech_id
+        mid = nav_node._current_mission_id
+        nav_node.on_tts_ack(String(data=json.dumps({
+            'speech_id': sid, 'mission_id': mid, 'status': 'COMPLETED', 'engine': 'piper', 'audio_played': True
+        })))
+
+    spin_all(8)
+
+    # 1) Bắt đầu đi toilet_1
+    nav_node.on_intent(String(data=json.dumps({
+        'action': 'navigate', 'category': 'toilet', 'request_id': 'req_p14_1'
+    })))
+    for _ in range(40):
+        spin_all(1)
+        if nav_node.state == MissionState.ANNOUNCING:
+            break
+    ack_latest_tts()
+    for _ in range(40):
+        spin_all(1)
+        if nav_node.state == MissionState.NAVIGATING:
+            break
+    assert nav_node.state == MissionState.NAVIGATING
+    assert active_goals['count'] == 1
+
+    # 2) Đổi mục tiêu sang gate_a3 (Nhà vệ sinh -> A3)
+    nav_node.on_intent(String(data=json.dumps({
+        'action': 'replace', 'target_id': 'gate_a3', 'request_id': 'req_p14_2'
+    })))
+    for _ in range(50):
+        spin_all(1)
+        if nav_node.state == MissionState.ANNOUNCING and nav_node._current_target_key == 'gate_a3':
+            break
+    assert nav_node.state == MissionState.ANNOUNCING
+    assert nav_node._current_target_key == 'gate_a3'
+    assert active_goals['count'] == 0
+    ack_latest_tts()
+    for _ in range(40):
+        spin_all(1)
+        if nav_node.state == MissionState.NAVIGATING:
+            break
+    spin_all(4)
+    assert nav_node.state == MissionState.NAVIGATING
+    assert active_goals['count'] == 1
+    assert len(seen_cp[-1].poses) == 0
+    assert round(seen_cg[-1].pose.position.x, 2) == gate_a3_x
+
+    # 3) Đổi mục tiêu sang nhà vệ sinh (A3 -> Nhà vệ sinh)
+    nav_node.on_intent(String(data=json.dumps({
+        'action': 'replace', 'category': 'toilet', 'request_id': 'req_p14_3'
+    })))
+    for _ in range(60):
+        spin_all(1)
+        if nav_node.state == MissionState.ANNOUNCING and nav_node._current_target_key == 'toilet_1':
+            break
+    assert nav_node.state == MissionState.ANNOUNCING
+    assert nav_node._current_target_key == 'toilet_1'
+    assert active_goals['count'] == 0
+    ack_latest_tts()
+    for _ in range(40):
+        spin_all(1)
+        if nav_node.state == MissionState.NAVIGATING:
+            break
+    spin_all(4)
+    assert nav_node.state == MissionState.NAVIGATING
+    assert active_goals['count'] == 1
+    assert len(seen_cp[-1].poses) == 0
+    assert round(seen_cg[-1].pose.position.x, 2) == toilet_1_x
+
+    nav_node.handle_cancel_request('req_p14_cancel')
+    for _ in range(50):
+        spin_all(1)
+        if nav_node.state == MissionState.IDLE:
+            break
+    assert nav_node.state == MissionState.IDLE
+    assert active_goals['count'] == 0
+
+    srv_stop.set()
+    srv_thread.join(timeout=2.0)
+    srv_exec.shutdown()
+    obs.destroy_node()
+    nav_node.destroy_node()
+    mock_server.destroy_node()
+
+
+def test_aborted_terminal_and_no_valid_path_reset_visuals(ros_context):
+    """
+    Test 15 (Regression): Kiểm tra dọn sạch visualization khi:
+    - Nhiệm vụ kết thúc với ABORTED.
+    - Không tìm được đường đến tất cả nhà vệ sinh (NO_VALID_PATH).
+    - Hủy trong khi đang RESOLVING.
+    """
+    from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
+
+    mock_server = MockPlannerAndNavServer('test_p15_planner', 'test_p15_nav')
+
+    def abort_exec_nav(gh):
+        mock_server.nav_received_goals.append(gh.request)
+        gh.abort()
+        return NavigateToPose.Result()
+
+    mock_server._nav_server.register_execute_callback(abort_exec_nav)
+
+    nav_node = NavCommandNode()
+    nav_node.planner_client = rclpy.action.ActionClient(nav_node, ComputePathToPose, 'test_p15_planner')
+    nav_node.nav_client = rclpy.action.ActionClient(nav_node, NavigateToPose, 'test_p15_nav')
+
+    toilet_1_x = round(nav_node.places['toilet_1']['x'], 2)
+    toilet_2_x = round(nav_node.places['toilet_2']['x'], 2)
+    mock_server.path_lengths[toilet_1_x] = 4.0
+    mock_server.path_lengths[toilet_2_x] = 9.0
+
+    obs = rclpy.create_node('test_p15_obs')
+    qos_tl = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE)
+    seen_cp, seen_cm, seen_cg, seen_ns, seen_says = [], [], [], [], []
+    obs.create_subscription(Path, '/voice/confirmed_path', lambda m: seen_cp.append(m), qos_tl)
+    obs.create_subscription(MarkerArray, '/voice/confirmed_goal_marker', lambda m: seen_cm.append(m), qos_tl)
+    obs.create_subscription(PoseStamped, '/voice/confirmed_goal', lambda m: seen_cg.append(m), qos_tl)
+    obs.create_subscription(String, '/voice/nav_state', lambda m: seen_ns.append(json.loads(m.data)), qos_tl)
+    obs.create_subscription(String, '/voice/say', lambda m: seen_says.append(json.loads(m.data)), 10)
+
+    def spin_all(n=5, timeout=0.03):
+        for _ in range(n):
+            rclpy.spin_once(nav_node, timeout_sec=timeout)
+            rclpy.spin_once(mock_server, timeout_sec=timeout)
+            rclpy.spin_once(obs, timeout_sec=timeout)
+
+    spin_all(8)
+
+    # 1) Nhiệm vụ kết thúc ABORTED
+    nav_node.on_intent(String(data=json.dumps({
+        'action': 'navigate', 'category': 'toilet', 'request_id': 'req_p15_1'
+    })))
+    for _ in range(40):
+        spin_all(1)
+        if nav_node.state == MissionState.ANNOUNCING:
+            break
+    spin_all(5)
+    sid = nav_node._pending_speech_id
+    mid = nav_node._current_mission_id
+    nav_node.on_tts_ack(String(data=json.dumps({
+        'speech_id': sid, 'mission_id': mid, 'status': 'COMPLETED', 'engine': 'piper', 'audio_played': True
+    })))
+    for _ in range(40):
+        spin_all(1)
+        if nav_node.state == MissionState.IDLE and len(mock_server.nav_received_goals) >= 1:
+            break
+    spin_all(5)
+    assert nav_node.state == MissionState.IDLE
+    assert seen_ns[-1]['confirmed_goal_valid'] is False
+    assert seen_cg[-1].header.frame_id == ''
+    assert len(seen_cp[-1].poses) == 0
+    assert all(m.action in (Marker.DELETE, Marker.DELETEALL) for m in seen_cm[-1].markers)
+
+    # 2) NO_VALID_PATH trên tất cả nhà vệ sinh -> vẫn sạch hoàn toàn
+    mock_server.unreachable_x.update([toilet_1_x, toilet_2_x])
+    nav_node.on_intent(String(data=json.dumps({
+        'action': 'navigate', 'category': 'toilet', 'request_id': 'req_p15_2'
+    })))
+    for _ in range(40):
+        spin_all(1)
+        if nav_node.state == MissionState.IDLE and len(seen_says) >= 2:
+            break
+    spin_all(5)
+    assert nav_node.state == MissionState.IDLE
+    assert seen_ns[-1]['confirmed_goal_valid'] is False
+    assert seen_cg[-1].header.frame_id == ''
+    assert len(seen_cp[-1].poses) == 0
+    assert all(m.action in (Marker.DELETE, Marker.DELETEALL) for m in seen_cm[-1].markers)
+
+    # 3) Hủy trong lúc RESOLVING -> sạch hoàn toàn
+    mock_server.unreachable_x.clear()
+    mock_server.delayed_x[toilet_1_x] = 0.25
+    nav_node.on_intent(String(data=json.dumps({
+        'action': 'navigate', 'category': 'toilet', 'request_id': 'req_p15_3'
+    })))
+    spin_all(2)
+    assert nav_node.state == MissionState.RESOLVING
+    nav_node.handle_cancel_request('req_p15_cancel_res')
+    spin_all(8)
+    assert nav_node.state == MissionState.IDLE
+    assert seen_ns[-1]['confirmed_goal_valid'] is False
+    assert seen_cg[-1].header.frame_id == ''
+    assert len(seen_cp[-1].poses) == 0
+    assert all(m.action in (Marker.DELETE, Marker.DELETEALL) for m in seen_cm[-1].markers)
+
+    obs.destroy_node()
+    nav_node.destroy_node()
+    mock_server.destroy_node()

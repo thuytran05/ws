@@ -1,0 +1,557 @@
+2026-11-25T10:41:04+00:00
+Starting Gazebo + Nav2 (MPPI DiffDrive) + Voice on ROS_DOMAIN_ID=44 at (-1.0, 1.3, 1.57)
+Gazebo /clock ready (2s)
+AMCL+TF localized at (-1.0, 1.3) (attempt 2)
+Nav2 active (1s)
+--- ROS GRAPH AUDIT ---
+>>> ros2 topic info -v /plan
+Type: nav_msgs/msg/Path
+
+Publisher count: 2
+
+Node name: planner_server
+Node namespace: /
+Topic type: nav_msgs/msg/Path
+Topic type hash: RIHS01_1957a5bb3cee5da65c4e52e52b65a93df227efce4c20f8458b36e73066ca334b
+Endpoint type: PUBLISHER
+GID: 01.0f.5c.e3.9c.6a.f4.81.00.00.00.00.00.02.7f.03
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: route_server
+Node namespace: /
+Topic type: nav_msgs/msg/Path
+Topic type hash: RIHS01_1957a5bb3cee5da65c4e52e52b65a93df227efce4c20f8458b36e73066ca334b
+Endpoint type: PUBLISHER
+GID: 01.0f.5c.e3.9c.6a.f4.81.00.00.00.00.00.02.ac.03
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 1
+
+Node name: rviz_tc01_08_verifier
+Node namespace: /
+Topic type: nav_msgs/msg/Path
+Topic type hash: RIHS01_1957a5bb3cee5da65c4e52e52b65a93df227efce4c20f8458b36e73066ca334b
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.5c.e3.b6.6b.71.90.00.00.00.00.00.00.19.04
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+>>> ros2 topic info -v /local_plan
+Type: nav_msgs/msg/Path
+
+Publisher count: 0
+
+Subscription count: 1
+
+Node name: rviz_tc01_08_verifier
+Node namespace: /
+Topic type: nav_msgs/msg/Path
+Topic type hash: RIHS01_1957a5bb3cee5da65c4e52e52b65a93df227efce4c20f8458b36e73066ca334b
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.5c.e3.b6.6b.71.90.00.00.00.00.00.00.1a.04
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+>>> ros2 topic info -v /voice/confirmed_path
+Type: nav_msgs/msg/Path
+
+Publisher count: 1
+
+Node name: nav_command_node
+Node namespace: /
+Topic type: nav_msgs/msg/Path
+Topic type hash: RIHS01_1957a5bb3cee5da65c4e52e52b65a93df227efce4c20f8458b36e73066ca334b
+Endpoint type: PUBLISHER
+GID: 01.0f.5c.e3.bf.6b.b7.98.00.00.00.00.00.00.29.03
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: TRANSIENT_LOCAL
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 1
+
+Node name: rviz_tc01_08_verifier
+Node namespace: /
+Topic type: nav_msgs/msg/Path
+Topic type hash: RIHS01_1957a5bb3cee5da65c4e52e52b65a93df227efce4c20f8458b36e73066ca334b
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.5c.e3.b6.6b.71.90.00.00.00.00.00.00.16.04
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: TRANSIENT_LOCAL
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+>>> ros2 topic info -v /voice/confirmed_goal_marker
+Type: visualization_msgs/msg/MarkerArray
+
+Publisher count: 1
+
+Node name: nav_command_node
+Node namespace: /
+Topic type: visualization_msgs/msg/MarkerArray
+Topic type hash: RIHS01_86cb8800b6fb05b5eff1abd7a56f62a5641d3ae9a1c29e78e67e704f1d067dcf
+Endpoint type: PUBLISHER
+GID: 01.0f.5c.e3.bf.6b.b7.98.00.00.00.00.00.00.2a.03
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: TRANSIENT_LOCAL
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 1
+
+Node name: rviz_tc01_08_verifier
+Node namespace: /
+Topic type: visualization_msgs/msg/MarkerArray
+Topic type hash: RIHS01_86cb8800b6fb05b5eff1abd7a56f62a5641d3ae9a1c29e78e67e704f1d067dcf
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.5c.e3.b6.6b.71.90.00.00.00.00.00.00.17.04
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: TRANSIENT_LOCAL
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+>>> ros2 topic info -v /voice/planner_debug_markers
+Type: visualization_msgs/msg/MarkerArray
+
+Publisher count: 1
+
+Node name: nav_command_node
+Node namespace: /
+Topic type: visualization_msgs/msg/MarkerArray
+Topic type hash: RIHS01_86cb8800b6fb05b5eff1abd7a56f62a5641d3ae9a1c29e78e67e704f1d067dcf
+Endpoint type: PUBLISHER
+GID: 01.0f.5c.e3.bf.6b.b7.98.00.00.00.00.00.00.2b.03
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: TRANSIENT_LOCAL
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 1
+
+Node name: rviz_tc01_08_verifier
+Node namespace: /
+Topic type: visualization_msgs/msg/MarkerArray
+Topic type hash: RIHS01_86cb8800b6fb05b5eff1abd7a56f62a5641d3ae9a1c29e78e67e704f1d067dcf
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.5c.e3.b6.6b.71.90.00.00.00.00.00.00.18.04
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: TRANSIENT_LOCAL
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+>>> ros2 action info /navigate_to_pose
+Action: /navigate_to_pose
+Action clients: 5
+    /bt_navigator
+    /waypoint_follower
+    /docking_server
+    /rviz_tc01_08_verifier
+    /nav_command_node
+Action servers: 1
+    /bt_navigator
+>>> ros2 action info /compute_path_to_pose
+Action: /compute_path_to_pose
+Action clients: 3
+    /bt_navigator_navigate_to_pose_rclcpp_node
+    /rviz_tc01_08_verifier
+    /nav_command_node
+Action servers: 1
+    /planner_server
+[TC01] PASS target=gate_a3, uuid=6978c5b9822c4e299c213276ccbcf883, plan_poses=76, local_plan_msgs=0, confirmed_path_poses=0
+[TC02] PASS target=gate_a4, uuid=f86c905944de4c0ab4ed9fceb68a15ab, plan_poses=238, confirmed_path_poses=0
+[TC03] PASS target=toilet_1, uuid=43e46100555a4b8a81c9c46e0450c67a, plan_poses=22, confirmed_path_poses=0
+[TC04] PASS canceled toilet mission and cleared all voice visuals
+[TC05] PASS toilet(a0405f02650e4be983f2c3f304820dbe) -> gate_a3(9c3ecdccc32448c79ca9d06c3d6e5087), confirmed_path_poses=0
+[TC06] PASS gate_a3(d09bb02604ee4d47a6e5c6f960a0b92e) -> toilet_1(70329e7db8054b1d8a649409a61587a2), confirmed_path_poses=0
+[TC07] PASS canceled during RESOLVING -> IDLE & cleared
+Traceback (most recent call last):
+  File "/tmp/verify_tc01_08_gazebo.py", line 245, in <module>
+    main()
+  File "/tmp/verify_tc01_08_gazebo.py", line 230, in main
+    assert v.spin_until(
+           ^^^^^^^^^^^^^
+AssertionError: TC08 failed SUCCEEDED->IDLE; last={'schema_version': '1.0', 'session_id': None, 'node_online': True, 'mission_state': 'IDLE', 'mission_id': 'mis_1795603284200_8', 'goal_attempt_id': 'att_1795603284200_8', 'nav2_uuid': '56106f3d60544ff4aac06e6c091024e6', 'current_target_id': None, 'current_target_name': None, 'confirmed_goal_valid': False, 'confirmed_goal_pose': None, 'distance_remaining': 0.5560354590415955, 'eta_seconds': 0, 'last_feedback_time': 1795603304.921824, 'unresolved_attempts_count': 0, 'has_unresolved_goals': False, 'pending_replace_target': None, 'timestamp': 1795603337.2865028}, fbs=[{'schema_version': '1.0', 'session_id': None, 'event': 'ANNOUNCING', 'status': 'OK', 'message': 'Tôi sẽ dẫn bạn đến nhà vệ sinh sảnh A. Xin hãy đi theo tôi.', 'mission_id': 'mis_1795603284200_8', 'goal_attempt_id': None, 'nav2_uuid': None, 'target_id': 'toilet_1', 'timestamp': 1795603302.9756963}, {'schema_version': '1.0', 'session_id': None, 'event': 'NAV_GOAL_DISPATCHED', 'status': 'OK', 'message': 'Gửi goal toilet_1 tới Nav2 (attempt=att_1795603284200_8, uuid=56106f3d60544ff4aac06e6c091024e6)', 'mission_id': 'mis_1795603284200_8', 'goal_attempt_id': 'att_1795603284200_8', 'nav2_uuid': '56106f3d60544ff4aac06e6c091024e6', 'target_id': 'toilet_1', 'timestamp': 1795603303.0304487}, {'schema_version': '1.0', 'session_id': None, 'event': 'STARTED', 'status': 'GOAL_ACCEPTED', 'message': '', 'mission_id': 'mis_1795603284200_8', 'goal_attempt_id': 'att_1795603284200_8', 'nav2_uuid': '56106f3d60544ff4aac06e6c091024e6', 'target_id': 'toilet_1', 'timestamp': 1795603303.0318892}, {'schema_version': '1.0', 'session_id': None, 'event': 'FAILED', 'status': 'ABORTED', 'message': 'Tôi gặp trở ngại trên đường đi và không thể tiếp tục.', 'mission_id': 'mis_1795603284200_8', 'goal_attempt_id': 'att_1795603284200_8', 'nav2_uuid': '56106f3d60544ff4aac06e6c091024e6', 'target_id': 'toilet_1', 'timestamp': 1795603304.9526913}]
+=== TC08 + EXTRA ROS GRAPH CHECK ===
+--- ROS GRAPH EXTRA (topic list -t & node info /nav_command_node) ---
+/collision_monitor/collision_points_marker [visualization_msgs/msg/MarkerArray]
+/docking_trajectory [nav_msgs/msg/Path]
+/optimal_trajectory [nav_msgs/msg/Path]
+/plan [nav_msgs/msg/Path]
+/plan_smoothed [nav_msgs/msg/Path]
+/planner_selector [std_msgs/msg/String]
+/planner_server/transition_event [lifecycle_msgs/msg/TransitionEvent]
+/trajectories [visualization_msgs/msg/MarkerArray]
+/transformed_global_plan [nav_msgs/msg/Path]
+/voice/confirmed_goal [geometry_msgs/msg/PoseStamped]
+/voice/confirmed_goal_marker [visualization_msgs/msg/MarkerArray]
+/voice/confirmed_path [nav_msgs/msg/Path]
+/voice/feedback [std_msgs/msg/String]
+/voice/intent [std_msgs/msg/String]
+/voice/nav_state [std_msgs/msg/String]
+/voice/nav_status [std_msgs/msg/String]
+/voice/planner_debug_markers [visualization_msgs/msg/MarkerArray]
+/voice/say [std_msgs/msg/String]
+/voice/speaking [std_msgs/msg/Bool]
+/voice/text [std_msgs/msg/String]
+/voice/tts_ack [std_msgs/msg/String]
+/voice/tts_cancel [std_msgs/msg/String]
+/waypoint_follower/transition_event [lifecycle_msgs/msg/TransitionEvent]
+
+/nav_command_node
+  Subscribers:
+    /clock: rosgraph_msgs/msg/Clock
+    /tracking/safety_request: std_msgs/msg/String
+    /tracking/session_state: std_msgs/msg/String
+    /voice/intent: std_msgs/msg/String
+    /voice/speaking: std_msgs/msg/Bool
+    /voice/tts_ack: std_msgs/msg/String
+  Publishers:
+    /parameter_events: rcl_interfaces/msg/ParameterEvent
+    /rosout: rcl_interfaces/msg/Log
+    /voice/confirmed_goal: geometry_msgs/msg/PoseStamped
+    /voice/confirmed_goal_marker: visualization_msgs/msg/MarkerArray
+    /voice/confirmed_path: nav_msgs/msg/Path
+    /voice/feedback: std_msgs/msg/String
+    /voice/nav_state: std_msgs/msg/String
+    /voice/nav_status: std_msgs/msg/String
+    /voice/planner_debug_markers: visualization_msgs/msg/MarkerArray
+    /voice/say: std_msgs/msg/String
+    /voice/tts_cancel: std_msgs/msg/String
+  Service Servers:
+    /nav_command_node/describe_parameters: rcl_interfaces/srv/DescribeParameters
+    /nav_command_node/get_parameter_types: rcl_interfaces/srv/GetParameterTypes
+    /nav_command_node/get_parameters: rcl_interfaces/srv/GetParameters
+    /nav_command_node/get_type_description: type_description_interfaces/srv/GetTypeDescription
+    /nav_command_node/list_parameters: rcl_interfaces/srv/ListParameters
+    /nav_command_node/set_parameters: rcl_interfaces/srv/SetParameters
+    /nav_command_node/set_parameters_atomically: rcl_interfaces/srv/SetParametersAtomically
+  Service Clients:
+
+  Action Servers:
+
+  Action Clients:
+    /compute_path_to_pose: nav2_msgs/action/ComputePathToPose
+    /navigate_to_pose: nav2_msgs/action/NavigateToPose
+
+Traceback (most recent call last):
+  File "/tmp/verify_tc08_and_graph.py", line 138, in <module>
+    main()
+  File "/tmp/verify_tc08_and_graph.py", line 114, in main
+    assert len(v.confirmed_paths[-1][1].poses) == 0, 'TC08 confirmed_path must be empty during NAVIGATING'
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: TC08 confirmed_path must be empty during NAVIGATING
+=== TC08 + EXTRA ROS GRAPH CHECK ===
+--- ROS GRAPH EXTRA (topic list -t & node info /nav_command_node) ---
+/collision_monitor/collision_points_marker [visualization_msgs/msg/MarkerArray]
+/docking_trajectory [nav_msgs/msg/Path]
+/optimal_trajectory [nav_msgs/msg/Path]
+/plan [nav_msgs/msg/Path]
+/plan_smoothed [nav_msgs/msg/Path]
+/planner_selector [std_msgs/msg/String]
+/planner_server/transition_event [lifecycle_msgs/msg/TransitionEvent]
+/trajectories [visualization_msgs/msg/MarkerArray]
+/transformed_global_plan [nav_msgs/msg/Path]
+/voice/confirmed_goal [geometry_msgs/msg/PoseStamped]
+/voice/confirmed_goal_marker [visualization_msgs/msg/MarkerArray]
+/voice/confirmed_path [nav_msgs/msg/Path]
+/voice/feedback [std_msgs/msg/String]
+/voice/intent [std_msgs/msg/String]
+/voice/nav_state [std_msgs/msg/String]
+/voice/nav_status [std_msgs/msg/String]
+/voice/planner_debug_markers [visualization_msgs/msg/MarkerArray]
+/voice/say [std_msgs/msg/String]
+/voice/speaking [std_msgs/msg/Bool]
+/voice/text [std_msgs/msg/String]
+/voice/tts_ack [std_msgs/msg/String]
+/voice/tts_cancel [std_msgs/msg/String]
+/waypoint_follower/transition_event [lifecycle_msgs/msg/TransitionEvent]
+
+/nav_command_node
+  Subscribers:
+    /clock: rosgraph_msgs/msg/Clock
+    /tracking/safety_request: std_msgs/msg/String
+    /tracking/session_state: std_msgs/msg/String
+    /voice/intent: std_msgs/msg/String
+    /voice/speaking: std_msgs/msg/Bool
+    /voice/tts_ack: std_msgs/msg/String
+  Publishers:
+    /parameter_events: rcl_interfaces/msg/ParameterEvent
+    /rosout: rcl_interfaces/msg/Log
+    /voice/confirmed_goal: geometry_msgs/msg/PoseStamped
+    /voice/confirmed_goal_marker: visualization_msgs/msg/MarkerArray
+    /voice/confirmed_path: nav_msgs/msg/Path
+    /voice/feedback: std_msgs/msg/String
+    /voice/nav_state: std_msgs/msg/String
+    /voice/nav_status: std_msgs/msg/String
+    /voice/planner_debug_markers: visualization_msgs/msg/MarkerArray
+    /voice/say: std_msgs/msg/String
+    /voice/tts_cancel: std_msgs/msg/String
+  Service Servers:
+    /nav_command_node/describe_parameters: rcl_interfaces/srv/DescribeParameters
+    /nav_command_node/get_parameter_types: rcl_interfaces/srv/GetParameterTypes
+    /nav_command_node/get_parameters: rcl_interfaces/srv/GetParameters
+    /nav_command_node/get_type_description: type_description_interfaces/srv/GetTypeDescription
+    /nav_command_node/list_parameters: rcl_interfaces/srv/ListParameters
+    /nav_command_node/set_parameters: rcl_interfaces/srv/SetParameters
+    /nav_command_node/set_parameters_atomically: rcl_interfaces/srv/SetParametersAtomically
+  Service Clients:
+
+  Action Servers:
+
+  Action Clients:
+    /compute_path_to_pose: nav2_msgs/action/ComputePathToPose
+    /navigate_to_pose: nav2_msgs/action/NavigateToPose
+
+Traceback (most recent call last):
+  File "/tmp/verify_tc08_and_graph.py", line 139, in <module>
+    main()
+  File "/tmp/verify_tc08_and_graph.py", line 117, in main
+    assert v.spin_until(
+           ^^^^^^^^^^^^^
+AssertionError: TC08 failed SUCCEEDED->IDLE; last={'schema_version': '1.0', 'session_id': None, 'node_online': True, 'mission_state': 'NAVIGATING', 'mission_id': 'mis_1795603523703_1', 'goal_attempt_id': 'att_1795603523703_1', 'nav2_uuid': '5570b16de2784499a4b64fd438623efd', 'current_target_id': 'toilet_1', 'current_target_name': 'nhà vệ sinh sảnh A', 'confirmed_goal_valid': True, 'confirmed_goal_pose': {'frame_id': 'map', 'x': -1.0, 'y': 1.8, 'z': 0.0, 'qx': 0.0, 'qy': 0.0, 'qz': 0.706825181105366, 'qw': 0.7073882691671998}, 'distance_remaining': 0.4558074474334717, 'eta_seconds': 0, 'last_feedback_time': 1795603566.0223882, 'unresolved_attempts_count': 1, 'has_unresolved_goals': True, 'pending_replace_target': None, 'timestamp': 1795603566.022399}, fbs=[{'schema_version': '1.0', 'session_id': None, 'event': 'ANNOUNCING', 'status': 'OK', 'message': 'Tôi sẽ dẫn bạn đến nhà vệ sinh sảnh A. Xin hãy đi theo tôi.', 'mission_id': 'mis_1795603523703_1', 'goal_attempt_id': None, 'nav2_uuid': None, 'target_id': 'toilet_1', 'timestamp': 1795603530.466771}, {'schema_version': '1.0', 'session_id': None, 'event': 'NAV_GOAL_DISPATCHED', 'status': 'OK', 'message': 'Gửi goal toilet_1 tới Nav2 (attempt=att_1795603523703_1, uuid=5570b16de2784499a4b64fd438623efd)', 'mission_id': 'mis_1795603523703_1', 'goal_attempt_id': 'att_1795603523703_1', 'nav2_uuid': '5570b16de2784499a4b64fd438623efd', 'target_id': 'toilet_1', 'timestamp': 1795603530.5208962}, {'schema_version': '1.0', 'session_id': None, 'event': 'STARTED', 'status': 'GOAL_ACCEPTED', 'message': '', 'mission_id': 'mis_1795603523703_1', 'goal_attempt_id': 'att_1795603523703_1', 'nav2_uuid': '5570b16de2784499a4b64fd438623efd', 'target_id': 'toilet_1', 'timestamp': 1795603530.522238}]
+=== TC08 + EXTRA ROS GRAPH CHECK ===
+--- ROS GRAPH EXTRA (topic list -t & node info /nav_command_node) ---
+/collision_monitor/collision_points_marker [visualization_msgs/msg/MarkerArray]
+/docking_trajectory [nav_msgs/msg/Path]
+/optimal_trajectory [nav_msgs/msg/Path]
+/plan [nav_msgs/msg/Path]
+/plan_smoothed [nav_msgs/msg/Path]
+/planner_selector [std_msgs/msg/String]
+/planner_server/transition_event [lifecycle_msgs/msg/TransitionEvent]
+/trajectories [visualization_msgs/msg/MarkerArray]
+/transformed_global_plan [nav_msgs/msg/Path]
+/voice/confirmed_goal [geometry_msgs/msg/PoseStamped]
+/voice/confirmed_goal_marker [visualization_msgs/msg/MarkerArray]
+/voice/confirmed_path [nav_msgs/msg/Path]
+/voice/feedback [std_msgs/msg/String]
+/voice/intent [std_msgs/msg/String]
+/voice/nav_state [std_msgs/msg/String]
+/voice/nav_status [std_msgs/msg/String]
+/voice/planner_debug_markers [visualization_msgs/msg/MarkerArray]
+/voice/say [std_msgs/msg/String]
+/voice/speaking [std_msgs/msg/Bool]
+/voice/text [std_msgs/msg/String]
+/voice/tts_ack [std_msgs/msg/String]
+/voice/tts_cancel [std_msgs/msg/String]
+/waypoint_follower/transition_event [lifecycle_msgs/msg/TransitionEvent]
+
+/nav_command_node
+  Subscribers:
+    /clock: rosgraph_msgs/msg/Clock
+    /tracking/safety_request: std_msgs/msg/String
+    /tracking/session_state: std_msgs/msg/String
+    /voice/intent: std_msgs/msg/String
+    /voice/speaking: std_msgs/msg/Bool
+    /voice/tts_ack: std_msgs/msg/String
+  Publishers:
+    /parameter_events: rcl_interfaces/msg/ParameterEvent
+    /rosout: rcl_interfaces/msg/Log
+    /voice/confirmed_goal: geometry_msgs/msg/PoseStamped
+    /voice/confirmed_goal_marker: visualization_msgs/msg/MarkerArray
+    /voice/confirmed_path: nav_msgs/msg/Path
+    /voice/feedback: std_msgs/msg/String
+    /voice/nav_state: std_msgs/msg/String
+    /voice/nav_status: std_msgs/msg/String
+    /voice/planner_debug_markers: visualization_msgs/msg/MarkerArray
+    /voice/say: std_msgs/msg/String
+    /voice/tts_cancel: std_msgs/msg/String
+  Service Servers:
+    /nav_command_node/describe_parameters: rcl_interfaces/srv/DescribeParameters
+    /nav_command_node/get_parameter_types: rcl_interfaces/srv/GetParameterTypes
+    /nav_command_node/get_parameters: rcl_interfaces/srv/GetParameters
+    /nav_command_node/get_type_description: type_description_interfaces/srv/GetTypeDescription
+    /nav_command_node/list_parameters: rcl_interfaces/srv/ListParameters
+    /nav_command_node/set_parameters: rcl_interfaces/srv/SetParameters
+    /nav_command_node/set_parameters_atomically: rcl_interfaces/srv/SetParametersAtomically
+  Service Clients:
+
+  Action Servers:
+
+  Action Clients:
+    /compute_path_to_pose: nav2_msgs/action/ComputePathToPose
+    /navigate_to_pose: nav2_msgs/action/NavigateToPose
+
+Traceback (most recent call last):
+  File "/tmp/verify_tc08_and_graph.py", line 139, in <module>
+    main()
+  File "/tmp/verify_tc08_and_graph.py", line 117, in main
+    assert v.spin_until(
+           ^^^^^^^^^^^^^
+AssertionError: TC08 failed SUCCEEDED->IDLE; last={'schema_version': '1.0', 'session_id': None, 'node_online': True, 'mission_state': 'NAVIGATING', 'mission_id': 'mis_1795603665091_1', 'goal_attempt_id': 'att_1795603665091_1', 'nav2_uuid': '773ca934c91f4aa0ad3319e7ba1e4d68', 'current_target_id': 'gate_a1', 'current_target_name': 'cổng A1', 'confirmed_goal_valid': True, 'confirmed_goal_pose': {'frame_id': 'map', 'x': 0.0, 'y': 0.6, 'z': 0.0, 'qx': 0.0, 'qy': 0.0, 'qz': 0.706825181105366, 'qw': 0.7073882691671998}, 'distance_remaining': 0.4669317603111267, 'eta_seconds': 0, 'last_feedback_time': 1795603729.5796676, 'unresolved_attempts_count': 1, 'has_unresolved_goals': True, 'pending_replace_target': None, 'timestamp': 1795603729.579675}, fbs=[{'schema_version': '1.0', 'session_id': None, 'event': 'ANNOUNCING', 'status': 'OK', 'message': 'Tôi sẽ dẫn bạn đến cổng A1. Xin hãy đi theo tôi.', 'mission_id': 'mis_1795603665091_1', 'goal_attempt_id': None, 'nav2_uuid': None, 'target_id': 'gate_a1', 'timestamp': 1795603669.023199}, {'schema_version': '1.0', 'session_id': None, 'event': 'NAV_GOAL_DISPATCHED', 'status': 'OK', 'message': 'Gửi goal gate_a1 tới Nav2 (attempt=att_1795603665091_1, uuid=773ca934c91f4aa0ad3319e7ba1e4d68)', 'mission_id': 'mis_1795603665091_1', 'goal_attempt_id': 'att_1795603665091_1', 'nav2_uuid': '773ca934c91f4aa0ad3319e7ba1e4d68', 'target_id': 'gate_a1', 'timestamp': 1795603669.0778382}, {'schema_version': '1.0', 'session_id': None, 'event': 'STARTED', 'status': 'GOAL_ACCEPTED', 'message': '', 'mission_id': 'mis_1795603665091_1', 'goal_attempt_id': 'att_1795603665091_1', 'nav2_uuid': '773ca934c91f4aa0ad3319e7ba1e4d68', 'target_id': 'gate_a1', 'timestamp': 1795603669.0794847}]
+=== TC08 + EXTRA ROS GRAPH CHECK ===
+--- ROS GRAPH EXTRA (topic list -t & node info /nav_command_node) ---
+/collision_monitor/collision_points_marker [visualization_msgs/msg/MarkerArray]
+/docking_trajectory [nav_msgs/msg/Path]
+/optimal_trajectory [nav_msgs/msg/Path]
+/plan [nav_msgs/msg/Path]
+/plan_smoothed [nav_msgs/msg/Path]
+/planner_selector [std_msgs/msg/String]
+/planner_server/transition_event [lifecycle_msgs/msg/TransitionEvent]
+/trajectories [visualization_msgs/msg/MarkerArray]
+/transformed_global_plan [nav_msgs/msg/Path]
+/voice/confirmed_goal [geometry_msgs/msg/PoseStamped]
+/voice/confirmed_goal_marker [visualization_msgs/msg/MarkerArray]
+/voice/confirmed_path [nav_msgs/msg/Path]
+/voice/feedback [std_msgs/msg/String]
+/voice/intent [std_msgs/msg/String]
+/voice/nav_state [std_msgs/msg/String]
+/voice/nav_status [std_msgs/msg/String]
+/voice/planner_debug_markers [visualization_msgs/msg/MarkerArray]
+/voice/say [std_msgs/msg/String]
+/voice/speaking [std_msgs/msg/Bool]
+/voice/text [std_msgs/msg/String]
+/voice/tts_ack [std_msgs/msg/String]
+/voice/tts_cancel [std_msgs/msg/String]
+/waypoint_follower/transition_event [lifecycle_msgs/msg/TransitionEvent]
+
+/nav_command_node
+  Subscribers:
+    /clock: rosgraph_msgs/msg/Clock
+    /tracking/safety_request: std_msgs/msg/String
+    /tracking/session_state: std_msgs/msg/String
+    /voice/intent: std_msgs/msg/String
+    /voice/speaking: std_msgs/msg/Bool
+    /voice/tts_ack: std_msgs/msg/String
+  Publishers:
+    /parameter_events: rcl_interfaces/msg/ParameterEvent
+    /rosout: rcl_interfaces/msg/Log
+    /voice/confirmed_goal: geometry_msgs/msg/PoseStamped
+    /voice/confirmed_goal_marker: visualization_msgs/msg/MarkerArray
+    /voice/confirmed_path: nav_msgs/msg/Path
+    /voice/feedback: std_msgs/msg/String
+    /voice/nav_state: std_msgs/msg/String
+    /voice/nav_status: std_msgs/msg/String
+    /voice/planner_debug_markers: visualization_msgs/msg/MarkerArray
+    /voice/say: std_msgs/msg/String
+    /voice/tts_cancel: std_msgs/msg/String
+  Service Servers:
+    /nav_command_node/describe_parameters: rcl_interfaces/srv/DescribeParameters
+    /nav_command_node/get_parameter_types: rcl_interfaces/srv/GetParameterTypes
+    /nav_command_node/get_parameters: rcl_interfaces/srv/GetParameters
+    /nav_command_node/get_type_description: type_description_interfaces/srv/GetTypeDescription
+    /nav_command_node/list_parameters: rcl_interfaces/srv/ListParameters
+    /nav_command_node/set_parameters: rcl_interfaces/srv/SetParameters
+    /nav_command_node/set_parameters_atomically: rcl_interfaces/srv/SetParametersAtomically
+  Service Clients:
+
+  Action Servers:
+
+  Action Clients:
+    /compute_path_to_pose: nav2_msgs/action/ComputePathToPose
+    /navigate_to_pose: nav2_msgs/action/NavigateToPose
+
+Traceback (most recent call last):
+  File "/tmp/verify_tc08_and_graph.py", line 139, in <module>
+    main()
+  File "/tmp/verify_tc08_and_graph.py", line 117, in main
+    assert v.spin_until(
+           ^^^^^^^^^^^^^
+AssertionError: TC08 failed SUCCEEDED->IDLE; last={'schema_version': '1.0', 'session_id': None, 'node_online': True, 'mission_state': 'NAVIGATING', 'mission_id': 'mis_1795603794011_1', 'goal_attempt_id': 'att_1795603794011_1', 'nav2_uuid': '413c2bdd539c4b99a594cb609bb6f21e', 'current_target_id': 'gate_a2', 'current_target_name': 'cổng A2', 'confirmed_goal_valid': True, 'confirmed_goal_pose': {'frame_id': 'map', 'x': -1.0, 'y': 0.6, 'z': 0.0, 'qx': 0.0, 'qy': 0.0, 'qz': 0.9999996829318346, 'qw': 0.0007963267107332633}, 'distance_remaining': 0.6228981018066406, 'eta_seconds': 0, 'last_feedback_time': 1795603861.9749844, 'unresolved_attempts_count': 1, 'has_unresolved_goals': True, 'pending_replace_target': None, 'timestamp': 1795603861.9749968}, fbs=[{'schema_version': '1.0', 'session_id': None, 'event': 'ANNOUNCING', 'status': 'OK', 'message': 'Tôi sẽ dẫn bạn đến cổng A2. Xin hãy đi theo tôi.', 'mission_id': 'mis_1795603794011_1', 'goal_attempt_id': None, 'nav2_uuid': None, 'target_id': 'gate_a2', 'timestamp': 1795603801.4182487}, {'schema_version': '1.0', 'session_id': None, 'event': 'NAV_GOAL_DISPATCHED', 'status': 'OK', 'message': 'Gửi goal gate_a2 tới Nav2 (attempt=att_1795603794011_1, uuid=413c2bdd539c4b99a594cb609bb6f21e)', 'mission_id': 'mis_1795603794011_1', 'goal_attempt_id': 'att_1795603794011_1', 'nav2_uuid': '413c2bdd539c4b99a594cb609bb6f21e', 'target_id': 'gate_a2', 'timestamp': 1795603801.473206}, {'schema_version': '1.0', 'session_id': None, 'event': 'STARTED', 'status': 'GOAL_ACCEPTED', 'message': '', 'mission_id': 'mis_1795603794011_1', 'goal_attempt_id': 'att_1795603794011_1', 'nav2_uuid': '413c2bdd539c4b99a594cb609bb6f21e', 'target_id': 'gate_a2', 'timestamp': 1795603801.4746585}]
+=== TC08 + EXTRA ROS GRAPH CHECK ===
+--- ROS GRAPH EXTRA (topic list -t & node info /nav_command_node) ---
+/collision_monitor/collision_points_marker [visualization_msgs/msg/MarkerArray]
+/docking_trajectory [nav_msgs/msg/Path]
+/optimal_trajectory [nav_msgs/msg/Path]
+/plan [nav_msgs/msg/Path]
+/plan_smoothed [nav_msgs/msg/Path]
+/planner_selector [std_msgs/msg/String]
+/planner_server/transition_event [lifecycle_msgs/msg/TransitionEvent]
+/trajectories [visualization_msgs/msg/MarkerArray]
+/transformed_global_plan [nav_msgs/msg/Path]
+/voice/confirmed_goal [geometry_msgs/msg/PoseStamped]
+/voice/confirmed_goal_marker [visualization_msgs/msg/MarkerArray]
+/voice/confirmed_path [nav_msgs/msg/Path]
+/voice/feedback [std_msgs/msg/String]
+/voice/intent [std_msgs/msg/String]
+/voice/nav_state [std_msgs/msg/String]
+/voice/nav_status [std_msgs/msg/String]
+/voice/planner_debug_markers [visualization_msgs/msg/MarkerArray]
+/voice/say [std_msgs/msg/String]
+/voice/speaking [std_msgs/msg/Bool]
+/voice/text [std_msgs/msg/String]
+/voice/tts_ack [std_msgs/msg/String]
+/voice/tts_cancel [std_msgs/msg/String]
+/waypoint_follower/transition_event [lifecycle_msgs/msg/TransitionEvent]
+
+/nav_command_node
+  Subscribers:
+    /clock: rosgraph_msgs/msg/Clock
+    /tracking/safety_request: std_msgs/msg/String
+    /tracking/session_state: std_msgs/msg/String
+    /voice/intent: std_msgs/msg/String
+    /voice/speaking: std_msgs/msg/Bool
+    /voice/tts_ack: std_msgs/msg/String
+  Publishers:
+    /parameter_events: rcl_interfaces/msg/ParameterEvent
+    /rosout: rcl_interfaces/msg/Log
+    /voice/confirmed_goal: geometry_msgs/msg/PoseStamped
+    /voice/confirmed_goal_marker: visualization_msgs/msg/MarkerArray
+    /voice/confirmed_path: nav_msgs/msg/Path
+    /voice/feedback: std_msgs/msg/String
+    /voice/nav_state: std_msgs/msg/String
+    /voice/nav_status: std_msgs/msg/String
+    /voice/planner_debug_markers: visualization_msgs/msg/MarkerArray
+    /voice/say: std_msgs/msg/String
+    /voice/tts_cancel: std_msgs/msg/String
+  Service Servers:
+    /nav_command_node/describe_parameters: rcl_interfaces/srv/DescribeParameters
+    /nav_command_node/get_parameter_types: rcl_interfaces/srv/GetParameterTypes
+    /nav_command_node/get_parameters: rcl_interfaces/srv/GetParameters
+    /nav_command_node/get_type_description: type_description_interfaces/srv/GetTypeDescription
+    /nav_command_node/list_parameters: rcl_interfaces/srv/ListParameters
+    /nav_command_node/set_parameters: rcl_interfaces/srv/SetParameters
+    /nav_command_node/set_parameters_atomically: rcl_interfaces/srv/SetParametersAtomically
+  Service Clients:
+
+  Action Servers:
+
+  Action Clients:
+    /compute_path_to_pose: nav2_msgs/action/ComputePathToPose
+    /navigate_to_pose: nav2_msgs/action/NavigateToPose
+
+[TC08] PASS SUCCEEDED -> IDLE, plan_msgs_seen=1, confirmed_path_poses=0, late_subscriber=CLEAN

@@ -382,7 +382,7 @@ Visualization Manager:
           Length: 0.30000001192092896
           Line Style: Billboards
           Line Width: 0.20000000298023224
-          Name: Local Plan
+          Name: MPPI Local Trajectory
           Offset:
             X: 0
             Y: 0
@@ -530,13 +530,13 @@ Visualization Manager:
           Buffer Length: 1
           Class: rviz_default_plugins/Path
           Color: 0; 210; 110
-          Enabled: true
+          Enabled: false
           Head Diameter: 0.05000000074505806
           Head Length: 0.05000000074505806
           Length: 0.30000001192092896
           Line Style: Billboards
           Line Width: 0.11999999731779099
-          Name: Voice Confirmed Path
+          Name: Voice Preview Path (Debug)
           Offset:
             X: 0
             Y: 0
@@ -553,7 +553,7 @@ Visualization Manager:
             History Policy: Keep Last
             Reliability Policy: Reliable
             Value: /voice/confirmed_path
-          Value: true
+          Value: false
         - Class: rviz_default_plugins/MarkerArray
           Enabled: false
           Name: Voice Planner Debug
