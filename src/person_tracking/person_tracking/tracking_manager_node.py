@@ -16,7 +16,7 @@ Phase 4 & Phase 6 Tracking Manager Node (escort_tracking_manager):
 import json
 import sys
 import time
-from typing import Optional, List
+from typing import Optional
 import uuid
 
 import rclpy

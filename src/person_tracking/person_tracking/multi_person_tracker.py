@@ -13,7 +13,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -35,7 +35,6 @@ from person_tracking.rear_camera_geometry import (
     RearCameraGeometry,
     CameraIntrinsics,
     CameraMountTransform,
-    TargetGeometryResult,
 )
 
 

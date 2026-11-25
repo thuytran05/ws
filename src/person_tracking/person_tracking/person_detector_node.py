@@ -15,7 +15,7 @@ import os
 import sys
 import time
 import uuid
-from typing import Optional, Dict, List, Tuple
+from typing import Optional
 
 from cv_bridge import CvBridge
 import numpy as np

@@ -11,7 +11,7 @@ Implements ADR-10 (Rear Camera Coordinate Conventions):
 - STRICTLY ZERO motion output: NO velocity commands, NO velocity command publishers.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import math
 from typing import List, Optional, Tuple
 import numpy as np

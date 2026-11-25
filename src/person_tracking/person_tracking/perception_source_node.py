@@ -1,4 +1,3 @@
-import uuid
 #!/usr/bin/env python3
 """ROS 2 node that publishes normalized camera streams for offline testing.
 
@@ -13,6 +12,7 @@ DOES NOT publish velocity commands or interact with robot actuators.
 import json
 import os
 import time
+import uuid
 
 from cv_bridge import CvBridge
 import numpy as np
@@ -28,7 +28,6 @@ from person_tracking.source_adapters import (
     ObservationFrame,
     VideoReplayAdapter,
     SyntheticFixtureGenerator,
-    create_simulated_camera_info,
 )
 
 

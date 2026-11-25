@@ -148,7 +148,7 @@ pytest src/person_tracking/test/test_nearest_selection.py -v --timeout=30
 
 ### 4.3. Phase 6: State Machine và Giao thức Voice
 ```bash
-ros2 run person_tracking escort_tracking_manager --ros-args --params-file src/person_tracking/config/person_tracking.yaml &
+ros2 run person_tracking tracking_manager &
 ros2 topic echo /tracking/session_state
 ```
 

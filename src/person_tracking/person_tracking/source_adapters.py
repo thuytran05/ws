@@ -15,7 +15,7 @@ from typing import Optional, Tuple, Dict, Any, List
 
 import cv2
 import numpy as np
-from sensor_msgs.msg import CameraInfo, Image
+from sensor_msgs.msg import CameraInfo
 
 
 class SourceMode(str, Enum):

@@ -16,7 +16,6 @@ def generate_launch_description():
     pkg_linorobot2_gazebo = FindPackageShare('linorobot2_gazebo')
     pkg_linorobot2_desc = FindPackageShare('linorobot2_description')
     pkg_linorobot2_nav = FindPackageShare('linorobot2_navigation')
-    pkg_linorobot2_base = FindPackageShare('linorobot2_base')
     pkg_gz_sim = FindPackageShare('ros_gz_sim')
     pkg_nav2_bringup = FindPackageShare('nav2_bringup')
 
