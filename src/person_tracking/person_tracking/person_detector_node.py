@@ -61,6 +61,12 @@ class PersonDetectorNode(Node):
         self.declare_parameter('debug_lock_state_topic', '/tracking/debug_lock_state')
         self.declare_parameter('session_freshness_ttl_sec', 1.0)
         self.declare_parameter('image_qos_reliability', 'best_effort')
+        self.declare_parameter('image_qos_depth', 5)
+        self.declare_parameter('info_qos_reliability', 'best_effort')
+        self.declare_parameter('info_qos_depth', 5)
+        self.declare_parameter('prioritize_latest_frame', False)
+        self.declare_parameter('readiness_min_frames', 1)
+        self.declare_parameter('require_hardware_alignment_proof', True)
 
         model_path = str(self.get_parameter('model_path').value)
         device = str(self.get_parameter('device').value)
@@ -69,12 +75,18 @@ class PersonDetectorNode(Node):
         sync_slop = float(self.get_parameter('sync_slop_sec').value)
         self.publish_debug_image = bool(self.get_parameter('publish_debug_image').value)
         use_synthetic_mount = bool(self.get_parameter('use_synthetic_mount').value)
+        self.prioritize_latest_frame = bool(self.get_parameter('prioritize_latest_frame').value)
+        self.readiness_min_frames = max(1, int(self.get_parameter('readiness_min_frames').value))
+        require_align_proof = bool(self.get_parameter('require_hardware_alignment_proof').value)
 
         # Initialize CV Bridge
         self.bridge = CvBridge()
 
         # Initialize Adapter and Synchronizer
-        self.adapter = LiveAstraAdapter(sync_slop_sec=sync_slop, require_hardware_alignment_proof=True)
+        self.adapter = LiveAstraAdapter(
+            sync_slop_sec=sync_slop,
+            require_hardware_alignment_proof=require_align_proof,
+        )
         self.synchronizer = TopicSynchronizer(adapter=self.adapter)
 
         # Initialize MultiPersonTracker
@@ -121,16 +133,12 @@ class PersonDetectorNode(Node):
         debug_lock_topic = str(self.get_parameter('debug_lock_state_topic').value)
         self.session_freshness_ttl_sec = float(self.get_parameter('session_freshness_ttl_sec').value)
         img_rel = str(self.get_parameter('image_qos_reliability').value).strip().lower()
-        rgb_sub_qos = (
-            QoSProfile(
-                history=HistoryPolicy.KEEP_LAST,
-                depth=2,
-                reliability=ReliabilityPolicy.RELIABLE,
-                durability=DurabilityPolicy.VOLATILE,
-            )
-            if img_rel == 'reliable'
-            else sensor_qos
-        )
+        img_depth = max(1, int(self.get_parameter('image_qos_depth').value))
+        info_rel = str(self.get_parameter('info_qos_reliability').value).strip().lower()
+        info_depth = max(1, int(self.get_parameter('info_qos_depth').value))
+
+        img_sub_qos = self._build_stream_qos(img_rel, img_depth)
+        info_sub_qos = self._build_stream_qos(info_rel, info_depth)
 
         transient_qos = QoSProfile(
             depth=1,
@@ -138,9 +146,9 @@ class PersonDetectorNode(Node):
             reliability=ReliabilityPolicy.RELIABLE,
         )
 
-        self.sub_rgb = self.create_subscription(Image, rgb_topic, self._on_rgb, rgb_sub_qos)
-        self.sub_depth = self.create_subscription(Image, depth_topic, self._on_depth, sensor_qos)
-        self.sub_info = self.create_subscription(CameraInfo, info_topic, self._on_info, sensor_qos)
+        self.sub_rgb = self.create_subscription(Image, rgb_topic, self._on_rgb, img_sub_qos)
+        self.sub_depth = self.create_subscription(Image, depth_topic, self._on_depth, img_sub_qos)
+        self.sub_info = self.create_subscription(CameraInfo, info_topic, self._on_info, info_sub_qos)
         self.sub_status = self.create_subscription(String, status_topic, self._on_status, reliable_qos)
         self.sub_session_state = self.create_subscription(
             String, session_topic, self._on_session_state, transient_qos
@@ -171,6 +179,27 @@ class PersonDetectorNode(Node):
         self._rgb_times = deque(maxlen=30)
         self._obs_times = deque(maxlen=30)
         self._dbg_times = deque(maxlen=30)
+
+        # Camera readiness state
+        self._consecutive_ready_frames = 0
+        self._last_camera_ready = False
+        self._last_readiness_reason = "CAMERA_WARMING_UP"
+
+        # Optional 1-slot latest-frame inference worker (never accumulates old frames when YOLO is slow)
+        self._infer_lock = threading.Lock()
+        self._tracker_exec_lock = threading.Lock()
+        self._infer_event = threading.Event()
+        self._infer_stop_event = threading.Event()
+        self._infer_slot = None
+        self._dropped_old_infer_frames = 0
+        self._infer_thread: Optional[threading.Thread] = None
+        if self.prioritize_latest_frame:
+            self._infer_thread = threading.Thread(
+                target=self._infer_worker_loop,
+                name="latest_frame_infer_worker",
+                daemon=True,
+            )
+            self._infer_thread.start()
 
         # Async single-slot debug worker (decouples debug rendering/publish from observation path)
         self._debug_lock = threading.Lock()
@@ -256,11 +285,32 @@ class PersonDetectorNode(Node):
         except Exception as exc:
             self.get_logger().warn(f"Error parsing source status: {exc}")
 
+    @staticmethod
+    def _build_stream_qos(reliability: str, depth: int) -> QoSProfile:
+        rel_policy = (
+            ReliabilityPolicy.RELIABLE
+            if str(reliability).strip().lower() == 'reliable'
+            else ReliabilityPolicy.BEST_EFFORT
+        )
+        return QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=max(1, int(depth)),
+            reliability=rel_policy,
+            durability=DurabilityPolicy.VOLATILE,
+        )
+
     def _reset_pipeline(self):
-        # Reset tracker, depth buffers, and clock history cleanly
-        self.tracker.reset()
-        self.synchronizer.reset()
-        self.last_frame_timestamp = -1.0
+        # Reset tracker, depth buffers, readiness, and clock history cleanly
+        with self._tracker_exec_lock:
+            self.tracker.reset()
+            self.synchronizer.reset()
+            self.last_frame_timestamp = -1.0
+            self._consecutive_ready_frames = 0
+            self._last_camera_ready = False
+            self._last_readiness_reason = "PIPELINE_RESET_WARMING_UP"
+        with self._infer_lock:
+            self._infer_slot = None
+            self._infer_event.clear()
 
     def _on_info(self, msg: CameraInfo):
         self.synchronizer.set_camera_info(msg)
@@ -351,6 +401,59 @@ class PersonDetectorNode(Node):
                 self.current_session_id = str(uuid.uuid4())
             self.last_frame_timestamp = t_curr
 
+        if self.prioritize_latest_frame:
+            with self._infer_lock:
+                if self._infer_slot is not None:
+                    self._dropped_old_infer_frames += 1
+                self._infer_slot = (msg, status_data, self.current_session_id)
+                self._infer_event.set()
+            return
+
+        self._execute_rgb_inference(msg, status_data, self.current_session_id)
+
+    def _infer_worker_loop(self):
+        """Dedicated worker processing only the latest queued frame so YOLO never accumulates backlog."""
+        while not self._infer_stop_event.is_set():
+            if not self._infer_event.wait(timeout=0.2):
+                continue
+            with self._infer_lock:
+                slot = self._infer_slot
+                self._infer_slot = None
+                self._infer_event.clear()
+            if slot is None:
+                continue
+            msg, status_data, session_id = slot
+            self._execute_rgb_inference(msg, status_data, session_id)
+
+    def _evaluate_camera_readiness(self, obs_frame) -> tuple[bool, str]:
+        """Verify camera stream & depth registration readiness before allowing motion/locking."""
+        dq = obs_frame.data_quality
+        sm = obs_frame.source_mode
+
+        if dq in (
+            DataQuality.STALE.value,
+            DataQuality.DIMENSION_MISMATCH.value,
+            DataQuality.FRAME_ID_MISMATCH.value,
+            DataQuality.INVALID_DEPTH.value,
+        ):
+            self._consecutive_ready_frames = 0
+            return False, f"CAMERA_DEGRADED_{dq}"
+
+        if sm == SourceMode.LIVE_ASTRA.value:
+            if dq in (DataQuality.RGB_ONLY.value, DataQuality.DEGRADED_NO_INFO.value):
+                self._consecutive_ready_frames = 0
+                return False, f"ASTRA_STREAM_INCOMPLETE_{dq}"
+
+        self._consecutive_ready_frames += 1
+        if self._consecutive_ready_frames < self.readiness_min_frames:
+            return False, f"CAMERA_WARMING_UP_{self._consecutive_ready_frames}_{self.readiness_min_frames}"
+
+        if dq == DataQuality.UNVERIFIED_ALIGNMENT.value:
+            return True, "CAMERA_READY_UNVERIFIED_ALIGNMENT"
+        return True, "CAMERA_READY"
+
+    def _execute_rgb_inference(self, msg: Image, status_data: Optional[dict], session_id: str):
+        stamp = (msg.header.stamp.sec, msg.header.stamp.nanosec)
         try:
             rgb_np = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         except Exception as exc:
@@ -359,47 +462,55 @@ class PersonDetectorNode(Node):
 
         now_sec = self.get_clock().now().nanoseconds * 1e-9
 
-        # Synchronize and normalize observation frame
-        obs_frame = self.synchronizer.process_rgb(
-            rgb_img=rgb_np,
-            stamp=stamp,
-            frame_id=msg.header.frame_id,
-            current_time_sec=now_sec,
-        )
-        if self.current_session_id:
-            obs_frame.source_session_id = self.current_session_id
+        with self._tracker_exec_lock:
+            # Synchronize and normalize observation frame
+            obs_frame = self.synchronizer.process_rgb(
+                rgb_img=rgb_np,
+                stamp=stamp,
+                frame_id=msg.header.frame_id,
+                current_time_sec=now_sec,
+            )
+            if session_id:
+                obs_frame.source_session_id = session_id
 
-        if status_data and obs_frame.data_quality != DataQuality.STALE.value:
-            reported_mode = str(status_data.get('source_mode', ''))
-            if reported_mode:
-                obs_frame.source_mode = reported_mode
-            if reported_mode == SourceMode.LIVE_WEBCAM.value and obs_frame.depth is None:
-                obs_frame.data_quality = DataQuality.RGB_ONLY.value
-                obs_frame.error_reason = "Live webcam RGB-only mode; depth and calibrated CameraInfo absent."
+            if status_data and obs_frame.data_quality != DataQuality.STALE.value:
+                reported_mode = str(status_data.get('source_mode', ''))
+                if reported_mode:
+                    obs_frame.source_mode = reported_mode
+                if reported_mode == SourceMode.LIVE_WEBCAM.value and obs_frame.depth is None:
+                    obs_frame.data_quality = DataQuality.RGB_ONLY.value
+                    obs_frame.error_reason = "Live webcam RGB-only mode; depth and calibrated CameraInfo absent."
 
-        if obs_frame.data_quality == 'STALE':
-            self.get_logger().warn(f"Dropped stale frame: {obs_frame.error_reason}")
-            return
+            if obs_frame.data_quality == 'STALE':
+                self._consecutive_ready_frames = 0
+                self._last_camera_ready = False
+                self._last_readiness_reason = "CAMERA_FRAME_STALE"
+                self.get_logger().warn(f"Dropped stale frame: {obs_frame.error_reason}")
+                return
 
-        self._rgb_times.append(time.monotonic())
+            camera_ready, readiness_reason = self._evaluate_camera_readiness(obs_frame)
+            self._last_camera_ready = camera_ready
+            self._last_readiness_reason = readiness_reason
 
-        # Run multi-person detection and tracking
-        try:
-            multi_obs = self.tracker.process_frame(obs_frame)
-            self.processed_frames += 1
-        except Exception as exc:
-            self.get_logger().error(f"Error running tracker inference: {exc}")
-            return
+            self._rgb_times.append(time.monotonic())
+
+            # Run multi-person detection and tracking
+            try:
+                multi_obs = self.tracker.process_frame(obs_frame)
+                self.processed_frames += 1
+            except Exception as exc:
+                self.get_logger().error(f"Error running tracker inference: {exc}")
+                return
 
         # Publish observation payload immediately (critical path)
-        self._publish_observation(multi_obs)
+        self._publish_observation(multi_obs, camera_ready=camera_ready, readiness_reason=readiness_reason)
         self._obs_times.append(time.monotonic())
 
         # Enqueue into 1-slot debug buffer (non-blocking)
         if self.publish_debug_image and self.debug_pub is not None:
             self._enqueue_debug_image(rgb_np, multi_obs, msg.header)
 
-    def _publish_observation(self, obs: MultiPersonObservation):
+    def _publish_observation(self, obs: MultiPersonObservation, camera_ready: bool = True, readiness_reason: str = "CAMERA_READY"):
         candidates_list = [
             {
                 "track_id": p.track_id,
@@ -434,6 +545,8 @@ class PersonDetectorNode(Node):
             "source_mode": obs.source_mode,
             "source_session_id": obs.source_session_id,
             "data_quality": obs.data_quality,
+            "camera_ready": camera_ready,
+            "camera_readiness_reason": readiness_reason,
             "processing_time_ms": obs.processing_time_ms,
             "device": obs.device,
             "active_track_ids": obs.active_track_ids,
@@ -567,6 +680,10 @@ class PersonDetectorNode(Node):
             self.get_logger().warn(f"Error publishing debug image: {exc}")
 
     def destroy_node(self):
+        self._infer_stop_event.set()
+        self._infer_event.set()
+        if self._infer_thread is not None and self._infer_thread.is_alive():
+            self._infer_thread.join(timeout=2.0)
         self._debug_stop_event.set()
         self._debug_event.set()
         if self._debug_thread is not None and self._debug_thread.is_alive():

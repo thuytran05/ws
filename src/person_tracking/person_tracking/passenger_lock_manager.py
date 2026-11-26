@@ -376,6 +376,10 @@ class PassengerLockManager:
             self.reason_code = "INVALID_STAMP_NO_ACCUMULATION"
             return self._make_snapshot(stamp_sec, stamp_nanosec, current_time_sec)
 
+        if obs_payload.get("camera_ready", True) is False:
+            self.reason_code = str(obs_payload.get("camera_readiness_reason", "CAMERA_NOT_READY"))
+            return self._make_snapshot(stamp_sec, stamp_nanosec, current_time_sec)
+
         active_keys = set()
         eligible_candidates = []
 

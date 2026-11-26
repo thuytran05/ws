@@ -37,12 +37,16 @@ class AstraTopicChecker(Node):
         rgb_topic: str = '/camera/color/image_raw',
         depth_topic: str = '/camera/depth/image_raw',
         info_topic: str = '/camera/color/camera_info',
+        qos_reliability: str = 'reliable',
+        qos_depth: int = 5,
     ):
         super().__init__('astra_topic_checker')
         self.check_duration_sec = check_duration_sec
         self.min_rate = min_rate
         self.max_slop_sec = max_slop_sec
         self.max_age_sec = max_age_sec
+        self.qos_reliability = str(qos_reliability).strip().lower()
+        self.qos_depth = max(1, int(qos_depth))
 
         # Raw frame records
         self.rgb_records: List[Dict] = []
@@ -50,18 +54,23 @@ class AstraTopicChecker(Node):
         self.info_count = 0
         self.camera_intrinsics: Optional[Tuple[float, float, float, float]] = None
         self.camera_info_resolution: Optional[Tuple[int, int]] = None
+        self.camera_info_frame_id: Optional[str] = None
 
-        # Compatible QoS: BEST_EFFORT subscriber accepts both BEST_EFFORT and RELIABLE publishers
+        rel_policy = (
+            ReliabilityPolicy.RELIABLE
+            if self.qos_reliability == 'reliable'
+            else ReliabilityPolicy.BEST_EFFORT
+        )
         qos_img = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
-            depth=10,
-            reliability=ReliabilityPolicy.BEST_EFFORT,
+            depth=self.qos_depth,
+            reliability=rel_policy,
             durability=DurabilityPolicy.VOLATILE,
         )
         qos_info = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
-            depth=10,
-            reliability=ReliabilityPolicy.BEST_EFFORT,
+            depth=self.qos_depth,
+            reliability=rel_policy,
             durability=DurabilityPolicy.VOLATILE,
         )
 
@@ -129,6 +138,7 @@ class AstraTopicChecker(Node):
             'recv_wall': recv_wall,
             'encoding': msg.encoding,
             'shape': (msg.width, msg.height),
+            'frame_id': msg.header.frame_id,
             'age': age,
             'age_valid': age_valid,
             'age_reason': reason,
@@ -147,6 +157,7 @@ class AstraTopicChecker(Node):
             'recv_wall': recv_wall,
             'encoding': msg.encoding,
             'shape': (msg.width, msg.height),
+            'frame_id': msg.header.frame_id,
             'age': age,
             'age_valid': age_valid,
             'age_reason': reason,
@@ -154,6 +165,8 @@ class AstraTopicChecker(Node):
 
     def _on_info(self, msg: CameraInfo):
         self.info_count += 1
+        if self.camera_info_frame_id is None and msg.header.frame_id:
+            self.camera_info_frame_id = msg.header.frame_id
         if self.camera_intrinsics is None and len(msg.k) == 9:
             fx, fy, cx, cy = msg.k[0], msg.k[4], msg.k[2], msg.k[5]
             if fx > 0 and fy > 0 and cx > 0 and cy > 0:
@@ -317,6 +330,16 @@ def run_audit(node: AstraTopicChecker, elapsed_sec: float) -> Tuple[bool, List[s
     if exceeded_deltas:
         print(f"   - Exceeded delta sample:  min={min(exceeded_deltas)*1000:.1f} ms, max={max(exceeded_deltas)*1000:.1f} ms")
 
+    # 5. Depth Registration & Frame Alignment Check
+    rgb_frame = node.rgb_records[-1].get('frame_id', '') if rgb_count > 0 else ''
+    depth_frame = node.depth_records[-1].get('frame_id', '') if depth_count > 0 else ''
+    frame_match_ok = bool(rgb_frame and depth_frame and rgb_frame == depth_frame)
+    dim_match_ok = bool(rgb_count > 0 and depth_count > 0 and rgb_last_shape == depth_last_shape)
+    reg_ok = frame_match_ok and dim_match_ok
+    print(f"5. Depth Registration & Frame Alignment (QoS={node.qos_reliability.upper()}, depth={node.qos_depth}):")
+    print(f"   - Frame IDs: RGB='{rgb_frame}', Depth='{depth_frame}', Info='{node.camera_info_frame_id}' -> [{'PASS' if frame_match_ok else 'FAIL'}]")
+    print(f"   - Dimensions: RGB={rgb_last_shape}, Depth={depth_last_shape} -> [{'PASS' if dim_match_ok else 'FAIL'}]")
+
     # Evaluation
     if not rgb_rate_ok:
         reasons.append(f"RGB rate too low ({rgb_rate:.1f} Hz < {node.min_rate:.1f} Hz, msgs={rgb_count})")
@@ -337,6 +360,10 @@ def run_audit(node: AstraTopicChecker, elapsed_sec: float) -> Tuple[bool, List[s
 
     if not sync_ok:
         reasons.append(f"Insufficient paired frames ({valid_pairs}/{total_eval} = {pair_ratio*100:.1f}% < 85%) or slop > {node.max_slop_sec*1000:.1f}ms")
+    if not frame_match_ok:
+        reasons.append(f"Depth registration frame_id mismatch (RGB='{rgb_frame}' != Depth='{depth_frame}'); ensure depth_registration:=true")
+    if not dim_match_ok:
+        reasons.append(f"RGB/Depth dimension mismatch ({rgb_last_shape} != {depth_last_shape})")
 
     passed = (len(reasons) == 0)
 
@@ -363,6 +390,8 @@ def main():
     parser.add_argument("--rgb-topic", type=str, default="/camera/color/image_raw", help="RGB image topic")
     parser.add_argument("--depth-topic", type=str, default="/camera/depth/image_raw", help="Depth image topic")
     parser.add_argument("--info-topic", type=str, default="/camera/color/camera_info", help="CameraInfo topic")
+    parser.add_argument("--qos-reliability", type=str, default="reliable", choices=["reliable", "best_effort"], help="Subscriber QoS reliability (default: reliable)")
+    parser.add_argument("--qos-depth", type=int, default=5, help="Subscriber QoS KEEP_LAST depth (default: 5)")
     args = parser.parse_args()
 
     rclpy.init()
@@ -374,6 +403,8 @@ def main():
         rgb_topic=args.rgb_topic,
         depth_topic=args.depth_topic,
         info_topic=args.info_topic,
+        qos_reliability=args.qos_reliability,
+        qos_depth=args.qos_depth,
     )
 
     print(f"=== Checking Astra Camera topics on current ROS domain for {args.duration}s... ===")

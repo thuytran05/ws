@@ -183,3 +183,7 @@ Danh sách 26 ca kiểm thử trọng tâm phân loại rõ ràng:
   * Đo steady-state 30s trên `/dev/video0` (`ROS_DOMAIN_ID=43`, debug ON): `rgb_raw` `15.11 FPS`, `observation` `15.11 FPS` (`100.0%`), `debug_image` `15.12 FPS` (`99.8%`, `0 gaps > 250ms`, `max gap = 102.4 ms`).
   * Bổ sung unit/regression test cho async capture (`test_live_webcam_adapter_async_no_frame_reuse_and_clean_stop`) và 8 kịch bản hình học `near_edge` F.3 (`test_near_edge_geometry_cases_f3_and_fsm_safety`), giữ nguyên toàn bộ test FSM/VelocityGuard/Watchdog cũ.
   * Log bằng chứng lưu tại `.agent/person_tracking/evidence/phase_11_webcam_opt/`.
+- **Đồng bộ QoS Astra S, Latest-Frame Priority & Camera Readiness:**
+  * Benchmark Astra S thực tế ghi nhận: `RELIABLE, KEEP_LAST, VOLATILE, Depth 5` đạt RGB `29.60 FPS` (age mean `6.71 ms`), Depth `29.12 FPS` (age mean `5.60 ms`), steady-state max gap `< 80 ms` (cửa sổ đầu `> 200 ms`).
+  * Bổ sung `src/person_tracking/test/test_astra_s_qos_readiness.py` (4/4 PASS): kiểm chứng QoS `RELIABLE/KEEP_LAST/VOLATILE/depth=5`, cơ chế bỏ frame cũ `prioritize_latest_frame=True` khi YOLO chậm, warmup `readiness_min_frames=5`, và khóa an toàn `camera_ready=False` tại `PassengerLockManager` + `VelocityGuard`.
+  * Bổ sung launch `src/person_tracking/launch/astra_tracking_debug.launch.py` và kiểm chứng `check_astra_hardware_topics.py` (6/6 synthetic PASS với `RELIABLE depth=5` + kiểm tra Depth Registration `frame_id`).

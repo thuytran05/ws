@@ -280,3 +280,72 @@ ros2 topic info -v /cmd_vel
   ```bash
   ps aux | grep -E "perception_source|person_detector|tracking_manager" | grep -v grep
   ```
+
+---
+
+## 6. Kiểm Thử Camera Astra S Thực Tế Kết Hợp Person Tracking (Không Chạy Robot)
+
+> [!IMPORTANT]
+> Các lệnh dưới đây chỉ khởi chạy Astra S driver + `person_detector` + `escort_tracking_manager` (**không** chạy Nav2, Velocity Guard, Watchdog hay robot base; `/cmd_vel` luôn có 0 publisher). Sử dụng cấu hình QoS đã benchmark trên Astra S: **`RELIABLE`, `KEEP_LAST`, `VOLATILE`, `Depth 5`**.
+
+### 6.1. Terminal 1 — Khởi Chạy Astra S Driver (Bật D2C & Đồng Bộ Thời Gian)
+```bash
+cd /home/ws
+source /opt/ros/jazzy/setup.bash
+export ROS_DOMAIN_ID=43   # Dùng 43 khi test cô lập; dùng 0 khi ghép hệ thống chính
+ros2 launch astra_camera astra.launch.xml \
+  depth_registration:=true \
+  color_depth_synchronization:=true
+```
+
+### 6.2. Terminal 2 — Kiểm Tra Stream, QoS & Depth Registration Bằng Probe
+```bash
+cd /home/ws
+source /opt/ros/jazzy/setup.bash
+export ROS_DOMAIN_ID=43
+python3 /home/ws/src/person_tracking/test/check_astra_hardware_topics.py \
+  --duration 5.0 \
+  --min-rate 20.0 \
+  --qos-reliability reliable \
+  --qos-depth 5
+```
+
+### 6.3. Terminal 2 — Khởi Chạy Person Tracking + Tracking Manager Với Astra S
+```bash
+cd /home/ws
+source /opt/ros/jazzy/setup.bash
+source /home/ws/install_tracking/setup.bash
+export ROS_DOMAIN_ID=43
+ros2 launch person_tracking astra_tracking_debug.launch.py \
+  device:=cuda:0 \
+  publish_debug_image:=true \
+  image_qos_reliability:=reliable \
+  image_qos_depth:=5 \
+  info_qos_reliability:=reliable \
+  info_qos_depth:=5 \
+  prioritize_latest_frame:=true \
+  readiness_min_frames:=5 \
+  view_debug:=false
+```
+
+### 6.4. Terminal 3 — Xem Ảnh Debug & Kiểm Tra `camera_ready` / `/cmd_vel`
+```bash
+export ROS_DOMAIN_ID=43
+source /opt/ros/jazzy/setup.bash
+
+# Xem ảnh debug skeleton & depth
+ros2 run rqt_image_view rqt_image_view /tracking/debug_image
+
+# Kiểm tra camera_ready và data_quality trong /tracking/observation (Python, không cần jq)
+ros2 topic echo /tracking/observation --field data | python3 -c "
+import sys, json
+for line in sys.stdin:
+    line = line.strip()
+    if line:
+        d = json.loads(line)
+        print(f'ready={d.get(\"camera_ready\")} ({d.get(\"camera_readiness_reason\")}) | quality={d.get(\"data_quality\")} | candidates={len(d.get(\"candidates\", []))}', flush=True)
+"
+
+# Xác nhận không có publisher /cmd_vel
+ros2 topic info -v /cmd_vel
+```

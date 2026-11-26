@@ -626,6 +626,21 @@
        * `observation`: `9.75 FPS -> 15.11 FPS` (`max gap: 608.3 ms -> 94.3 ms`, `gaps>250ms: 10 -> 0`, `453/453 = 100.0%`).
        * `debug_image`: `4.10 FPS -> 15.12 FPS` (`max gap: 1709.1 ms -> 102.4 ms`, `gaps>250ms: 39 -> 0`, `452/453 = 99.8%`).
        * Bằng chứng lưu tại `.agent/person_tracking/evidence/phase_11_webcam_opt/`.
+  10. **Đồng Bộ QoS Astra S, Ưu Tiên Frame Mới Nhất & Kiểm Tra Camera Readiness (Không sửa Astra Driver):**
+     - **Kết quả Benchmark Astra S Thực Tế (ROS 2 Jazzy Docker `/home/ws`):**
+       * OpenNI2 trực tiếp: RGB & Depth ~`29.6 FPS`.
+       * `BEST_EFFORT`: mất frame thường xuyên, chỉ đạt `15–23 FPS`, gián đoạn `> 1 s`.
+       * `RELIABLE`: khắc phục triệt để tụt FPS; Queue Depth `1, 5, 10, 100` đều đạt ~`30 FPS`.
+       * Cấu hình đề xuất: **`RELIABLE`, `KEEP_LAST`, `VOLATILE`, `Depth 5`**.
+       * Bật `depth_registration:=true` + `color_depth_synchronization:=true`: RGB `29.60 FPS`, Depth ~`29.12 FPS`; age mean ổn định (RGB `6.71 ms`, Depth `5.60 ms`); max frame gap ổn định `< 80 ms` (có gián đoạn `> 200 ms` trong cửa sổ đo đầu tiên lúc khởi động).
+     - **Nâng cấp đã triển khai trong `person_tracking`:**
+       * Audit toàn bộ subscriber RGB, Depth, CameraInfo (`person_detector_node.py`, `check_astra_hardware_topics.py`): cho phép cấu hình đầy đủ `image_qos_reliability`, `image_qos_depth`, `info_qos_reliability`, `info_qos_depth` (mặc định `depth=5`, `KEEP_LAST`, `VOLATILE`; bật `reliable` trong `astra_tracking_debug.launch.py`, `webcam_debug.launch.py`, `check_astra_hardware_topics.py`).
+       * Chống tích lũy frame cũ khi YOLO chậm: bổ sung `prioritize_latest_frame` (1-slot latest-frame inference worker trong `PersonDetectorNode`, đặt `true` trong các launch live).
+       * Kiểm tra `camera_ready` & `readiness_min_frames` (đặt `5` cho Astra S để vượt qua cửa sổ khởi động `> 200 ms`): chặn khóa gesture trong `PassengerLockManager` và chặn mở cổng vận tốc trong `VelocityGuard` (`CAMERA_NOT_READY`) khi camera chưa sẵn sàng hoặc lệch frame_id/kích thước.
+       * Bổ sung kiểm tra `frame_id` & kích thước cho Depth Registration trong `check_astra_hardware_topics.py` và tạo launch chuyên dụng `src/person_tracking/launch/astra_tracking_debug.launch.py` (không chạy robot/Nav2).
+     - **Kiểm thử & Trạng thái Gate 11:**
+       * Unit test mới (`test_astra_s_qos_readiness.py`): **4/4 PASS**; Probe synthetic test (`test_astra_probe_synthetic.py`): **6/6 PASS**; Toàn bộ regression pytest: **PASS**.
+       * Gate 11 duy trì **SOFTWARE_READY / HARDWARE_PENDING** cho tới khi nghiệm thu đầy đủ D2C 3D và chuyển động robot thật.
 
 - **Bằng chứng kỹ thuật Phase 11:**
   - Cẩm nang vận hành chi tiết: [.agent/person_tracking/PHASE11_PREPARATION_GUIDE.md](file:///home/thuytran/ws/src/.agent/person_tracking/PHASE11_PREPARATION_GUIDE.md).

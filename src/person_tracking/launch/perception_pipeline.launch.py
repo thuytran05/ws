@@ -76,7 +76,17 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'image_qos_reliability',
             default_value='best_effort',
-            description="Subscriber QoS for RGB image: 'best_effort' (Astra/bag) or 'reliable' (webcam)"
+            description="Subscriber QoS for RGB/Depth: 'best_effort' or 'reliable'"
+        ),
+        DeclareLaunchArgument(
+            'image_qos_depth',
+            default_value='5',
+            description='Subscriber QoS KEEP_LAST queue depth for RGB/Depth'
+        ),
+        DeclareLaunchArgument(
+            'prioritize_latest_frame',
+            default_value='true',
+            description='Drop old queued frames when YOLO is busy'
         ),
         # 1. Perception Source Node
         Node(
@@ -121,6 +131,10 @@ def generate_launch_description():
                 'session_state_topic': '/tracking/session_state',
                 'debug_lock_state_topic': '/tracking/debug_lock_state',
                 'image_qos_reliability': LaunchConfiguration('image_qos_reliability'),
+                'image_qos_depth': LaunchConfiguration('image_qos_depth'),
+                'info_qos_reliability': LaunchConfiguration('image_qos_reliability'),
+                'info_qos_depth': LaunchConfiguration('image_qos_depth'),
+                'prioritize_latest_frame': LaunchConfiguration('prioritize_latest_frame'),
             }],
         ),
     ])

@@ -224,6 +224,13 @@ class VelocityGuard:
         if sec == 0 and nanosec == 0:
             return  # Stamp 0/0 is invalid
 
+        # 1b. Camera readiness gate: never allow motion if camera reports not ready
+        if obs_payload.get("camera_ready", True) is False:
+            self.is_gate_open = False
+            self.latest_cmd_vel = None
+            self.last_reason_code = str(obs_payload.get("camera_readiness_reason", "CAMERA_NOT_READY"))
+            return
+
         # 2. Validate source session and sequence monotonicity
         src_sess = str(obs_payload.get("source_session_id", ""))
         if not src_sess:

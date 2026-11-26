@@ -90,12 +90,13 @@ Quy trình kiểm tra camera được tách bạch thành 3 bước độc lập
    ```bash
    sudo udevadm control --reload-rules && sudo udevadm trigger
    ```
-3. **Khởi chạy Astra Camera Driver:**
+3. **Khởi chạy Astra S Camera Driver (Bật D2C & Đồng bộ màu-độ sâu):**
    ```bash
    export ROS_DOMAIN_ID=0
    source /opt/ros/jazzy/setup.bash
-   ros2 launch astra_camera astra_pro.launch.xml depth_registration:=true
+   ros2 launch astra_camera astra.launch.xml depth_registration:=true color_depth_synchronization:=true
    ```
+   *(Lưu ý: Benchmark thực tế trên Astra S cho thấy `RELIABLE, KEEP_LAST, VOLATILE, Depth 5` đạt RGB `29.60 FPS`, Depth `29.12 FPS`, age mean `6.71 / 5.60 ms`, max gap `< 80 ms` sau cửa sổ khởi động `> 200 ms`; ngược lại `BEST_EFFORT` rớt frame xuống `15–23 FPS`.)*
 4. **Kiểm tra topic, encoding và dải tần số:**
    - Topic Color: `/camera/color/image_raw` (encoding: `rgb8` hoặc `bgr8`, tần số đạt ngưỡng PASS $\ge 20.0\text{ Hz}$, dải danh định phần cứng $20.0 - 30.0\text{ Hz}$).
    - Topic Depth: `/camera/depth/image_raw` (encoding: `16UC1` đơn vị mm hoặc `32FC1`, tần số đạt ngưỡng PASS $\ge 20.0\text{ Hz}$, dải danh định phần cứng $20.0 - 30.0\text{ Hz}$).
@@ -105,7 +106,7 @@ Quy trình kiểm tra camera được tách bạch thành 3 bước độc lập
 Chạy script chẩn đoán tự động trên domain 0:
 ```bash
 export ROS_DOMAIN_ID=0
-python3 /home/ws/src/person_tracking/test/check_astra_hardware_topics.py --duration 5.0 --min-rate 20.0
+python3 /home/ws/src/person_tracking/test/check_astra_hardware_topics.py --duration 5.0 --min-rate 20.0 --qos-reliability reliable --qos-depth 5
 ```
 - **Bộ ngưỡng chẩn đoán chuẩn hóa:**
   * **Tần số tối thiểu (Minimum PASS Rate):** $\ge 20.0\text{ Hz}$ cho cả RGB và Depth (dải danh định kỳ vọng của phần cứng Astra Pro là $20.0 - 30.0\text{ Hz}$; cấu hình driver mặc định 30 FPS).

@@ -100,6 +100,11 @@ def generate_launch_description():
                 'session_state_topic': '/tracking/session_state',
                 'debug_lock_state_topic': '/tracking/debug_lock_state',
                 'image_qos_reliability': 'reliable',
+                'image_qos_depth': 5,
+                'info_qos_reliability': 'reliable',
+                'info_qos_depth': 5,
+                'prioritize_latest_frame': True,
+                'readiness_min_frames': 3,
             }],
         ),
         # 3. Tracking Manager (Single Lock Authority)
