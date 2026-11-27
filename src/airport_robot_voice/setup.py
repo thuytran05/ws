@@ -28,6 +28,7 @@ setup(
             'intent_node = airport_robot_voice.intent_node:main',
             'tts_node = airport_robot_voice.tts_node:main',
             'nav_command_node = airport_robot_voice.nav_command_node:main',
+            'fake_passenger_cli = airport_robot_voice.fake_passenger_cli:main',
         ],
     },
 )

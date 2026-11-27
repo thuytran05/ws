@@ -100,8 +100,44 @@ class IntentNode(Node):
             self.pub_say.publish(String(data='Vâng, tôi nghe đây.'))
             return
 
+        is_structured = False
+        client_req_id = None
+        source = None
+        allow_replace = False
+        if raw.startswith('{'):
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict) and 'text' in parsed:
+                    is_structured = True
+                    raw = str(parsed.get('text', '')).strip()
+                    client_req_id = parsed.get('client_request_id')
+                    source = parsed.get('source', 'ui')
+                    allow_replace = bool(parsed.get('allow_replace', False))
+            except Exception:
+                pass
+
         self._seq += 1
-        req_id = f'req_{int(time.time()*1000)}_{self._seq}'
+        req_id = str(client_req_id) if client_req_id else f'req_{int(time.time()*1000)}_{self._seq}'
+
+        if not raw:
+            if is_structured and client_req_id:
+                self.pub_intent.publish(String(data=json.dumps({
+                    'schema_version': '1.0',
+                    'request_id': req_id,
+                    'client_request_id': client_req_id,
+                    'source': source or 'ui',
+                    'timestamp': time.time(),
+                    'raw': '',
+                    'intent': 'empty',
+                    'action': 'nlu_rejected',
+                    'reason': 'EMPTY_TEXT',
+                    'score': 0.0,
+                    'target_id': None,
+                    'category': None,
+                    'selection_policy': None,
+                    'slots': {},
+                }, ensure_ascii=False)))
+            return
 
         r = self.engine.process(raw)
         if not r:
@@ -111,6 +147,7 @@ class IntentNode(Node):
             f'[{req_id}] "{raw}" -> intent={r["intent"]} (score={r["score"]:.1f}) '
             f'action={r["action"]} target={r["target"]} cat={r["category"]}')
 
+        action = r['action']
         # Đóng gói JSON payload theo schema quy chuẩn
         intent_payload = {
             'schema_version': '1.0',
@@ -118,13 +155,20 @@ class IntentNode(Node):
             'timestamp': time.time(),
             'raw': raw,
             'intent': r['intent'],
-            'action': r['action'],
+            'action': action,
             'score': round(r['score'], 1),
             'target_id': r['target'],
             'category': r['category'],
             'selection_policy': r['selection_policy'],
             'slots': r['slots']
         }
+        if is_structured:
+            intent_payload['client_request_id'] = client_req_id
+            intent_payload['source'] = source
+            intent_payload['allow_replace'] = allow_replace
+            if action in ('none', 'unknown', None):
+                intent_payload['action'] = 'nlu_rejected'
+                intent_payload['reason'] = 'NEGATED_COMMAND' if r['intent'] == 'negated' else 'UNKNOWN_INTENT'
 
         # Luôn publish /voice/intent cho các thành phần điều hướng / giám sát
         self.pub_intent.publish(String(data=json.dumps(intent_payload, ensure_ascii=False)))
