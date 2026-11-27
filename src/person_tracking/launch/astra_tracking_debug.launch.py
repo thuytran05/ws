@@ -25,7 +25,7 @@ def generate_launch_description():
         DeclareLaunchArgument('model_path', default_value=default_model, description='Path to YOLO Pose checkpoint'),
         DeclareLaunchArgument('device', default_value='cuda:0', description="Compute device: 'cuda:0' or 'cpu'"),
         DeclareLaunchArgument('publish_debug_image', default_value='true', description='Publish /tracking/debug_image'),
-        DeclareLaunchArgument('view_debug', default_value='false', description='Launch rqt_image_view if true'),
+        DeclareLaunchArgument('view_debug', default_value='false', description='Launch RViz2 if true'),
         DeclareLaunchArgument('image_qos_reliability', default_value='reliable', description="RGB/Depth QoS reliability: 'reliable' or 'best_effort'"),
         DeclareLaunchArgument('image_qos_depth', default_value='5', description='RGB/Depth QoS KEEP_LAST queue depth'),
         DeclareLaunchArgument('info_qos_reliability', default_value='reliable', description="CameraInfo QoS reliability: 'reliable' or 'best_effort'"),
@@ -78,12 +78,15 @@ def generate_launch_description():
                 'safety_request_topic': '/tracking/safety_request',
             }],
         ),
-        # 3. Optional Debug Image Viewer
+        # 3. Optional RViz2 Debug Image Viewer
         Node(
-            package='rqt_image_view',
-            executable='rqt_image_view',
-            name='debug_image_viewer',
-            arguments=['/tracking/debug_image'],
+            package='rviz2',
+            executable='rviz2',
+            name='tracking_rviz',
+            arguments=[
+                '-d',
+                '/home/ws/src/person_tracking/rviz/astra_tracking.rviz'
+            ],
             condition=IfCondition(LaunchConfiguration('view_debug')),
             output='screen',
         ),
